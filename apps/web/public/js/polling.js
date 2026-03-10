@@ -37,14 +37,24 @@ async function fetchFreshOrders() {
 function orderChanged(oldOrder, newOrder) {
   if (!oldOrder || !newOrder) return true;
   
-  // Fields that matter for UI updates
+  // Fields that matter for UI updates (V2 API structure)
   const keys = [
-    'orderStatus', 'orderNumber', 'shipToName', 'shipToPostalCode',
-    'trackingNumber', 'labelCost', 'labelProvider', 'carrierCode', 
-    'serviceCode', 'orderTotal', 'weightValue'
+    'orderStatus', 'orderNumber', 'orderTotal', 'shippingAmount',
+    'carrierCode', 'serviceCode',
+    'label.trackingNumber', 'label.carrierCode', 'label.cost',
+    'externalShipped', 'selectedRate'
   ];
   
-  return keys.some(k => oldOrder[k] !== newOrder[k]);
+  // Simple field comparison
+  const simpleFields = ['orderStatus', 'orderNumber', 'orderTotal', 'shippingAmount', 'carrierCode', 'serviceCode', 'externalShipped'];
+  if (simpleFields.some(k => oldOrder[k] !== newOrder[k])) return true;
+  
+  // Nested field comparison (label, selectedRate)
+  if ((oldOrder.label?.trackingNumber || null) !== (newOrder.label?.trackingNumber || null)) return true;
+  if ((oldOrder.label?.carrierCode || null) !== (newOrder.label?.carrierCode || null)) return true;
+  if ((oldOrder.selectedRate?.cost || null) !== (newOrder.selectedRate?.cost || null)) return true;
+  
+  return false;
 }
 
 // Update orders state and re-render rows that changed
@@ -72,9 +82,9 @@ function applyPollingUpdates(freshData) {
   if (!hasChanges) return; // No changes detected
   
   // Update state
-  state.orders = freshData.orders;
-  if (freshData.totalCount !== undefined) state.totalCount = freshData.totalCount;
-  if (freshData.counts !== undefined) state.counts = freshData.counts;
+  state.allOrders = freshData.orders;
+  state.totalOrders = freshData.total || 0;
+  state.totalPages = freshData.pages || 1;
 
   // Re-apply current filters/sorts to maintain sort order
   window.filterOrders?.();
