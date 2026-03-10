@@ -241,6 +241,11 @@ export function renderOrders(skipRates = false) {
   if (table) table.style.display = 'table';
   if (empty) empty.style.display = 'none';
 
+  // Debug: Check if clientMap is populated at render time
+  if (!Object.keys(state.clientMap || {}).length) {
+    console.warn('⚠️ WARNING: clientMap is empty during renderOrders!', state.clientMap);
+  }
+
   const visColCount = COLS.filter(c => !state.hiddenCols.has(c.key)).length;
   let prevSkuGroup = null;
 
@@ -294,6 +299,9 @@ export function renderOrders(skipRates = false) {
     const skuCode    = item.sku || '';
     const skuHtml    = skuCode ? `<span class="sku-link">${escHtml(skuCode)}</span>` : '—';
     const clientName = state.clientMap?.[o.clientId] || o.clientName || 'Untagged';
+    if (!state.clientMap?.[o.clientId] && o.orderId === 268540369) {
+      console.log('🔍 Order', o.orderId, 'clientId:', o.clientId, 'state.clientMap:', state.clientMap, 'result:', clientName);
+    }
     const clientCol  = clientBadge(clientName);
     const totalQty   = items.reduce((s, i) => s + i.quantity, 0);
     const weightHtml = o.weight?.value > 0

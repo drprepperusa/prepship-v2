@@ -241,6 +241,9 @@ document.addEventListener('click', e => {
       state.clientMap = {};
       initData.clients.forEach(c => state.clientMap[c.clientId] = c.name);
       localStorage.setItem('prepship_client_map', JSON.stringify(state.clientMap));
+      console.log('✅ clientMap populated:', state.clientMap);
+    } else {
+      console.warn('⚠️ initData.clients missing or not array:', initData.clients);
     }
 
     // Apply counts
@@ -281,6 +284,17 @@ document.addEventListener('click', e => {
   } catch (e) {
     console.warn('[Init] init-data failed, falling back:', e.message);
     await Promise.all([loadRbMarkups(), loadStores(), loadCounts()]);
+    // Fallback to fetch clients explicitly if init-data failed
+    try {
+      const clientsRes = await fetch('/api/clients').then(r => r.json());
+      if (Array.isArray(clientsRes)) {
+        state.clientMap = {};
+        clientsRes.forEach(c => state.clientMap[c.clientId] = c.name);
+        console.log('✅ clientMap populated (fallback):', state.clientMap);
+      }
+    } catch (clientErr) {
+      console.warn('⚠️ fallback clients fetch failed:', clientErr);
+    }
     loadCarrierAccounts();
   }
 
