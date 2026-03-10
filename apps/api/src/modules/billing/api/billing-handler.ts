@@ -3,6 +3,7 @@ import {
   parseBillingPackagePricesQuery,
   parseBillingSummaryQuery,
 } from "../../../../../../packages/contracts/src/billing/contracts.ts";
+import { InputValidationError, parseOptionalIntegerParam } from "../../../../../../packages/contracts/src/common/input-validation.ts";
 import type { BillingServices } from "../application/billing-services.ts";
 
 export class BillingHttpHandler {
@@ -45,7 +46,10 @@ export class BillingHttpHandler {
   }
 
   handleInvoice(url: URL) {
-    const clientId = Number.parseInt(url.searchParams.get("clientId") ?? "0", 10);
+    const clientId = parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId");
+    if (clientId == null) {
+      throw new InputValidationError("clientId required");
+    }
     return this.services.getInvoice(clientId, url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "");
   }
 

@@ -3,6 +3,27 @@ import { escHtml, trunc, fmtWeight, showToast } from './utils.js';
 import { CARRIER_SERVICES, SERVICE_NAMES, CARRIER_NAMES, carrierLogo, formatCarrierDisplay } from './constants.js';
 import { applyCarrierMarkup, pickBestRate, priceDisplay, isResidential, applyRbMarkup, isOrionRate, formatOrionRateDisplay } from './markups.js';
 import { updateServiceDropdown, getShipAcct } from './stores.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseAutoCreatePackageResponse,
+  parseCachedRatesResponse,
+  parseCarrierLookupResponse,
+  parseLiveRatesResponse,
+  parseOrderStatusMutationResponse,
+  parsePackageDto,
+  parseProductDefaults,
+  parseSaveProductDefaultsResult,
+} from './api-contracts.js';
+import {
+  getOrderBillingProviderId,
+  getOrderCustomerUsername,
+  getOrderDimensions,
+  getOrderRequestedService,
+  getOrderShipTo,
+  getOrderStoreId,
+  getOrderWarehouseId,
+  isExternallyFulfilledOrder,
+} from './order-data.js';
 
 // ─── Panel state ─────────────────────────────────────────────────────────────
 const productDefaultsCache = {}; // sku → product object (or null if not found)
@@ -41,14 +62,13 @@ export async function openPanel(id) {
   }
 
   state.currentPanelOrder = o;
-  _panelStoreId = o?.advancedOptions?.storeId || null;
+  _panelStoreId = getOrderStoreId(o);
   
   // Fetch per-store carriers if this order belongs to a multi-tenant client (e.g., KF Goods)
   if (_panelStoreId) {
     try {
-      const resp = await fetch(`/api/carriers-for-store?storeId=${_panelStoreId}`);
-      const storeCarriers = await resp.json();
-      state.panelStoreCarriers = Array.isArray(storeCarriers) ? storeCarriers : null;
+      const { carriers: storeCarriers } = await fetchValidatedJson(`/api/carriers-for-store?storeId=${_panelStoreId}`, undefined, parseCarrierLookupResponse);
+      state.panelStoreCarriers = storeCarriers;
     } catch (e) {
       console.warn('[panel] Error fetching store carriers:', e.message);
       state.panelStoreCarriers = null;
@@ -118,10 +138,6 @@ export async function openPanel(id) {
     }
     
     // If product doesn't have a default package, check if this ORDER has a saved package selection
-    if (!savedPkgId && o._selectedPackageId) {
-      savedPkgId = String(o._selectedPackageId);
-    }
-    
     const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? 'inline' : 'none'; };
     show('p-wt-badge',      hasSavedWt);
     show('p-dims-badge',    hasSavedDims);
@@ -168,20 +184,22 @@ export function closePanel() {
 
 // ─── Panel HTML ────────────────────────────────────────────────────────────────
 export function buildPanelHTML(o) {
-  const { filteredOrders, locationsList, packagesList, orderBestRate } = state;
+  const { filteredOrders, locationsList, packagesList } = state;
   const displayCarriers = getPanelDisplayCarriers();
   const isShipped = o.orderStatus !== 'awaiting_shipment';
   const items     = o.items.filter(i => !i.adjustment);
-  // Use saved weight/dims from order_local if available, otherwise fall back to ShipStation raw
-  const wt        = o._rateWeightOz || o.weight?.value || 0;
+  const dimensions = getOrderDimensions(o);
+  const shipTo = getOrderShipTo(o);
+  const requestedService = getOrderRequestedService(o);
+  const wt        = o.weight?.value || 0;
   const wtLb      = Math.floor(wt / 16);
   const wtOz      = (wt % 16).toFixed(0);
-  const len       = o._rateDimsL || o.dimensions?.length || 0;
-  const wid       = o._rateDimsW || o.dimensions?.width  || 0;
-  const hgt       = o._rateDimsH || o.dimensions?.height || 0;
-  const zip       = o.shipTo?.postalCode || '';
-  const addr      = o.shipTo
-    ? [o.shipTo.street1, o.shipTo.street2, `${o.shipTo.city||''}, ${o.shipTo.state||''} ${zip}`, o.shipTo.country||'US']
+  const len       = dimensions.length || 0;
+  const wid       = dimensions.width  || 0;
+  const hgt       = dimensions.height || 0;
+  const zip       = shipTo.postalCode || '';
+  const addr      = shipTo && Object.keys(shipTo).length
+    ? [shipTo.street1, shipTo.street2, `${shipTo.city||''}, ${shipTo.state||''} ${zip}`, shipTo.country||'US']
         .filter(Boolean).join('\n')
     : '—';
 
@@ -219,7 +237,7 @@ export function buildPanelHTML(o) {
 
       
       <div class="ship-req">
-        Requested: <span class="ship-req-link">${(o.requestedShippingService||o.serviceCode||'Standard').replace(/_/g,' ')}</span>
+        Requested: <span class="ship-req-link">${(requestedService || 'Standard').replace(/_/g,' ')}</span>
         ${!o.carrierCode?'<span style="margin-left:4px">(unmapped)</span>':''}
       </div>
 
@@ -231,7 +249,7 @@ export function buildPanelHTML(o) {
           <div class="ship-field-value">
             <select class="ship-select" id="p-location" style="flex:1">
               ${(()=>{
-                const whId = o.advancedOptions?.warehouseId;
+                const whId = getOrderWarehouseId(o);
                 return locationsList.map(l=>`<option value="${l.locationId}"${(whId ? l.locationId===whId : l.isDefault)?' selected':''}>${escHtml(l.name)}</option>`).join('') || '<option value="">Loading…</option>';
               })()}
             </select>
@@ -245,7 +263,7 @@ export function buildPanelHTML(o) {
           <div class="ship-field-value">
             <select class="ship-select" id="p-shipacct" onchange="onShipAcctChange()" style="flex:1">
               <option value="">— Select Account —</option>
-              ${displayCarriers.map(c=>`<option value="${c.shippingProviderId}"${c.shippingProviderId===(o.advancedOptions?.billToMyOtherAccount)?'selected':''}>${escHtml(c._label||c.nickname||c.accountNumber||c.name)}</option>`).join('')}
+              ${displayCarriers.map(c=>`<option value="${c.shippingProviderId}"${c.shippingProviderId===getOrderBillingProviderId(o)?'selected':''}>${escHtml(c._label||c.nickname||c.accountNumber||c.name)}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -256,7 +274,7 @@ export function buildPanelHTML(o) {
           <div class="ship-field-value">
             <select class="ship-select" id="p-service" style="flex:1" onchange="debouncePanelRate()">
               ${(()=>{
-                const pid  = o.advancedOptions?.billToMyOtherAccount;
+                const pid  = getOrderBillingProviderId(o);
                 const acct = displayCarriers.find(c=>c.shippingProviderId===pid);
                 const svcs = (acct && CARRIER_SERVICES[acct.code])
                   || [...(CARRIER_SERVICES.stamps_com||[]),...(CARRIER_SERVICES.ups||[])];
@@ -362,7 +380,7 @@ export function buildPanelHTML(o) {
         <div class="ship-rate-row">
           <span style="font-size:11.5px;color:var(--text2);font-weight:500;width:90px;flex-shrink:0">Rate</span>
           ${isShipped ? (() => {
-            const hasLabel = o._labelCost != null;
+            const hasLabel = o.label?.cost != null;
             let cost = 0;
             let cc = '';
             let sc = '';
@@ -370,11 +388,11 @@ export function buildPanelHTML(o) {
             
             // Priority 1: Use label cost if label exists
             if (hasLabel) {
-              cost = parseFloat(o._labelCost) || 0;
-              const ccRaw = o._labelCarrier || o.carrierCode || '';
-              shippingProviderId = o._labelProvider;
+              cost = parseFloat(o.label?.cost) || 0;
+              const ccRaw = o.label?.carrierCode || o.carrierCode || '';
+              shippingProviderId = o.label?.shippingProviderId;
               
-              // Get carrier account nickname from _labelProvider
+              // Get carrier account nickname from the persisted label provider id
               if (shippingProviderId && state.carriersList) {
                 const acct = state.carriersList.find(c => c.shippingProviderId === shippingProviderId);
                 if (acct) cc = acct._label || acct.nickname || acct.accountNumber || acct.name || '';
@@ -383,14 +401,14 @@ export function buildPanelHTML(o) {
               if (!cc) {
                 cc = CARRIER_NAMES[ccRaw] || ccRaw.replace('stamps_com','USPS').replace('ups_walleted','UPS').replace('fedex_walleted','FedEx').replace('ups','UPS').replace('fedex','FedEx').toUpperCase();
               }
-              sc = SERVICE_NAMES[o._labelService || o.serviceCode] || (o._labelService || o.serviceCode || '').replace(/_/g,' ');
+              sc = SERVICE_NAMES[o.label?.serviceCode || o.serviceCode] || (o.label?.serviceCode || o.serviceCode || '').replace(/_/g,' ');
             } 
-            // Priority 2: Use selected_rate_json (actual rate used at label creation)
-            else if (o._selectedRateJson) {
-              cost = parseFloat(o._selectedRateJson.cost || 0);
-              cc = o._selectedRateJson.providerAccountNickname || CARRIER_NAMES[o._selectedRateJson.carrierCode] || o._selectedRateJson.carrierCode || '';
-              sc = o._selectedRateJson.serviceName || o._selectedRateJson.serviceCode || '';
-              shippingProviderId = o._selectedRateJson.providerAccountId;
+            // Priority 2: Use the persisted selected rate (actual rate used at label creation)
+            else if (o.selectedRate) {
+              cost = parseFloat(o.selectedRate.cost || 0);
+              cc = o.selectedRate.providerAccountNickname || CARRIER_NAMES[o.selectedRate.carrierCode] || o.selectedRate.carrierCode || '';
+              sc = o.selectedRate.serviceName || o.selectedRate.serviceCode || '';
+              shippingProviderId = o.selectedRate.shippingProviderId;
             }
             // Priority 3: Fallback to order shipping amount
             else {
@@ -400,9 +418,9 @@ export function buildPanelHTML(o) {
             }
             
             // If still no rate data at all, check if it's actually externally fulfilled
-            if (!hasLabel && !o._selectedRateJson && !cost) {
+            if (!hasLabel && !o.selectedRate && !cost) {
               // Only show "Ext. Label" if ShipStation marks it as externally fulfilled (Amazon FBA, eBay external, etc.)
-              if (o.externallyFulfilled) {
+              if (isExternallyFulfilledOrder(o)) {
                 return '<span style="font-size:11px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">📦 Ext. label — purchased externally</span>';
               }
               // If NOT externally fulfilled but still no rate data, something's wrong (shouldn't happen)
@@ -414,8 +432,8 @@ export function buildPanelHTML(o) {
             
             // For ORION rates with markup, use priceDisplay() to show marked price on top, cost below
             let costStr = '';
-            if (isOrion && hasLabel && o._labelRawCost) {
-              const rawCost = parseFloat(o._labelRawCost);
+            if (isOrion && hasLabel && o.label?.rawCost) {
+              const rawCost = parseFloat(o.label.rawCost);
               costStr = priceDisplay(rawCost, cost, { mainSize: '13px', subSize: '10px' });
             } else {
               costStr = cost > 0
@@ -457,15 +475,15 @@ export function buildPanelHTML(o) {
         style="font-size:10.5px;color:var(--text3);padding:4px 7px">Test</button>
     </div>
     `}
-    ${isShipped && o._labelTracking ? `
+    ${isShipped && o.label?.trackingNumber ? `
     <div class="delivery-row" style="display:flex;align-items:center;gap:6px">
       <span>📦 Tracking:</span>
-      <span style="font-family:monospace;font-size:11px;color:var(--text);font-weight:600;cursor:pointer" onclick="navigator.clipboard.writeText('${o._labelTracking}');showToast('📋 Tracking copied')" title="Click to copy">${o._labelTracking}</span>
+      <span style="font-family:monospace;font-size:11px;color:var(--text);font-weight:600;cursor:pointer" onclick="navigator.clipboard.writeText('${o.label.trackingNumber}');showToast('📋 Tracking copied')" title="Click to copy">${o.label.trackingNumber}</span>
       <button class="btn btn-sm btn-ghost" onclick="reprintLabel(${o.orderId})" title="Download label PDF for printing" style="margin-left:auto;font-size:10.5px">🖨️ Reprint</button>
     </div>
     ` : ''}
-    ${isShipped && o._labelShipDate ? `
-    <div class="delivery-row">Shipped: ${new Date(o._labelShipDate).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'})}</div>
+    ${isShipped && o.label?.shipDate ? `
+    <div class="delivery-row">Shipped: ${new Date(o.label.shipDate).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'})}</div>
     ` : `<div class="delivery-row" id="panel-delivery-row">Delivery: —</div>`}
 
     
@@ -507,12 +525,12 @@ export function buildPanelHTML(o) {
           <span class="recip-edit" onclick="copyAddr(\`${addr.replace(/`/g,"'")}\`)" title="Copy address">📋</span>
           <span class="recip-edit" onclick="showToast('Edit recipient — Phase 3')">Edit</span>
         </div>
-        <div class="recip-name">${o.shipTo?.name||'—'}</div>
-        <div class="recip-addr">${addr}</div>
-        ${o.shipTo?.phone?`<div style="font-size:12px;color:var(--text2);margin-top:3px">${o.shipTo.phone}</div>`:''}
+      <div class="recip-name">${shipTo.name||'—'}</div>
+      <div class="recip-addr">${addr}</div>
+        ${shipTo.phone?`<div style="font-size:12px;color:var(--text2);margin-top:3px">${shipTo.phone}</div>`:''}
         <div id="panel-addr-type" style="font-size:11px;color:var(--text3);margin-top:5px;margin-bottom:2px">
           ${isResidential(o) ? '🏠 Residential' : '🏢 Commercial'}
-          ${o._residential != null ? ' (manual)' : ' (auto)'}
+          ${o.residential != null ? ' (manual)' : ' (auto)'}
           — <a href="#" onclick="toggleResidential(${o.orderId});return false" style="color:var(--ss-blue)">change</a>
         </div>
         <div class="recip-validated">
@@ -525,7 +543,7 @@ export function buildPanelHTML(o) {
         </div>
         <div class="recip-sold" style="margin-top:7px;padding-top:7px;border-top:1px solid var(--border)">
           <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);margin-bottom:4px">Sold To</div>
-          <div class="recip-sold-name">${o.customerUsername||o.shipTo?.name||'—'}</div>
+          <div class="recip-sold-name">${getOrderCustomerUsername(o)||shipTo.name||'—'}</div>
           ${o.customerEmail?`<div style="font-size:11.5px;color:var(--text2)">${o.customerEmail}</div>`:''}
         </div>
       </div>
@@ -596,8 +614,7 @@ export async function fetchPanelRate(o) {
   // Check SQLite rate cache before making a live ShipStation call
   let rates;
   try {
-    const cacheRes = await fetch(`/api/rates/cached?wt=${Math.round(totalOz)}&zip=${zip}&l=${len}&w=${wid}&h=${hgt}&residential=${isResidential(o)?1:0}`);
-    const cacheData = await cacheRes.json();
+    const cacheData = await fetchValidatedJson(`/api/rates/cached?wt=${Math.round(totalOz)}&zip=${zip}&l=${len}&w=${wid}&h=${hgt}&residential=${isResidential(o)?1:0}`, undefined, parseCachedRatesResponse);
     if (cacheData?.cached && Array.isArray(cacheData.rates) && cacheData.rates.length) {
       rates = cacheData.rates;
     }
@@ -605,8 +622,8 @@ export async function fetchPanelRate(o) {
 
   try {
     if (!rates) {
-      const storeId = o.advancedOptions?.storeId || null;
-      const r = await fetch('/api/rates', {
+      const storeId = getOrderStoreId(o);
+      rates = await fetchValidatedJson('/api/rates', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           fromPostalCode:'90248', toPostalCode:zip, toCountry:'US',
@@ -616,12 +633,11 @@ export async function fetchPanelRate(o) {
           orderId: state.currentPanelOrder?.orderId || undefined,
           storeId: storeId,
         }),
-      });
-      rates = await r.json();
+      }, parseLiveRatesResponse);
     }
     if (Array.isArray(rates) && rates.length) {
       const selectedSvc = document.getElementById('p-service')?.value || '';
-      const _panelStoreId = state.currentPanelOrder?.advancedOptions?.storeId || null;
+      const _panelStoreId = getOrderStoreId(state.currentPanelOrder);
       const nonBlocked  = rates.filter(r => { const { isBlockedRate } = window; return typeof isBlockedRate === 'function' ? !isBlockedRate(r, _panelStoreId) : true; });
 
       let best;
@@ -727,18 +743,15 @@ async function _autoMatchAndSave() {  // async because we await applyPackagePres
   // 2. If not found, auto-create custom package with exact dimensions
   if (!pkg) {
     try {
-      const createResp = await fetch('/api/packages/auto-create', {
+      const createResult = await fetchValidatedJson('/api/packages/auto-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ length: len, width: wid, height: hgt }),
-      });
-      if (createResp.ok) {
-        const { package: newPkg } = await createResp.json();
-        if (newPkg) {
-          pkg = newPkg;
-          // Add to state for future matches
-          state.packagesList.push(newPkg);
-        }
+      }, parseAutoCreatePackageResponse);
+      if (createResult.ok && createResult.package) {
+        pkg = createResult.package;
+        // Add to state for future matches
+        state.packagesList.push(createResult.package);
       }
     } catch (e) {
       console.warn('[Panel] Auto-create package failed:', e.message);
@@ -772,11 +785,10 @@ async function _autoMatchAndSave() {  // async because we await applyPackagePres
   else                payload.sku       = sku;
 
   try {
-    const r = await fetch('/api/products/save-defaults', {
+    await fetchValidatedJson('/api/products/save-defaults', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
-    if (!r.ok) return;
+    }, parseSaveProductDefaultsResult);
 
     // Update local cache
     productDefaultsCache[sku] = { weightOz: perUnitOz, length: len, width: wid, height: hgt, packageCode };
@@ -795,15 +807,10 @@ async function _autoMatchAndSave() {  // async because we await applyPackagePres
 // ─── Determine Dimension Source ────────────────────────────────────────────────
 // Returns: 'inventory', 'shipstation', 'package', or null
 function getDimensionSource(order) {
-  // Check if dims came from order_local (inventory table)
-  if (order._rateDimsL && order._rateDimsW && order._rateDimsH) {
-    return 'inventory';
-  }
-  // Check if dims came from ShipStation raw data
-  if (order.dimensions?.length > 0 && order.dimensions?.width > 0 && order.dimensions?.height > 0) {
+  const dims = getOrderDimensions(order);
+  if (dims.length > 0 && dims.width > 0 && dims.height > 0) {
     return 'shipstation';
   }
-  // Check if dims came from selected package (no numeric dims yet, would come from package selection)
   return null;
 }
 
@@ -825,12 +832,7 @@ export async function applyPackagePreset(packageId) {
   // If not in state, fetch from backend and add to state
   if (!pkg) {
     try {
-      const res = await fetch(`/api/packages/${packageId}`);
-      if (!res.ok) {
-        console.warn(`[Panel] Could not fetch package ${packageId}: ${res.status} ${res.statusText}`);
-        return;
-      }
-      pkg = await res.json();
+      pkg = await fetchValidatedJson(`/api/packages/${packageId}`, undefined, parsePackageDto);
       state.packagesList.push(pkg);
     } catch (err) {
       console.warn(`[Panel] Error fetching package ${packageId}:`, err.message);
@@ -964,12 +966,10 @@ export async function saveSkuDefaults() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
 
   try {
-    const r    = await fetch('/api/products/save-defaults', {
+    const data = await fetchValidatedJson('/api/products/save-defaults', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
-    const data = await r.json();
-    if (!r.ok) { showToast(`❌ ${data.error}`); if(btn){btn.disabled=false;btn.textContent='💾 Save weights and dims as SKU defaults';} return; }
+    }, parseSaveProductDefaultsResult);
 
     showToast(`✅ Saved dims & weight for ${item.sku || 'product'}`);
 
@@ -1050,7 +1050,8 @@ export async function saveSkuDefaults() {
 
 // ─── Auto-fill panel weight/dims from products DB ────────────────────────────
 export async function maybeApplySkuDefaults(order) {
-  const hasDims   = order.dimensions?.length > 0 && order.dimensions?.width > 0 && order.dimensions?.height > 0;
+  const orderDims = getOrderDimensions(order);
+  const hasDims   = orderDims.length > 0 && orderDims.width > 0 && orderDims.height > 0;
   const hasWeight = order.weight?.value > 0;
 
   const skus = [...new Set((order.items||[]).filter(i=>!i.adjustment&&i.sku).map(i=>i.sku))];
@@ -1062,8 +1063,7 @@ export async function maybeApplySkuDefaults(order) {
     if (sku in productDefaultsCache) {
       product = productDefaultsCache[sku];
     } else {
-      const r = await fetch(`/api/products/by-sku/${encodeURIComponent(sku)}`);
-      product = r.ok ? await r.json() : null;
+      product = await fetchValidatedJson(`/api/products/by-sku/${encodeURIComponent(sku)}`, undefined, parseProductDefaults);
       productDefaultsCache[sku] = product;
     }
     if (!product) return;
@@ -1109,9 +1109,6 @@ export async function maybeApplySkuDefaults(order) {
 
 // ─── Auto-Match Package by Dimensions ──────────────────────────────────────────
 export async function maybeAutoMatchPackage(order) {
-  // Skip if order already has a selected package (don't overwrite user choice)
-  if (order._selectedPackageId) return;
-  
   // Read current dimension field values
   const lenEl = document.getElementById('p-len');
   const widEl = document.getElementById('p-wid');
@@ -1170,7 +1167,8 @@ export function checkSkuSaveDirty() {
   const origOz = o.weight?.value || 0;
   const dimsChanged = ['p-len','p-wid','p-hgt'].some((id, i) => {
     const keys = ['length','width','height'];
-    return parseFloat(document.getElementById(id)?.value||0) !== (o.dimensions?.[keys[i]]||0);
+    const dims = getOrderDimensions(o);
+    return parseFloat(document.getElementById(id)?.value||0) !== (dims[keys[i]]||0);
   });
   btn.classList.toggle('sku-save-dirty', Math.abs(currentOz - origOz) > 0.5 || dimsChanged);
 }
@@ -1254,19 +1252,11 @@ export async function markShippedExternal(orderId, source) {
   try {
     console.log(`[Panel] Marking order ${orderId} as shipped via ${source}`);
     
-    const res = await fetch(`/api/orders/${orderId}/shipped-external`, {
+    const data = await fetchValidatedJson(`/api/orders/${orderId}/shipped-external`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ flag: 1, source })
-    });
-    
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`[Panel] Error response from API:`, res.status, errorText);
-      throw new Error(`API error (${res.status}): ${errorText}`);
-    }
-    
-    const data = await res.json();
+    }, parseOrderStatusMutationResponse);
     console.log(`[Panel] Order marked as shipped successfully:`, data);
     
     // Remove row from table with animation
@@ -1311,7 +1301,7 @@ export function showPrintMenu(event, orderId) {
   if (!o) o = (state.allOrders || []).find(ord => ord.orderId === orderId);
   console.log('[showPrintMenu] found in allOrders:', !!o);
   
-  console.log('[showPrintMenu] final order found:', !!o, 'status:', o?.orderStatus, 'tracking:', o?._labelTracking);
+  console.log('[showPrintMenu] final order found:', !!o, 'status:', o?.orderStatus, 'tracking:', o?.label?.trackingNumber);
   if (!o) {
     console.log('[showPrintMenu] Order not found! Cannot create menu.');
     console.log('[showPrintMenu] allOrders sample:', state.allOrders?.slice(0, 2));
@@ -1349,7 +1339,7 @@ export function showPrintMenu(event, orderId) {
     addItem('📄 Create Test Label', () => {
       if (window.createLabel) window.createLabel(true);
     });
-  } else if (o._labelTracking) {
+  } else if (o.label?.trackingNumber) {
     addItem('🖨️ Reprint Label', () => {
       if (window.reprintLabel) window.reprintLabel(orderId);
     });

@@ -1,5 +1,18 @@
 import { state } from './state.js';
 import { escHtml, showToast, fmtDate } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseBackfillBillingReferenceRatesResult,
+  parseBillingConfigList,
+  parseBillingDetailList,
+  parseBillingPackagePriceList,
+  parseBillingReferenceRateFetchStatus,
+  parseBillingSummaryList,
+  parseFetchBillingReferenceRatesResult,
+  parseGenerateBillingResult,
+  parseOkResult,
+  parsePackageDtoList,
+} from './api-contracts.js';
 
 export function setBillingPreset(btn, preset) {
   document.querySelectorAll('#view-billing .analysis-preset').forEach(b => b.classList.remove('active'));
@@ -37,7 +50,7 @@ export async function initBillingView() {
 
 export async function loadBillingConfigs() {
   try {
-    const data  = await fetch('/api/billing/config').then(r => r.json());
+    const data  = await fetchValidatedJson('/api/billing/config', undefined, parseBillingConfigList);
     const tbody = document.getElementById('billing-config-tbody');
     if (!data.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text3)">No clients found.</td></tr>';
@@ -92,10 +105,9 @@ export async function saveBillingConfig(clientId) {
     storageFeePerCuFt:  get(`bc-storage-${clientId}`),
   };
   try {
-    const r = await fetch(`/api/billing/config/${clientId}`, {
+    const data = await fetchValidatedJson(`/api/billing/config/${clientId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
-    const data = await r.json();
+    }, parseOkResult);
     if (data.ok) showToast('✅ Config saved');
     else showToast('Error: ' + (data.error || 'unknown'));
   } catch { showToast('Failed to save config'); }
@@ -111,11 +123,10 @@ export async function generateBilling() {
   btn.textContent = '⏳ Generating…';
   status.textContent = '';
   try {
-    const r = await fetch('/api/billing/generate', {
+    const data = await fetchValidatedJson('/api/billing/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to }),
-    });
-    const data = await r.json();
+    }, parseGenerateBillingResult);
     if (data.ok) {
       status.textContent = `Generated ${data.generated} line items · $${data.total.toFixed(2)} total`;
       showToast(`✅ Generated ${data.generated} billing line items`);
@@ -132,7 +143,7 @@ export async function loadBillingSummary() {
   const tbody = document.getElementById('billing-summary-tbody');
   tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text3)">Loading…</td></tr>';
   try {
-    const data = await fetch(`/api/billing/summary?from=${from}&to=${to}`).then(r => r.json());
+    const data = await fetchValidatedJson(`/api/billing/summary?from=${from}&to=${to}`, undefined, parseBillingSummaryList);
     if (!data.length) {
       tbody.innerHTML = '<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--text3)">No billing data. Generate invoices first.</td></tr>';
       return;
@@ -341,7 +352,7 @@ export async function loadBillingDetails(clientId, clientName) {
   renderDetailColToggles(vis);
 
   try {
-    _detailOrders = await fetch(`/api/billing/details?from=${from}&to=${to}&clientId=${clientId}`).then(r => r.json());
+    _detailOrders = await fetchValidatedJson(`/api/billing/details?from=${from}&to=${to}&clientId=${clientId}`, undefined, parseBillingDetailList);
     renderDetailTable(_detailOrders, vis);
   } catch {
     tbody.innerHTML = `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--red)">Error loading details</td></tr>`;
@@ -355,8 +366,7 @@ export async function loadPkgPriceMatrix(clients) {
   // Ensure packages are loaded (billing view may be opened without visiting Packages tab)
   if (!state.packagesList?.length) {
     try {
-      const pkgs = await fetch('/api/packages').then(r => r.json());
-      if (Array.isArray(pkgs)) state.packagesList = pkgs;
+      state.packagesList = await fetchValidatedJson('/api/packages', undefined, parsePackageDtoList);
     } catch {}
   }
 
@@ -384,7 +394,7 @@ export async function renderPkgPriceForClient(clientId) {
   wrap.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Loading…</div>';
   let saved = {};  // packageId → { price, is_custom }
   try {
-    const rows = await fetch('/api/billing/package-prices?clientId=' + clientId).then(r => r.json());
+    const rows = await fetchValidatedJson('/api/billing/package-prices?clientId=' + clientId, undefined, parseBillingPackagePriceList);
     rows.forEach(s => { saved[s.packageId] = { price: s.price, is_custom: s.is_custom }; });
   } catch {}
 
@@ -457,11 +467,11 @@ export async function savePkgPriceForClient() {
     price: parseFloat(document.getElementById(`cpp-${clientId}-${p.packageId}`)?.value) || 0,
   }));
   try {
-    const r = await fetch('/api/billing/package-prices', {
+    const result = await fetchValidatedJson('/api/billing/package-prices', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId, prices }),
-    });
-    if ((await r.json()).ok) showToast('Package prices saved ✓');
+    }, parseOkResult);
+    if (result.ok) showToast('Package prices saved ✓');
     else showToast('Error saving prices');
   } catch { showToast('Error saving prices'); }
 }
@@ -472,7 +482,7 @@ export async function fetchRefRates() {
   if (btn) btn.disabled = true;
   if (status) status.textContent = 'Starting…';
   try {
-    const r = await fetch('/api/billing/fetch-ref-rates', { method: 'POST' }).then(r => r.json());
+    const r = await fetchValidatedJson('/api/billing/fetch-ref-rates', { method: 'POST' }, parseFetchBillingReferenceRatesResult);
     if (!r.ok && r.message?.includes('Already running')) {
       if (status) status.textContent = 'Already running — checking status…';
     } else if (r.total === 0) {
@@ -484,7 +494,7 @@ export async function fetchRefRates() {
     }
     // Poll status every 5s until done
     const poll = setInterval(async () => {
-      const s = await fetch('/api/billing/fetch-ref-rates/status').then(r => r.json());
+      const s = await fetchValidatedJson('/api/billing/fetch-ref-rates/status', undefined, parseBillingReferenceRateFetchStatus);
       if (status) status.textContent = `Progress: ${s.done}/${s.total}${s.errors ? ` (${s.errors} errors)` : ''}`;
       if (!s.running) {
         clearInterval(poll);
@@ -506,11 +516,10 @@ export async function backfillRefRates() {
   const to   = document.getElementById('billing-to').value;
   if (btn) { btn.disabled = true; btn.textContent = '↺ Backfilling…'; }
   try {
-    const res = await fetch('/api/billing/backfill-ref-rates', {
+    const d = await fetchValidatedJson('/api/billing/backfill-ref-rates', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to }),
-    });
-    const d = await res.json();
+    }, parseBackfillBillingReferenceRatesResult);
     if (d.message) {
       showToast(d.message);
     } else {

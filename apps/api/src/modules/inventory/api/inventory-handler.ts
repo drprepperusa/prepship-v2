@@ -6,6 +6,7 @@ import type {
   SetInventoryParentInput,
   UpdateInventoryItemInput,
 } from "../../../../../../packages/contracts/src/inventory/contracts.ts";
+import { InputValidationError, parseOptionalIntegerParam } from "../../../../../../packages/contracts/src/common/input-validation.ts";
 import { parseListInventoryLedgerQuery, parseListInventoryQuery } from "../../../../../../packages/contracts/src/inventory/contracts.ts";
 import type { InventoryServices } from "../application/inventory-services.ts";
 
@@ -49,8 +50,7 @@ export class InventoryHttpHandler {
   }
 
   handleImportDimensions(url: URL) {
-    const rawClientId = url.searchParams.get("clientId");
-    const clientId = rawClientId ? Number.parseInt(rawClientId, 10) : undefined;
+    const clientId = parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId");
     return this.services.importProductDimensions(clientId, url.searchParams.get("overwrite") === "1");
   }
 
@@ -61,10 +61,14 @@ export class InventoryHttpHandler {
   handleListParentSkus(url: URL) {
     const rawId = url.searchParams.get("id");
     if (rawId) {
-      return this.services.getParentSku(Number.parseInt(rawId, 10));
+      const parentSkuId = parseOptionalIntegerParam(rawId, "id");
+      if (parentSkuId == null) {
+        throw new InputValidationError("id required");
+      }
+      return this.services.getParentSku(parentSkuId);
     }
-    const rawClientId = url.searchParams.get("clientId");
-    return this.services.listParentSkus(Number.parseInt(rawClientId ?? "0", 10));
+    const clientId = parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId");
+    return this.services.listParentSkus(clientId ?? 0);
   }
 
   handleCreateParentSku(body: SaveParentSkuInput) {
@@ -80,8 +84,7 @@ export class InventoryHttpHandler {
   }
 
   handleSkuOrders(inventoryId: number, url: URL) {
-    const rawDays = url.searchParams.get("days");
-    const days = rawDays ? Number.parseInt(rawDays, 10) : undefined;
+    const days = parseOptionalIntegerParam(url.searchParams.get("days"), "days");
     return this.services.getSkuOrders(inventoryId, days);
   }
 }

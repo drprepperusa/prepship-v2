@@ -1,4 +1,5 @@
 import { jsonResponse } from "../common/http/json.ts";
+import { InputValidationError, parseOptionalIntegerParam } from "../../../../packages/contracts/src/common/input-validation.ts";
 import type { AnalysisHttpHandler } from "../modules/analysis/api/analysis-handler.ts";
 import type { BillingHttpHandler } from "../modules/billing/api/billing-handler.ts";
 import type { ClientsHttpHandler } from "../modules/clients/api/clients-handler.ts";
@@ -32,6 +33,25 @@ export interface AppDependencies {
 }
 
 export function createApp(dependencies: AppDependencies) {
+  const isInputError = (error: unknown, messages: string[] = []): boolean =>
+    error instanceof InputValidationError || (error instanceof Error && messages.includes(error.message));
+
+  const parseOptionalNumberQuery = (value: string | null, name: string): number | undefined => {
+    if (value == null || value.trim() === "") return undefined;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new InputValidationError(`${name} must be a number`);
+    }
+    return parsed;
+  };
+
+  const parseBooleanQuery = (value: string | null, name: string, fallback: boolean): boolean => {
+    if (value == null || value.trim() === "") return fallback;
+    if (value === "1" || value === "true") return true;
+    if (value === "0" || value === "false") return false;
+    throw new InputValidationError(`${name} must be true/false or 1/0`);
+  };
+
   const renderBillingInvoiceHtml = (invoice: NonNullable<ReturnType<BillingHttpHandler["handleInvoice"]>>) => {
     const fmt = (value: number) => `$${(Number(value) || 0).toFixed(2)}`;
     const generated = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -148,7 +168,11 @@ export function createApp(dependencies: AppDependencies) {
     const readJson = async (): Promise<Record<string, unknown>> => {
       const text = await request.text();
       if (!text) return {};
-      return JSON.parse(text) as Record<string, unknown>;
+      try {
+        return JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        throw new InputValidationError("Malformed JSON body");
+      }
     };
 
     if (request.method === "GET" && url.pathname === "/health") {
@@ -160,7 +184,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.analysisHandler.handleSkus(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -169,7 +193,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.analysisHandler.handleDailySales(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -178,7 +202,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleConfig());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -188,7 +212,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleUpdateConfig(Number.parseInt(billingConfigMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -197,7 +221,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleGenerate(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "from and to required" ? 400 : 500;
+        const status = isInputError(error, ["from and to required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -207,7 +231,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleSummary(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "from and to required" ? 400 : 500;
+        const status = isInputError(error, ["from and to required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -217,7 +241,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleDetails(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "from, to, clientId required" ? 400 : 500;
+        const status = isInputError(error, ["from, to, clientId required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -227,7 +251,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handlePackagePrices(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId required" ? 400 : 500;
+        const status = isInputError(error, ["clientId required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -237,7 +261,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleUpdatePackagePrices(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId and prices[] required" ? 400 : 500;
+        const status = isInputError(error, ["clientId and prices[] required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -247,7 +271,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleSetDefaultPackagePrices(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "packageId and price required" ? 400 : 500;
+        const status = isInputError(error, ["packageId and price required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -264,7 +288,7 @@ export function createApp(dependencies: AppDependencies) {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "from, to, clientId required" ? 400 : 500;
+        const status = isInputError(error, ["from, to, clientId required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
         return new Response(`<p style="font-family:sans-serif;padding:40px;color:red">${message}</p>`, {
           status,
           headers: { "content-type": "text/html; charset=utf-8" },
@@ -277,7 +301,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.billingHandler.handleFetchRefRates());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -290,7 +314,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.billingHandler.handleBackfillRefRates(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -299,7 +323,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.initHandler.handleInitData());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -308,7 +332,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.initHandler.handleCounts());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -317,7 +341,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.initHandler.handleStores());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -326,18 +350,17 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.initHandler.handleCarriers());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
     if (request.method === "GET" && url.pathname === "/api/carriers-for-store") {
       try {
-        const rawStoreId = url.searchParams.get("storeId");
-        const storeId = rawStoreId ? Number.parseInt(rawStoreId, 10) : null;
+        const storeId = parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId") ?? null;
         return jsonResponse(200, dependencies.ratesHandler.handleCarriersForStore(storeId));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -346,7 +369,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.initHandler.handleCarrierAccounts());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -361,22 +384,21 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "GET" && url.pathname === "/api/rates/cached") {
       try {
-        const weight = Math.round(Number.parseFloat(url.searchParams.get("wt") ?? "0"));
-        const length = Number.parseFloat(url.searchParams.get("l") ?? "0") || 0;
-        const width = Number.parseFloat(url.searchParams.get("w") ?? "0") || 0;
-        const height = Number.parseFloat(url.searchParams.get("h") ?? "0") || 0;
+        const weight = Math.round(parseOptionalNumberQuery(url.searchParams.get("wt"), "wt") ?? 0);
+        const length = parseOptionalNumberQuery(url.searchParams.get("l"), "l") ?? 0;
+        const width = parseOptionalNumberQuery(url.searchParams.get("w"), "w") ?? 0;
+        const height = parseOptionalNumberQuery(url.searchParams.get("h"), "h") ?? 0;
         const dims = length > 0 && width > 0 && height > 0 ? { length, width, height } : null;
-        const storeIdRaw = url.searchParams.get("storeId");
         return jsonResponse(200, dependencies.ratesHandler.handleCached({
           wt: weight,
           zip: url.searchParams.get("zip") ?? "",
           dims,
-          residential: url.searchParams.get("residential") !== "0" && url.searchParams.get("residential") !== "false",
-          storeId: storeIdRaw ? Number.parseInt(storeIdRaw, 10) : null,
+          residential: parseBooleanQuery(url.searchParams.get("residential"), "residential", true),
+          storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId") ?? null,
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -385,7 +407,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ratesHandler.handleCachedBulk(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "Expected array" ? 400 : 500;
+        const status = isInputError(error, ["Expected array"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -404,7 +426,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.ratesHandler.handleBrowseRates(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "shippingProviderId required" ? 400 : 500;
+        const status = isInputError(error, ["shippingProviderId required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -425,7 +447,7 @@ export function createApp(dependencies: AppDependencies) {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "startDate and endDate required (YYYY-MM-DD format)" ? 400 : 500;
+        const status = isInputError(error, ["startDate and endDate required (YYYY-MM-DD format)"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -436,7 +458,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.settingsHandler.handleGet(settingMatch[1] ?? ""));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "Unknown setting" ? 404 : 500;
+        const status = isInputError(error) ? 400 : message === "Unknown setting" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -469,7 +491,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleCreate(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "name is required" ? 400 : 500;
+        const status = isInputError(error, ["name is required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -479,10 +501,15 @@ export function createApp(dependencies: AppDependencies) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/packages/find-by-dims") {
-      const length = Number.parseFloat(url.searchParams.get("length") ?? "0") || 0;
-      const width = Number.parseFloat(url.searchParams.get("width") ?? "0") || 0;
-      const height = Number.parseFloat(url.searchParams.get("height") ?? "0") || 0;
-      return jsonResponse(200, dependencies.packagesHandler.handleFindByDims(length, width, height));
+      try {
+        const length = parseOptionalNumberQuery(url.searchParams.get("length"), "length") ?? 0;
+        const width = parseOptionalNumberQuery(url.searchParams.get("width"), "width") ?? 0;
+        const height = parseOptionalNumberQuery(url.searchParams.get("height"), "height") ?? 0;
+        return jsonResponse(200, dependencies.packagesHandler.handleFindByDims(length, width, height));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
     }
 
     if (request.method === "POST" && url.pathname === "/api/packages/auto-create") {
@@ -490,7 +517,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleAutoCreate(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "length, width, height are required" ? 400 : 500;
+        const status = isInputError(error, ["length, width, height are required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -500,7 +527,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleSync());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -562,7 +589,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleReceive(Number.parseInt(packageReceiveMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "qty must be > 0" ? 400 : 500;
+        const status = isInputError(error, ["qty must be > 0"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -573,7 +600,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleAdjust(Number.parseInt(packageAdjustMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "qty is required" ? 400 : 500;
+        const status = isInputError(error, ["qty is required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -586,12 +613,12 @@ export function createApp(dependencies: AppDependencies) {
           200,
           dependencies.packagesHandler.handleSetReorderLevel(
             Number.parseInt(packageReorderMatch[1] ?? "0", 10),
-            Number.parseInt(String(body.reorderLevel), 10),
+            Number(String(body.reorderLevel)),
           ),
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "reorderLevel must be a number" ? 400 : 500;
+        const status = isInputError(error, ["reorderLevel must be a number"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -605,7 +632,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.locationsHandler.handleCreate(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "name is required" ? 400 : 500;
+        const status = isInputError(error, ["name is required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -616,7 +643,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.locationsHandler.handleUpdate(Number.parseInt(locationMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -625,7 +652,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.locationsHandler.handleDelete(Number.parseInt(locationMatch[1] ?? "0", 10)));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -651,7 +678,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.packagesHandler.handleUpdate(Number.parseInt(packageMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -668,7 +695,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.clientsHandler.handleCreate(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "name is required" ? 400 : 500;
+        const status = isInputError(error, ["name is required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -678,7 +705,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.clientsHandler.handleSyncStores());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -688,7 +715,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.clientsHandler.handleUpdate(Number.parseInt(clientMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -715,7 +742,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleReceive(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId required" || message === "items array required" ? 400 : 500;
+        const status = isInputError(error, ["clientId required", "items array required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -725,7 +752,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleAdjust(await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "invSkuId and qty required" ? 400 : 500;
+        const status = isInputError(error, ["invSkuId and qty required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -741,12 +768,11 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "GET" && url.pathname === "/api/inventory/alerts") {
       try {
-        const rawClientId = url.searchParams.get("clientId");
-        const clientId = Number.parseInt(rawClientId ?? "0", 10);
+        const clientId = parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId") ?? 0;
         return jsonResponse(200, dependencies.inventoryHandler.handleAlerts(clientId));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId required" ? 400 : 500;
+        const status = isInputError(error, ["clientId required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -765,7 +791,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleImportDimensions(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -774,7 +800,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleBulkUpdateDimensions(await readJson() as never));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "updates array required" ? 400 : 500;
+        const status = isInputError(error, ["updates array required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -784,7 +810,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleListParentSkus(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId required" ? 400 : message === "Parent SKU not found" ? 404 : 500;
+        const status = isInputError(error, ["clientId required", "id required"]) ? 400 : message === "Parent SKU not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -794,7 +820,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleCreateParentSku(await readJson() as never));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "clientId and name required" ? 400 : 500;
+        const status = isInputError(error, ["clientId and name required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -815,7 +841,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleList(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -824,7 +850,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleGetIds(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "sku required" ? 400 : 500;
+        const status = isInputError(error, ["sku required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -834,7 +860,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handlePicklist(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -843,7 +869,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleDailyStats());
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -872,7 +898,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleSetExternalShipped(Number.parseInt(externalMatch[1] ?? "0", 10), body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -883,7 +909,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleSetResidential(Number.parseInt(residentialMatch[1] ?? "0", 10), body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -894,7 +920,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleSetSelectedPid(Number.parseInt(selectedPidMatch[1] ?? "0", 10), body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -907,7 +933,7 @@ export function createApp(dependencies: AppDependencies) {
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        return jsonResponse(500, { error: message });
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
       }
     }
 
@@ -918,7 +944,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.ordersHandler.handleSetBestRate(Number.parseInt(bestRateMatch[1] ?? "0", 10), body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "best + orderId required" ? 400 : 500;
+        const status = isInputError(error, ["best + orderId required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -939,7 +965,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleUpdate(Number.parseInt(inventoryMatch[1] ?? "0", 10), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message.includes("dimensions must be all > 0 or all 0") ? 400 : 500;
+        const status = isInputError(error) || message.includes("dimensions must be all > 0 or all 0") ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -950,7 +976,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleSetParent(Number.parseInt(inventorySetParentMatch[1] ?? "0", 10), await readJson() as never));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "Parent SKU not found" ? 404 : 500;
+        const status = isInputError(error) ? 400 : message === "Parent SKU not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -961,7 +987,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.inventoryHandler.handleSkuOrders(Number.parseInt(skuOrdersMatch[1] ?? "0", 10), url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "SKU not found" ? 404 : 500;
+        const status = isInputError(error) ? 400 : message === "SKU not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -992,7 +1018,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.productsHandler.handleSaveDefaults(await readJson() as never));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "productId or sku required" || message === "Nothing to save" ? 400 : message === "Product not found" ? 404 : 500;
+        const status = isInputError(error, ["productId or sku required", "Nothing to save"]) ? 400 : message === "Product not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -1003,7 +1029,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, dependencies.productsHandler.handleSaveSkuDefaults(decodeURIComponent(productDefaultsMatch[1] ?? ""), await readJson()));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "productId or sku required" || message === "Nothing to save" ? 400 : message === "Product not found" ? 404 : 500;
+        const status = isInputError(error, ["productId or sku required", "Nothing to save"]) ? 400 : message === "Product not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }
@@ -1018,7 +1044,7 @@ export function createApp(dependencies: AppDependencies) {
       } catch (error) {
         const err = error as Error & { details?: Record<string, unknown> };
         const message = err instanceof Error ? err.message : "Unknown error";
-        const status = message === "orderId and serviceCode required" || message === "shippingProviderId required for v2 label creation" || message === "Order weight required to create label"
+        const status = isInputError(error, ["orderId and serviceCode required", "shippingProviderId required for v2 label creation", "Order weight required to create label"])
           ? 400
           : message === "Order not found"
             ? 404
@@ -1046,7 +1072,7 @@ export function createApp(dependencies: AppDependencies) {
         return jsonResponse(200, await dependencies.labelsHandler.handleReturn(Number.parseInt(labelReturnMatch[1] ?? "0", 10), await readJson() as never));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
-        const status = message === "Shipment not found" ? 404 : 500;
+        const status = isInputError(error) ? 400 : message === "Shipment not found" ? 404 : 500;
         return jsonResponse(status, { error: message });
       }
     }

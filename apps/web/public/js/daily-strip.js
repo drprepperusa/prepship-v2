@@ -1,6 +1,8 @@
 // daily-strip.js — Today's throughput banner
 // Shows at the top of Awaiting Shipment + Shipped views only
 import { state } from './state.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseOrdersDailyStatsDto } from './api-contracts.js';
 
 let _stripTimer = null;
 
@@ -16,7 +18,7 @@ export async function loadDailyStrip() {
   }
 
   try {
-    const data = await fetch('/api/orders/daily-stats').then(r => r.json());
+    const data = await fetchValidatedJson('/api/orders/daily-stats', undefined, parseOrdersDailyStatsDto);
     _renderStrip(el, data);
     el.style.display = 'block';
   } catch {

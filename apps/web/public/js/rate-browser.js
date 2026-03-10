@@ -1,8 +1,15 @@
 import { state } from './state.js';
 import { escHtml, trunc } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseBrowseRatesResponse,
+  parseCachedRatesResponse,
+  parseCarrierLookupResponse,
+} from './api-contracts.js';
 import { isBlockedRate, SERVICE_NAMES, CARRIER_NAMES, carrierLogo, formatCarrierDisplay } from './constants.js';
 import { applyCarrierMarkup, applyRbMarkup, pickBestRate, priceDisplay, isResidential, isOrionRate } from './markups.js';
 import { updateServiceDropdown } from './stores.js';
+import { getOrderDimensions, getOrderStoreId, getOrderWarehouseId } from './order-data.js';
 
 // ─── Rate Browser functions ────────────────────────────────────────────────────
 let _rbStoreId = null; // set from openRateBrowser(); used for per-store service unblocking
@@ -40,7 +47,7 @@ export async function openRateBrowser(o) {
     return;
   }
   state.rbCurrentOrder = o;
-  _rbStoreId           = o?.advancedOptions?.storeId || null;
+  _rbStoreId           = getOrderStoreId(o);
   state.rbSelectedPid  = null;
   state.rbRatesData    = {};
   state.rbViewMode     = 'all';
@@ -51,8 +58,7 @@ export async function openRateBrowser(o) {
   if (_rbStoreId) {
     try {
       console.log(`[openRateBrowser] Fetching carriers for storeId=${_rbStoreId}`);
-      const resp = await fetch(`/api/carriers-for-store?storeId=${_rbStoreId}`);
-      const storeCarriers = await resp.json();
+      const { carriers: storeCarriers } = await fetchValidatedJson(`/api/carriers-for-store?storeId=${_rbStoreId}`, undefined, parseCarrierLookupResponse);
       state.rbStoreCarriers = Array.isArray(storeCarriers) ? storeCarriers : null;
       carriersLoaded = state.rbStoreCarriers?.length > 0;
       console.log(`[openRateBrowser] Got ${state.rbStoreCarriers?.length || 0} store-specific carriers`);
@@ -72,9 +78,10 @@ export async function openRateBrowser(o) {
   const panelLen = parseFloat(document.getElementById('p-len')?.value) || 0;
   const panelWid = parseFloat(document.getElementById('p-wid')?.value) || 0;
   const panelHgt = parseFloat(document.getElementById('p-hgt')?.value) || 0;
-  const orderLen = o?.dimensions?.length || 0;
-  const orderWid = o?.dimensions?.width  || 0;
-  const orderHgt = o?.dimensions?.height || 0;
+  const orderDims = getOrderDimensions(o);
+  const orderLen = orderDims.length || 0;
+  const orderWid = orderDims.width  || 0;
+  const orderHgt = orderDims.height || 0;
   rbSetVal('rb-wtlb', lb);
   rbSetVal('rb-wtoz', oz);
   rbSetVal('rb-zip',  o?.shipTo?.postalCode?.slice(0,5) || '');
@@ -88,7 +95,7 @@ export async function openRateBrowser(o) {
   // Populate Ship From dropdown
   const locSel = document.getElementById('rb-location');
   if (locSel) {
-    const locId = o?.advancedOptions?.warehouseId;
+    const locId = getOrderWarehouseId(o);
     locSel.innerHTML = state.locationsList.length
       ? state.locationsList.map(l=>`<option value="${l.locationId}"${l.locationId===locId||(!locId&&l.isDefault)?' selected':''}>${escHtml(l.name)}</option>`).join('')
       : '<option value="">No locations loaded</option>';
@@ -277,7 +284,7 @@ export function rbSelectRate(e, carrierCode, serviceName, serviceCode, pid, ship
     </div>`;
     if (lb) lb.textContent = 'Scout Review';
     if (state.currentPanelOrder) {
-      const syntheticBest = { carrierCode, serviceCode, serviceName, shipmentCost, otherCost, carrierNickname, _carrierName: carrierNickname, shippingProviderId: pid };
+      const syntheticBest = { carrierCode, serviceCode, serviceName, shipmentCost, otherCost, carrierNickname, shippingProviderId: pid };
       state.orderBestRate[state.currentPanelOrder.orderId] = syntheticBest;
       if (window.renderRateCell) window.renderRateCell(state.currentPanelOrder.orderId, syntheticBest);
     }
@@ -371,8 +378,8 @@ export async function browseRates() {
   const resFlag = rbResidential ? 'R' : 'C';
   const storeParam = _rbStoreId ? `&storeId=${_rbStoreId}` : '';
   const sigParam = signatureOption && signatureOption !== 'none' ? `&signature=${signatureOption}` : '';
-  const cachedRbData = await fetch(`/api/rates/cached?wt=${Math.round(wtOz)}&zip=${zip}&l=${len}&w=${wid}&h=${hgt}&residential=${rbResidential?1:0}${storeParam}${sigParam}`)
-    .then(r=>r.json()).catch(()=>null);
+  const cachedRbData = await fetchValidatedJson(`/api/rates/cached?wt=${Math.round(wtOz)}&zip=${zip}&l=${len}&w=${wid}&h=${hgt}&residential=${rbResidential?1:0}${storeParam}${sigParam}`, undefined, parseCachedRatesResponse)
+    .catch(()=>null);
   const cachedCodes = new Set();
   if (cachedRbData?.cached && Array.isArray(cachedRbData.rates) && cachedRbData.rates.length) {
     displayCarriers.forEach(a => {
@@ -380,7 +387,11 @@ export async function browseRates() {
         r.shippingProviderId ? r.shippingProviderId === a.shippingProviderId : r.carrierCode === a.code
       );
       if (acctRates.length) {
-        const list = acctRates.map(r => ({...r, _pid: a.shippingProviderId, _carrierName: a._label||a.nickname||a.accountNumber}));
+        const list = acctRates.map(r => ({
+          ...r,
+          shippingProviderId: r.shippingProviderId ?? a.shippingProviderId,
+          carrierNickname: r.carrierNickname || a._label || a.nickname || a.accountNumber || a.name,
+        }));
         list.sort((x,y)=>(x.shipmentCost+x.otherCost)-(y.shipmentCost+y.otherCost));
         state.rbRatesData[a.shippingProviderId] = list;
         cachedCodes.add(a.shippingProviderId);
@@ -404,7 +415,7 @@ export async function browseRates() {
   for (const acct of accountsToFetch) {
     try {
       const signatureOption = document.getElementById('rb-signature')?.value || 'none';
-      const r = await fetch('/api/rates/browse', {
+      const rateObj = await fetchValidatedJson('/api/rates/browse', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           carrierCode: acct.code,
@@ -415,30 +426,21 @@ export async function browseRates() {
           storeId: _rbStoreId,
           signatureOption: signatureOption,
         })
-      });
-      if (!r.ok) {
-        console.error(`[Rate Browse] HTTP ${r.status} for spid=${acct.shippingProviderId}: ${r.statusText}`);
+      }, parseBrowseRatesResponse);
+      const raw = rateObj.rates || [];
+      console.log(`[Rate Browse] spid=${acct.shippingProviderId}: ${raw.length} rates`);
+      if (!raw.length) {
+        console.warn(`[Rate Browse] No rates for spid=${acct.shippingProviderId}`);
         fetchErrors++;
-        state.rbRatesData[acct.shippingProviderId] = [];
-      } else {
-        const rateObj = await r.json();
-        if (rateObj?.error) {
-          console.error(`[Rate Browse] API error for spid=${acct.shippingProviderId}: ${rateObj.error}`);
-          fetchErrors++;
-          state.rbRatesData[acct.shippingProviderId] = [];
-        } else {
-          const raw   = Array.isArray(rateObj) ? rateObj : (rateObj?.rates || []);
-          console.log(`[Rate Browse] spid=${acct.shippingProviderId}: ${raw.length} rates (raw type: ${Array.isArray(rateObj) ? 'array' : 'object.rates'})`);
-          if (!raw.length) {
-            console.warn(`[Rate Browse] No rates for spid=${acct.shippingProviderId}`);
-            fetchErrors++;
-          }
-          const a = acct;
-          const list = raw.map(r => ({...r, _pid: a.shippingProviderId, _carrierName: a._label||a.nickname||a.accountNumber}));
-          list.sort((x,y)=>(x.shipmentCost+x.otherCost)-(y.shipmentCost+y.otherCost));
-          state.rbRatesData[a.shippingProviderId] = list;
-        }
       }
+      const a = acct;
+      const list = raw.map(r => ({
+        ...r,
+        shippingProviderId: r.shippingProviderId ?? a.shippingProviderId,
+        carrierNickname: r.carrierNickname || a._label || a.nickname || a.accountNumber || a.name,
+      }));
+      list.sort((x,y)=>(x.shipmentCost+x.otherCost)-(y.shipmentCost+y.otherCost));
+      state.rbRatesData[a.shippingProviderId] = list;
     } catch {
       fetchErrors++;
       state.rbRatesData[acct.shippingProviderId] = [];
@@ -523,7 +525,7 @@ export function rbRateRow(r, i, showCarrier, isRecommended = false) {
   const { carriersList, rbSelectedPid, rbMarkups } = state;
   const blocked    = isBlockedRate(r, _rbStoreId);
   const base       = (r.shipmentCost||0) + (r.otherCost||0);
-  const pid        = r._pid || rbSelectedPid;
+  const pid        = r.shippingProviderId || rbSelectedPid;
   const marked     = applyRbMarkup(pid, base);
   const total      = marked.toFixed(2);
   const svcName    = r.serviceName || SERVICE_NAMES[r.serviceCode] || (r.serviceCode||'').replace(/_/g,' ') || '—';
@@ -614,10 +616,14 @@ export function renderRbAllRates() {
   let combined = [];
   displayCarriers.forEach(c => {
     const rates = rbRatesData[c.shippingProviderId] || [];
-    rates.forEach(r => combined.push({ ...r, _pid: c.shippingProviderId, _carrierName: c._label||c.nickname||c.accountNumber||c.name }));
+    rates.forEach(r => combined.push({
+      ...r,
+      shippingProviderId: r.shippingProviderId ?? c.shippingProviderId,
+      carrierNickname: r.carrierNickname || c._label || c.nickname || c.accountNumber || c.name,
+    }));
   });
   combined = rbFilterRates(combined).sort((a,b) =>
-    applyRbMarkup(a._pid,(a.shipmentCost+a.otherCost)) - applyRbMarkup(b._pid,(b.shipmentCost+b.otherCost)));
+    applyRbMarkup(a.shippingProviderId,(a.shipmentCost+a.otherCost)) - applyRbMarkup(b.shippingProviderId,(b.shipmentCost+b.otherCost)));
 
   if (!combined.length) {
     rbSetRatesPane('<div style="color:var(--text3);font-size:12.5px;text-align:center;margin-top:80px">No rates available — click Browse Rates</div>');

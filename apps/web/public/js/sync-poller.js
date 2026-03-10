@@ -1,6 +1,8 @@
 import { state } from './state.js';
 import { showToast } from './utils.js';
 import { loadCounts } from './sidebar.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseQueuedResult, parseSyncStatusResponse } from './api-contracts.js';
 
 // ═══════════════════════════════════════════════
 //  SYNC POLLER
@@ -13,8 +15,7 @@ export function startSyncPoller() {
 
 export async function pollSyncStatus() {
   try {
-    const r    = await fetch('/api/sync/status');
-    const data = await r.json();
+    const data = await fetchValidatedJson('/api/sync/status', undefined, parseSyncStatusResponse);
     updateSyncPill(data);
   } catch {}
 }
@@ -64,7 +65,7 @@ export function updateSyncPill(data) {
 export async function triggerSync(full = false) {
   try {
     const url = full ? '/api/sync/trigger?full=1' : '/api/sync/trigger';
-    await fetch(url, { method: 'POST' });
+    await fetchValidatedJson(url, { method: 'POST' }, parseQueuedResult);
     document.getElementById('syncPill').className = 'sync-pill syncing';
     document.getElementById('syncText').textContent = full ? 'Full sync…' : 'Syncing…';
     showToast(full ? '🔄 Full re-sync triggered' : '🔄 Incremental sync triggered');

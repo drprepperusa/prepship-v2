@@ -1,5 +1,15 @@
 import { state } from './state.js';
 import { escHtml } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseNullablePackageDto,
+  parseOkResult,
+  parsePackageDtoList,
+  parsePackageLedgerResponse,
+  parsePackageMutationResult,
+  parseQueuedResult,
+  parseSetDefaultPackagePriceResult,
+} from './api-contracts.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let _pkgAdjSign = 1;
@@ -7,9 +17,7 @@ let _pkgAdjSign = 1;
 // ─── Load / Render ─────────────────────────────────────────────────────────────
 export async function loadPackages() {
   try {
-    const r    = await fetch('/api/packages');
-    const pkgs = await r.json();
-    if (Array.isArray(pkgs)) state.packagesList = pkgs;
+    state.packagesList = await fetchValidatedJson('/api/packages', undefined, parsePackageDtoList);
     await renderPackages();
   } catch (e) { console.warn('loadPackages:', e); }
 }
@@ -27,8 +35,7 @@ export async function renderPackages() {
 
   // Update low-stock banner
   try {
-    const lr     = await fetch('/api/packages/low-stock');
-    const lowPkgs = await lr.json();
+    const lowPkgs = await fetchValidatedJson('/api/packages/low-stock', undefined, parsePackageDtoList);
     const banner = document.getElementById('pkgLowStockBanner');
     if (banner) {
       if (lowPkgs.length > 0) {
@@ -143,13 +150,11 @@ export async function savePkg() {
   };
   if (!body.name) return window.showToast('⚠ Name is required');
   try {
-    const r = await fetch(id ? `/api/packages/${id}` : '/api/packages', {
+    await fetchValidatedJson(id ? `/api/packages/${id}` : '/api/packages', {
       method: id ? 'PUT' : 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error);
+    }, parsePackageMutationResult);
     window.showToast('✅ Package saved');
     hidePkgForm();
     await loadPackages();
@@ -158,17 +163,17 @@ export async function savePkg() {
 
 export async function deletePkg(id) {
   if (!confirm('Delete this package?')) return;
-  await fetch(`/api/packages/${id}`, { method:'DELETE' });
+  await fetchValidatedJson(`/api/packages/${id}`, { method:'DELETE' }, parseOkResult);
   await loadPackages();
 }
 
 export async function savePkgReorderLevel(packageId, level) {
   try {
-    await fetch(`/api/packages/${packageId}/reorder-level`, {
+    await fetchValidatedJson(`/api/packages/${packageId}/reorder-level`, {
       method: 'PATCH',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ reorderLevel: parseInt(level) || 0 }),
-    });
+    }, parseOkResult);
   } catch (e) { window.showToast('❌ ' + e.message); }
 }
 
@@ -272,12 +277,11 @@ export async function submitPkgReceive(packageId) {
   if (!qty || qty <= 0) return window.showToast('⚠ Enter a positive quantity');
   document.getElementById('pkgAdjModalOverlay')?.remove();
   try {
-    const r = await fetch(`/api/packages/${packageId}/receive`, {
+    const d = await fetchValidatedJson(`/api/packages/${packageId}/receive`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ qty, note, costPerUnit: costPer }),
-    });
-    const d = await r.json();
+    }, parsePackageMutationResult);
     if (d.ok) {
       window.showToast(`✅ Received ${qty} units. New total: ${d.package?.stockQty ?? '?'}`);
       await loadPackages();
@@ -293,12 +297,11 @@ export async function submitPkgAdjust(packageId) {
   const finalNote = note || (finalQty > 0 ? 'Manual add' : 'Manual remove');
   document.getElementById('pkgAdjModalOverlay')?.remove();
   try {
-    const r = await fetch(`/api/packages/${packageId}/adjust`, {
+    const d = await fetchValidatedJson(`/api/packages/${packageId}/adjust`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ qty: finalQty, note: finalNote }),
-    });
-    const d = await r.json();
+    }, parsePackageMutationResult);
     if (d.ok) {
       window.showToast(`✅ Adjusted. New total: ${d.package?.stockQty ?? '?'}`);
       await loadPackages();
@@ -313,8 +316,7 @@ export async function togglePkgLedger(packageId, _nameEl) {
   ledgerDiv.style.display = '';
   ledgerDiv.innerHTML = '<span style="font-size:11px;color:var(--text3)">Loading…</span>';
   try {
-    const r    = await fetch(`/api/packages/${packageId}/ledger`);
-    const rows = await r.json();
+    const rows = await fetchValidatedJson(`/api/packages/${packageId}/ledger`, undefined, parsePackageLedgerResponse);
     if (!rows.length) { ledgerDiv.innerHTML = '<span style="font-size:11px;color:var(--text3)">No history yet</span>'; return; }
     ledgerDiv.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px;color:var(--text2)">
       <thead><tr style="border-bottom:1px solid var(--border)">
@@ -382,12 +384,11 @@ export async function confirmPkgBillingDefault(packageId) {
   if (isNaN(price) || price < 0) return window.showToast('⚠ Enter a valid price');
   document.getElementById('pkgDefaultModalOverlay')?.remove();
   try {
-    const r = await fetch('/api/billing/package-prices/set-default', {
+    const d = await fetchValidatedJson('/api/billing/package-prices/set-default', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ packageId, price }),
-    });
-    const d = await r.json();
+    }, parseSetDefaultPackagePriceResult);
     if (d.ok) {
       window.showToast(`✅ Default set for ${d.updated} client${d.updated !== 1 ? 's' : ''}${d.skipped ? ` · ${d.skipped} skipped (custom override)` : ''}`);
     } else {
@@ -400,7 +401,7 @@ export async function syncCarrierPackages() {
   const btn = document.getElementById('pkgSyncBtn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
   try {
-    await fetch('/api/packages/sync', { method:'POST' });
+    await fetchValidatedJson('/api/packages/sync', { method:'POST' }, parseQueuedResult);
     await new Promise(r => setTimeout(r, 3000));
     await loadPackages();
     window.showToast('✅ Carrier packages synced');

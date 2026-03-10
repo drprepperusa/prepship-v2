@@ -1,21 +1,23 @@
 import { state } from './state.js';
 import { escHtml } from './utils.js';
 import { CARRIER_SERVICES, CARRIER_NAMES } from './constants.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseCarrierAccountDtoList, parseInitStoreDtoList } from './api-contracts.js';
+import { getOrderBillingProviderId, getOrderStoreId } from './order-data.js';
 
 // ═══════════════════════════════════════════════
 //  STORES
 // ═══════════════════════════════════════════════
 export async function loadStores() {
   try {
-    const r    = await fetch('/api/stores');
-    const data = await r.json();
+    const data = await fetchValidatedJson('/api/stores', undefined, parseInitStoreDtoList);
     (data || []).forEach(s => { state.storeMap[s.storeId] = s.storeName; });
   } catch (e) { console.warn('loadStores:', e); }
 }
 
 export function getStoreName(o) {
   if (!o) return '—';
-  const sid = o.advancedOptions?.storeId;
+  const sid = getOrderStoreId(o);
   return (sid && state.storeMap[sid]) || o.internalNotes || 'Untagged';
 }
 
@@ -26,13 +28,12 @@ export async function loadCarrierAccounts() {
   try {
     // Use v2 carrier-accounts config (has shippingProviderId + nickname) instead of
     // SS v1 /carriers (only has generic {code, name} — no spid, no account nicknames)
-    const r    = await fetch('/api/carrier-accounts');
-    const data = await r.json();
+    const data = await fetchValidatedJson('/api/carrier-accounts', undefined, parseCarrierAccountDtoList);
     // Normalize: add `code` alias for `carrierCode` so existing lookups still work
-    state.carriersList = (Array.isArray(data) ? data : []).map(c => ({
+    state.carriersList = data.map(c => ({
       ...c,
-      code:  c.code || c.carrierCode,
-      _label: c.nickname,
+      code: c.code || c.carrierCode,
+      _label: c._label || c.nickname || c.accountNumber || c.name,
     }));
     state.carrierAccountMap = {};
     state.carriersList.forEach(c => {
@@ -55,7 +56,7 @@ export function refreshShipAcctDropdown() {
 
 export function getShipAcct(o) {
   if (!o) return null;
-  const pid = o.advancedOptions?.billToMyOtherAccount;
+  const pid = getOrderBillingProviderId(o);
   if (!pid) return null;
   const acct = state.carriersList.find(c => c.shippingProviderId === pid);
   return acct ? (acct._label || acct.nickname || acct.accountNumber || acct.name) : null;

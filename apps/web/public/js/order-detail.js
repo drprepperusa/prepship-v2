@@ -2,6 +2,16 @@ import { state } from './state.js';
 import { escHtml, fmtDateFull, fmtDollar, fmtWeight, trunc } from './utils.js';
 import { CARRIER_NAMES, SERVICE_NAMES, carrierLogo } from './constants.js';
 import { getStoreName } from './stores.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseOrderFullResponse } from './api-contracts.js';
+import {
+  getOrderAdvancedOptions,
+  getOrderConfirmation,
+  getOrderDimensions,
+  getOrderInsuranceOptions,
+  getOrderPackageCode,
+  getOrderRequestedService,
+} from './order-data.js';
 
 // ─── Order Detail Drawer ───────────────────────────────────────────────────────
 
@@ -17,20 +27,27 @@ export async function openOrderDetail(orderId) {
   document.getElementById('od-drawer')?.classList.add('open');
 
   let o;
+  let shipments = [];
+  let local = null;
+  let shippingAccount = '';
   try {
-    o = await fetch('/api/orders/' + orderId + '/full').then(r => r.json());
-    if (o.error) throw new Error(o.error);
+    const payload = await fetchValidatedJson(`/api/orders/${orderId}/full`, undefined, parseOrderFullResponse);
+    o = payload.raw || {};
+    shipments = payload.shipments || [];
+    local = payload.local || null;
+    if (local && typeof local === 'object' && local.selected_pid != null) {
+      const account = (state.carriersList || []).find(c => c.shippingProviderId === local.selected_pid);
+      if (account) shippingAccount = account._label || account.nickname || account.accountNumber || account.name || '';
+    }
   } catch(e) {
     container.innerHTML = `<div style="color:var(--red);text-align:center;padding:60px">Error loading order: ${escHtml(e.message)}</div>`;
     return;
   }
 
-  const shipments  = o._shipments || [];
-  const local      = o._local || {};
   const shipTo     = o.shipTo || {};
-  const advOpts    = o.advancedOptions || {};
-  const insurance  = o.insuranceOptions || {};
-  const dims       = o.dimensions || {};
+  const advOpts    = getOrderAdvancedOptions(o);
+  const insurance  = getOrderInsuranceOptions(o);
+  const dims       = getOrderDimensions(o);
   const wt         = o.weight || {};
   const items      = (o.items || []).filter(i => !i.adjustment);
   const storeName  = getStoreName(o);
@@ -277,15 +294,15 @@ export async function openOrderDetail(orderId) {
               ${ls.trackingNumber ? `<div class="od-field"><div class="od-field-label">Tracking #</div><div class="od-field-value"><span class="od-tracking-link" onclick="navigator.clipboard.writeText('${escHtml(ls.trackingNumber)}').then(()=>showToast('Tracking # copied!'))" title="Click to copy">${escHtml(ls.trackingNumber)}</span></div></div>` : ''}
               ${ls.shipDate ? `<div class="od-field"><div class="od-field-label">Ship Date</div><div class="od-field-value">${fmtDateFull(ls.shipDate)}</div></div>` : ''}
               <div class="od-field"><div class="od-field-label">Purchased on</div><div class="od-field-value">${escHtml(sourceLabel)}</div></div>
-              ${o._shippingAccount ? `<div class="od-field"><div class="od-field-label">Shipping Account</div><div class="od-field-value">${escHtml(o._shippingAccount)}</div></div>` : ''}
+              ${shippingAccount ? `<div class="od-field"><div class="od-field-label">Shipping Account</div><div class="od-field-value">${escHtml(shippingAccount)}</div></div>` : ''}
               <div style="border-bottom:1px solid var(--border);margin:8px 0"></div>`;
           })() : ''}
-          <div class="od-field"><div class="od-field-label">Requested Service</div><div class="od-field-value">${escHtml(o.requestedShippingService||'—')}</div></div>
+          <div class="od-field"><div class="od-field-label">Requested Service</div><div class="od-field-value">${escHtml(getOrderRequestedService(o)||'—')}</div></div>
           <div class="od-field"><div class="od-field-label">Ship From</div><div class="od-field-value">${escHtml(warehouseName)}</div></div>
           <div class="od-field"><div class="od-field-label">Weight</div><div class="od-field-value">${weightDisplay}</div></div>
           <div class="od-field"><div class="od-field-label">Dimensions</div><div class="od-field-value">${escHtml(dimsDisplay)}</div></div>
-          <div class="od-field"><div class="od-field-label">Package</div><div class="od-field-value">${escHtml(o.packageCode||'—')}</div></div>
-          <div class="od-field"><div class="od-field-label">Confirmation</div><div class="od-field-value">${escHtml(o.confirmation||'—')}</div></div>
+          <div class="od-field"><div class="od-field-label">Package</div><div class="od-field-value">${escHtml(getOrderPackageCode(o)||'—')}</div></div>
+          <div class="od-field"><div class="od-field-label">Confirmation</div><div class="od-field-value">${escHtml(getOrderConfirmation(o)||'—')}</div></div>
           <div class="od-field"><div class="od-field-label">Insurance</div><div class="od-field-value">${insureHtml}</div></div>
         </div>
 

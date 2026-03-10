@@ -1,12 +1,12 @@
 import { state } from './state.js';
 import { escHtml } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseLocationDtoList, parseLocationMutationResult, parseOkResult } from './api-contracts.js';
 
 // ─── Load / Render ─────────────────────────────────────────────────────────────
 export async function loadLocations() {
   try {
-    const r    = await fetch('/api/locations');
-    const locs = await r.json();
-    if (Array.isArray(locs)) state.locationsList = locs;
+    state.locationsList = await fetchValidatedJson('/api/locations', undefined, parseLocationDtoList);
     renderLocations();
   } catch (e) { console.warn('loadLocations:', e); }
 }
@@ -78,13 +78,11 @@ export async function saveLoc() {
   };
   if (!body.name) return window.showToast('⚠ Name is required');
   try {
-    const r = await fetch(id ? `/api/locations/${id}` : '/api/locations', {
+    await fetchValidatedJson(id ? `/api/locations/${id}` : '/api/locations', {
       method: id ? 'PUT' : 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error);
+    }, parseLocationMutationResult);
     window.showToast('✅ Location saved');
     hideLocForm();
     await loadLocations();
@@ -93,12 +91,12 @@ export async function saveLoc() {
 
 export async function deleteLoc(id) {
   if (!confirm('Delete this location?')) return;
-  await fetch(`/api/locations/${id}`, { method:'DELETE' });
+  await fetchValidatedJson(`/api/locations/${id}`, { method:'DELETE' }, parseOkResult);
   await loadLocations();
 }
 
 export async function setLocDefault(id) {
-  await fetch(`/api/locations/${id}/setDefault`, { method:'POST' });
+  await fetchValidatedJson(`/api/locations/${id}/setDefault`, { method:'POST' }, parseLocationMutationResult);
   await loadLocations();
 }
 

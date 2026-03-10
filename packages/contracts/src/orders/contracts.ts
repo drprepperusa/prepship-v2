@@ -1,4 +1,5 @@
 import { type PageMeta } from "../common/pagination.ts";
+import { parseOptionalIntegerParam } from "../common/input-validation.ts";
 
 export interface ListOrdersQuery {
   page: number;
@@ -118,21 +119,15 @@ export interface OrdersDailyStatsDto {
   upcomingOrders: number;
 }
 
-function parseOptionalInt(value: string | null): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 export function parseListOrdersQuery(url: URL): ListOrdersQuery {
-  const page = Math.max(1, parseOptionalInt(url.searchParams.get("page")) ?? 1);
-  const pageSize = Math.min(500, Math.max(1, parseOptionalInt(url.searchParams.get("pageSize")) ?? 50));
+  const page = Math.max(1, parseOptionalIntegerParam(url.searchParams.get("page"), "page") ?? 1);
+  const pageSize = Math.min(500, Math.max(1, parseOptionalIntegerParam(url.searchParams.get("pageSize"), "pageSize") ?? 50));
 
   return {
     page,
     pageSize,
     orderStatus: url.searchParams.get("orderStatus") ?? undefined,
-    storeId: parseOptionalInt(url.searchParams.get("storeId")),
+    storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId"),
     dateStart: url.searchParams.get("dateStart") ?? undefined,
     dateEnd: url.searchParams.get("dateEnd") ?? undefined,
   };
@@ -147,16 +142,16 @@ export function parseGetOrderIdsQuery(url: URL): GetOrderIdsQuery {
 
   return {
     sku,
-    qty: parseOptionalInt(url.searchParams.get("qty")),
+    qty: parseOptionalIntegerParam(url.searchParams.get("qty"), "qty"),
     orderStatus: url.searchParams.get("orderStatus") ?? undefined,
-    storeId: parseOptionalInt(url.searchParams.get("storeId")),
+    storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId"),
   };
 }
 
 export function parseOrderPicklistQuery(url: URL): GetOrderPicklistQuery {
   return {
     orderStatus: url.searchParams.get("orderStatus") ?? undefined,
-    storeId: parseOptionalInt(url.searchParams.get("storeId")),
+    storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId"),
     dateStart: url.searchParams.get("dateStart") ?? undefined,
     dateEnd: url.searchParams.get("dateEnd") ?? undefined,
   };

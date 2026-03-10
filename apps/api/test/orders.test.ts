@@ -27,7 +27,14 @@ function seedDatabase(filename: string): void {
       storeId INTEGER,
       customerEmail TEXT,
       shipToName TEXT,
+      shipToCity TEXT,
+      shipToState TEXT,
       shipToPostalCode TEXT,
+      carrierCode TEXT,
+      serviceCode TEXT,
+      weightValue REAL,
+      orderTotal REAL,
+      shippingAmount REAL,
       items TEXT,
       raw TEXT
     );
@@ -86,8 +93,9 @@ function seedDatabase(filename: string): void {
   const insertOrder = db.prepare(`
     INSERT INTO orders (
       orderId, clientId, orderNumber, orderStatus, orderDate, storeId,
-      customerEmail, shipToName, shipToPostalCode, items, raw
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      customerEmail, shipToName, shipToCity, shipToState, shipToPostalCode,
+      carrierCode, serviceCode, weightValue, orderTotal, shippingAmount, items, raw
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insertOrder.run(
@@ -99,7 +107,14 @@ function seedDatabase(filename: string): void {
     4001,
     "alice@example.com",
     "Alice",
+    "Beverly Hills",
+    "CA",
     "90210",
+    null,
+    null,
+    32,
+    48.75,
+    0,
     JSON.stringify([{ sku: "SKU-1", name: "Widget", quantity: 2, adjustment: false }]),
     JSON.stringify({ orderId: 101, shipTo: { residential: true }, externallyFulfilled: false }),
   );
@@ -113,7 +128,14 @@ function seedDatabase(filename: string): void {
     4002,
     "bob@example.com",
     "Bob",
+    "New York",
+    "NY",
     "10001",
+    "ups",
+    "ups_ground",
+    16,
+    24.99,
+    7.25,
     JSON.stringify([{ sku: "SKU-2", name: "Gadget", quantity: 1, adjustment: false }]),
     JSON.stringify({ orderId: 102, shipTo: { residential: false }, externallyFulfilled: false }),
   );
@@ -127,7 +149,14 @@ function seedDatabase(filename: string): void {
     4003,
     "cara@example.com",
     "Cara",
+    "San Francisco",
+    "CA",
     "94105",
+    null,
+    null,
+    16,
+    19.99,
+    0,
     JSON.stringify([{ sku: "SKU-1", name: "Widget", quantity: 1, adjustment: false }]),
     JSON.stringify({ orderId: 103, shipTo: { residential: true }, externallyFulfilled: true }),
   );
@@ -180,9 +209,11 @@ test("GET /api/orders returns paginated orders", async () => {
 
   const response = await app(new Request("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
   assert.equal(response.status, 200);
-  const payload = await response.json() as { orders: Array<{ orderId: number }>; meta: { total: number } };
+  const payload = await response.json() as { orders: Array<{ orderId: number }>; page: number; pages: number; total: number };
 
-  assert.equal(payload.meta.total, 3);
+  assert.equal(payload.page, 1);
+  assert.equal(payload.pages, 1);
+  assert.equal(payload.total, 3);
   assert.deepEqual(payload.orders.map((order) => order.orderId), [101, 102, 103]);
 });
 
@@ -200,10 +231,14 @@ test("GET /api/orders?orderStatus=shipped preserves shipped semantics", async ()
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     orders: Array<{ orderId: number; label: { trackingNumber: string | null } }>;
-    meta: { total: number };
+    page: number;
+    pages: number;
+    total: number;
   };
 
-  assert.equal(payload.meta.total, 1);
+  assert.equal(payload.page, 1);
+  assert.equal(payload.pages, 1);
+  assert.equal(payload.total, 1);
   assert.equal(payload.orders[0]?.orderId, 102);
   assert.equal(payload.orders[0]?.label.trackingNumber, "1Z999");
 });
@@ -436,4 +471,43 @@ test("POST /api/orders/:id/selected-package-id aliases the selected provider ove
   assert.equal(verifyResponse.status, 200);
   const payload = await verifyResponse.json() as { local: { selected_pid: number } | null };
   assert.equal(payload.local?.selected_pid, 777001);
+});
+
+test("orders endpoints reject malformed query params and override payload drift", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  });
+
+  const badListResponse = await app(new Request("http://127.0.0.1:4010/api/orders?page=1abc"));
+  assert.equal(badListResponse.status, 400);
+  assert.deepEqual(await badListResponse.json(), { error: "page must be an integer" });
+
+  const badExternalResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/shipped-external", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ flag: "false" }),
+  }));
+  assert.equal(badExternalResponse.status, 400);
+  assert.deepEqual(await badExternalResponse.json(), { error: "flag must be boolean or 0/1" });
+
+  const badPidResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/selected-pid", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ selectedPid: "596001" }),
+  }));
+  assert.equal(badPidResponse.status, 400);
+  assert.deepEqual(await badPidResponse.json(), { error: "selectedPid must be an integer or null" });
+
+  const malformedJsonResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/residential", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{\"residential\":",
+  }));
+  assert.equal(malformedJsonResponse.status, 400);
+  assert.deepEqual(await malformedJsonResponse.json(), { error: "Malformed JSON body" });
 });

@@ -26,7 +26,7 @@ export const COLS = [
   { key:'test_shippingProviderID', label:'Provider ID',       width:110, toggleable:true, sort:null },
   { key:'test_clientID',         label:'Client ID',           width:90,  toggleable:true, sort:null },
   { key:'test_serviceCode',      label:'Service Code',        width:130, toggleable:true, sort:null },
-  { key:'test_bestRateJson',     label:'Best Rate (awaiting)', width:200, toggleable:true, sort:null },
+  { key:'test_bestRate',         label:'Best Rate (awaiting)', width:200, toggleable:true, sort:null },
   { key:'test_orderLocal',       label:'Order Local',         width:140, toggleable:true, sort:null },
   { key:'test_shippingAccount',  label:'Acct Nickname',       width:120, toggleable:true, sort:null },
 ];
@@ -209,18 +209,13 @@ export function formatCarrierDisplay(rate, fallbackCode = 'Unknown') {
   if (rate.carrierNickname && !rate.carrierNickname.startsWith('se-')) {
     return rate.carrierNickname;
   }
-  
-  // Priority 2: Carrier name label (if not system ID)
-  if (rate._carrierName && !rate._carrierName.startsWith('se-')) {
-    return rate._carrierName;
-  }
-  
-  // Priority 3: Label from carrier lookup (if not system ID)
+
+  // Priority 2: Label from carrier lookup (if not system ID)
   if (rate._label && !rate._label.startsWith('se-')) {
     return rate._label;
   }
-  
-  // Priority 4: Generic carrier code name
+
+  // Priority 3: Generic carrier code name
   const genericName = CARRIER_NAMES[rate.carrierCode];
   if (genericName) {
     return genericName;

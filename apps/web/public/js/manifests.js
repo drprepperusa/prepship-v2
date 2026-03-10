@@ -1,4 +1,5 @@
 import { showToast } from './utils.js';
+import { parseErrorResponse } from './api-client.js';
 
 // ═══════════════════════════════════════════════
 //  MANIFEST EXPORT
@@ -62,8 +63,7 @@ export async function generateManifest() {
     });
 
     if (!r.ok) {
-      const err = await r.json();
-      showToast('❌ ' + (err.error || 'Manifest generation failed'));
+      showToast('❌ ' + await parseErrorResponse(r));
       btn.disabled = false;
       btn.innerHTML = '⬇️ Download CSV';
       status.style.display = 'none';

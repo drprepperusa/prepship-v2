@@ -6,6 +6,12 @@
 import { state } from './state.js';
 import { escHtml, fmtWeight, trunc, showToast } from './utils.js';
 import { COLS, clientPalette, carrierLogo } from './constants.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseClearAndRefetchResult,
+  parseClientDtoList,
+  parseInitDataDto,
+} from './api-contracts.js';
 import { loadRbMarkups, renderSettingsRbMarkups } from './markups.js';
 import { loadStores, getStoreName, loadCarrierAccounts } from './stores.js';
 import { loadCounts, buildSidebarCounts, renderSidebarSections, selectStatus } from './sidebar.js';
@@ -228,7 +234,7 @@ document.addEventListener('click', e => {
   });
 
   try {
-    const initData = await fetch('/api/init-data').then(r => r.json());
+    const initData = await fetchValidatedJson('/api/init-data', undefined, parseInitDataDto);
 
     // Apply stores
     if (Array.isArray(initData.stores)) {
@@ -283,12 +289,10 @@ document.addEventListener('click', e => {
     await Promise.all([loadRbMarkups(), loadStores(), loadCounts()]);
     // Fallback to fetch clients explicitly if init-data failed
     try {
-      const clientsRes = await fetch('/api/clients').then(r => r.json());
-      if (Array.isArray(clientsRes)) {
-        state.clientMap = {};
-        clientsRes.forEach(c => state.clientMap[c.clientId] = c.name);
-        console.log('✅ clientMap populated (fallback):', state.clientMap);
-      }
+      const clientsRes = await fetchValidatedJson('/api/clients', undefined, parseClientDtoList);
+      state.clientMap = {};
+      clientsRes.forEach(c => state.clientMap[c.clientId] = c.name);
+      console.log('✅ clientMap populated (fallback):', state.clientMap);
     } catch (clientErr) {
       console.warn('⚠️ fallback clients fetch failed:', clientErr);
     }
@@ -314,17 +318,11 @@ async function refetchAllRates() {
   status.style.display = 'block';
   
   try {
-    const resp = await fetch('/api/cache/clear-and-refetch', {
+    const result = await fetchValidatedJson('/api/cache/clear-and-refetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scope: 'all' })
-    });
-    
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
-    
-    const result = await resp.json();
+    }, parseClearAndRefetchResult);
     status.textContent = `✅ ${result.message} (${result.ordersQueued} orders queued)`;
     status.style.color = 'var(--success)';
     

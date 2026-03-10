@@ -1,6 +1,8 @@
 import { state } from './state.js';
 import { COLS } from './constants.js';
 import { escHtml } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseColPrefs } from './api-contracts.js';
 
 // ═══════════════════════════════════════════════
 //  TABLE HEAD
@@ -81,7 +83,7 @@ export function saveColPrefs() {
 
 export async function loadColPrefs() {
   try {
-    const prefs = await fetch('/api/settings/colPrefs').then(r => r.json());
+    const prefs = await fetchValidatedJson('/api/settings/colPrefs', undefined, parseColPrefs);
     if (!prefs) return;
     if (Array.isArray(prefs.hidden)) state.hiddenCols = new Set(prefs.hidden);
     if (prefs.widths) Object.assign(state.colWidths, prefs.widths);

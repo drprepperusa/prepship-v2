@@ -1,5 +1,7 @@
 import { state } from './state.js';
 import { escHtml, showToast } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseAnalysisDailySalesResponse, parseAnalysisSkusResponse, parseClientDtoList } from './api-contracts.js';
 
 const CHART_COLORS = ['#2a5bd7','#16a34a','#e07a00','#c62828','#7c3aed','#0891b2','#be185d','#92400e'];
 
@@ -7,7 +9,7 @@ export async function initAnalysisView() {
   const sel = document.getElementById('analysis-client');
   if (sel && sel.options.length <= 1) {
     try {
-      const clients = await fetch('/api/clients').then(r => r.json());
+      const clients = await fetchValidatedJson('/api/clients', undefined, parseClientDtoList);
       clients.forEach(c => {
         const opt = document.createElement('option');
         opt.value = c.clientId;
@@ -90,8 +92,8 @@ export async function loadAnalysis() {
     if (clientId) chartParams.set('clientId', clientId);
 
     const [data, chartData] = await Promise.all([
-      fetch(`/api/analysis/skus?${params}`).then(r => r.json()),
-      fetch(`/api/analysis/daily-sales?${chartParams}`).then(r => r.json()).catch(() => null),
+      fetchValidatedJson(`/api/analysis/skus?${params}`, undefined, parseAnalysisSkusResponse),
+      fetchValidatedJson(`/api/analysis/daily-sales?${chartParams}`, undefined, parseAnalysisDailySalesResponse).catch(() => null),
     ]);
 
     state.analysisData = data.skus || [];

@@ -1,3 +1,5 @@
+import { parseOptionalIntegerParam } from "../common/input-validation.ts";
+
 export interface BillingConfigDto {
   clientId: number;
   clientName: string;
@@ -147,17 +149,11 @@ export interface FetchBillingReferenceRatesResult {
   status?: BillingReferenceRateFetchStatusDto;
 }
 
-function parseOptionalInt(value: string | null): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 export function parseBillingSummaryQuery(url: URL): BillingSummaryQuery {
   return {
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
   };
 }
 
@@ -165,12 +161,12 @@ export function parseBillingDetailsQuery(url: URL): BillingDetailsQuery {
   return {
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
   };
 }
 
 export function parseBillingPackagePricesQuery(url: URL): BillingPackagePricesQuery {
   return {
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
   };
 }

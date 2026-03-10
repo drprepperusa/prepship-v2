@@ -261,3 +261,28 @@ test("packages endpoints support CRUD, stock operations, lookups, and sync carri
     return row?.source === "carrier" && row?.carrierCode === "ups";
   });
 });
+
+test("packages endpoints reject malformed JSON and invalid dimension query input", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedPackageDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  }, {
+    packageSyncGateway: new FakePackageSyncGateway(),
+  });
+
+  const invalidDimsResponse = await app(new Request("http://127.0.0.1:4010/api/packages/find-by-dims?length=8x&width=6&height=4"));
+  assert.equal(invalidDimsResponse.status, 400);
+  assert.deepEqual(await invalidDimsResponse.json(), { error: "length must be a number" });
+
+  const malformedCreateResponse = await app(new Request("http://127.0.0.1:4010/api/packages", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{\"name\":",
+  }));
+  assert.equal(malformedCreateResponse.status, 400);
+  assert.deepEqual(await malformedCreateResponse.json(), { error: "Malformed JSON body" });
+});

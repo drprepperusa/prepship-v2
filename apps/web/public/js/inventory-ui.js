@@ -1,6 +1,24 @@
 import { state } from './state.js';
 import { escHtml, fmtWeight, showToast } from './utils.js';
 import { getStoreName } from './stores.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseAdjustInventoryResult,
+  parseClientDtoList,
+  parseCreateClientResult,
+  parseCreateParentSkuResult,
+  parseInventoryAlertList,
+  parseInventoryBulkUpdateDimsResult,
+  parseInventoryImportDimsResult,
+  parseInventoryItemList,
+  parseInventoryLedgerEntryList,
+  parseInventoryPopulateResult,
+  parseInventorySkuOrdersResponse,
+  parseOkResult,
+  parseParentSkuDtoList,
+  parseReceiveInventoryResponse,
+  parseSyncClientsResult,
+} from './api-contracts.js';
 
 export function openInventory(sku) {
   window.showView('inventory');
@@ -16,12 +34,11 @@ export function openInventory(sku) {
 export async function populateInventory() {
   showToast('📥 Scanning orders for SKUs…');
   try {
-    const r = await fetch('/api/inventory/populate', { method: 'POST' });
-    const d = await r.json();
+    const d = await fetchValidatedJson('/api/inventory/populate', { method: 'POST' }, parseInventoryPopulateResult);
     if (d.ok) {
       showToast(`✅ Imported ${d.skusRegistered} SKUs, processed ${d.shippedProcessed} shipments`);
       await loadInventoryView();
-    } else showToast('❌ ' + (d.error || 'Failed'));
+    } else showToast('❌ Failed');
   } catch (e) { showToast('❌ ' + e.message); }
 }
 
@@ -30,21 +47,19 @@ export async function importDimsFromSS() {
   const qs       = clientId ? `?clientId=${clientId}` : '';
   showToast('📐 Importing weight & dims from ShipStation…');
   try {
-    const r = await fetch('/api/inventory/import-dims' + qs, { method: 'POST' });
-    const d = await r.json();
+    const d = await fetchValidatedJson('/api/inventory/import-dims' + qs, { method: 'POST' }, parseInventoryImportDimsResult);
     if (d.ok) {
       const msg = `✅ Updated ${d.updated} SKUs — ${d.skipped} already had dims, ${d.noMatch} not in SS catalog`;
       showToast(msg);
       await loadInventoryView();
-    } else showToast('❌ ' + (d.error || 'Import failed'));
+    } else showToast('❌ Import failed');
   } catch (e) { showToast('❌ ' + e.message); }
 }
 
 export async function loadInventoryView() {
   switchInvTab(state.invCurrentTab);
   try {
-    const r = await fetch('/api/clients');
-    state.invClientsData = await r.json();
+    state.invClientsData = await fetchValidatedJson('/api/clients', undefined, parseClientDtoList);
   } catch { state.invClientsData = []; }
 
   const opts = state.invClientsData.map(c => `<option value="${c.clientId}">${escHtml(c.name)}</option>`).join('');
@@ -56,8 +71,7 @@ export async function loadInventoryView() {
   });
 
   try {
-    const r2 = await fetch('/api/inventory/alerts');
-    const alerts = await r2.json();
+    const alerts = await fetchValidatedJson('/api/inventory/alerts', undefined, parseInventoryAlertList);
     const badge  = document.getElementById('inv-alerts-badge');
     if (badge) {
       if (alerts.length > 0) { badge.style.display = ''; badge.textContent = `⚠ ${alerts.length} Low/Out`; }
@@ -74,8 +88,7 @@ export async function loadStockData() {
   try {
     const clientId = document.getElementById('inv-stock-client')?.value || '';
     const url = '/api/inventory' + (clientId ? '?clientId=' + clientId : '');
-    const r = await fetch(url);
-    state.invStockData = await r.json();
+    state.invStockData = await fetchValidatedJson(url, undefined, parseInventoryItemList);
   } catch { state.invStockData = []; }
   
   // Load parent SKUs for the selected client
@@ -88,8 +101,7 @@ export async function loadParentSkuList() {
   try {
     const clientId = document.getElementById('inv-stock-client')?.value || '';
     if (!clientId) { state.parentSkuList = []; return; }
-    const r = await fetch('/api/parent-skus?clientId=' + clientId);
-    state.parentSkuList = await r.json();
+    state.parentSkuList = await fetchValidatedJson('/api/parent-skus?clientId=' + clientId, undefined, parseParentSkuDtoList);
   } catch { state.parentSkuList = []; }
 }
 
@@ -247,20 +259,17 @@ export async function saveBulkDims() {
     height:   tr.querySelector('[data-field="height"]')?.value,
   }));
   try {
-    const r = await fetch('/api/inventory/bulk-update-dims', {
+    const d = await fetchValidatedJson('/api/inventory/bulk-update-dims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Server error');
+    }, parseInventoryBulkUpdateDimsResult);
     showToast(`✅ Saved dims for ${d.updated} SKUs`);
     state.bulkDimsMode = false;
     const btn = document.getElementById('bulk-dims-btn');
     if (btn) { btn.textContent = '✏️ Bulk Dims'; btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; }
     // Refresh inventory data then re-render
-    const inv = await fetch('/api/inventory').then(x => x.json());
-    state.invStockData = inv;
+    state.invStockData = await fetchValidatedJson('/api/inventory', undefined, parseInventoryItemList);
     renderStockTab();
   } catch (e) { showToast('❌ Save failed: ' + e.message); }
 }
@@ -394,16 +403,16 @@ export function submitAdjust(invSkuId) {
     ? new Date(dateVal + 'T12:00:00').toISOString()
     : new Date().toISOString();
   document.getElementById('adjustModalOverlay')?.remove();
-  fetch('/api/inventory/adjust', {
+  fetchValidatedJson('/api/inventory/adjust', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ invSkuId, qty: n, note: finalNote, type, adjustedAt }),
-  }).then(r => r.json()).then(d => {
+  }, parseAdjustInventoryResult).then(d => {
     if (d.ok) {
       const dateStr = new Date(adjustedAt).toLocaleDateString();
       showToast(`✅ ${type.charAt(0).toUpperCase()+type.slice(1)} recorded on ${dateStr}. New total: ${d.newStock} — <a href="#" onclick="switchInvTab('history');return false" style="color:inherit;text-decoration:underline">View History</a>`);
       loadInventoryView();
     }
-    else showToast('❌ ' + (d.error || 'Adjust failed'));
+    else showToast('❌ Adjust failed');
   }).catch(() => showToast('❌ Network error'));
 }
 
@@ -472,13 +481,12 @@ export async function submitCreateParent(clientId) {
   }
   
   try {
-    const r = await fetch('/api/parent-skus', {
+    const d = await fetchValidatedJson('/api/parent-skus', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId: parseInt(clientId), name, sku, baseUnitQty: Math.max(1, baseUnitQty) }),
-    });
-    const d = await r.json();
-    if (!r.ok || !d.parentSkuId) throw new Error(d.error || 'Failed to create parent');
+    }, parseCreateParentSkuResult);
+    if (!d.parentSkuId) throw new Error('Failed to create parent');
     
     showToast(`✅ Created parent: ${name}`);
     document.getElementById('createParentOverlay')?.remove();
@@ -613,35 +621,34 @@ export async function saveInvSku(invSkuId) {
   // Handle parent SKU linkage
   if (parentSkuId) {
     try {
-      await fetch(`/api/inventory/${invSkuId}/set-parent`, {
+      await fetchValidatedJson(`/api/inventory/${invSkuId}/set-parent`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           parentSkuId,
           baseUnitQty: Math.max(1, parseInt(document.getElementById('edit-inv-baseunit').value) || 1),
         }),
-      });
+      }, parseOkResult);
     } catch (e) {
       showToast('⚠️ Saved SKU but failed to link parent: ' + e.message);
     }
   } else if (sku.parentSkuId) {
     // Unlink from parent if was previously linked
     try {
-      await fetch(`/api/inventory/${invSkuId}/set-parent`, {
+      await fetchValidatedJson(`/api/inventory/${invSkuId}/set-parent`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parentSkuId: null }),
-      });
+      }, parseOkResult);
     } catch (e) {
       showToast('⚠️ Saved SKU but failed to unlink parent: ' + e.message);
     }
   }
   
   try {
-    const r = await fetch(`/api/inventory/${invSkuId}`, {
+    const d = await fetchValidatedJson(`/api/inventory/${invSkuId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const d = await r.json();
+    }, parseOkResult);
     if (d.ok) {
       showToast('✅ Saved');
       document.getElementById('editInvSkuOverlay')?.remove();
@@ -656,8 +663,7 @@ export async function showSkuHistory(invSkuId, sku) {
   const el = document.getElementById('inv-history-content');
   if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   try {
-    const r    = await fetch(`/api/inventory/${invSkuId}/ledger`);
-    const rows = await r.json();
+    const rows = await fetchValidatedJson(`/api/inventory/${invSkuId}/ledger`, undefined, parseInventoryLedgerEntryList);
     renderLedgerTable(rows, `History: ${sku}`);
   } catch { if (el) el.innerHTML = '<div class="empty-state">Failed to load</div>'; }
 }
@@ -674,8 +680,7 @@ export async function onRecvClientChange() {
   // Fetch SKUs for this specific client (fresh, not relying on stock tab's filter)
   let clientSkus = [];
   try {
-    const r = await fetch('/api/inventory?clientId=' + clientId);
-    clientSkus = await r.json();
+    clientSkus = await fetchValidatedJson('/api/inventory?clientId=' + clientId, undefined, parseInventoryItemList);
   } catch { clientSkus = []; }
 
   // Build datalist — store full metadata per SKU
@@ -793,11 +798,10 @@ export async function submitReceive() {
     if (sku && qty > 0) items.push({ sku, name, qty });
   });
   if (!items.length) return showToast('⚠ Add at least one SKU with quantity');
-  const r = await fetch('/api/inventory/receive', {
+  const d = await fetchValidatedJson('/api/inventory/receive', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ clientId: parseInt(clientId), items, note, receivedAt }),
-  });
-  const d = await r.json();
+  }, parseReceiveInventoryResponse);
   if (d.ok) {
     const res = document.getElementById('inv-recv-result');
     if (res) {
@@ -857,8 +861,7 @@ export async function syncClientsFromStores() {
   if (btn) btn.disabled = true;
   if (status) status.textContent = 'Syncing…';
   try {
-    const r = await fetch('/api/clients/sync-stores', { method: 'POST' });
-    const d = await r.json();
+    const d = await fetchValidatedJson('/api/clients/sync-stores', { method: 'POST' }, parseSyncClientsResult);
     if (d.ok) {
       state.invClientsData = d.clients;
       renderClientsTab();
@@ -886,8 +889,8 @@ export function showClientForm(client) {
     <option value="">DR PREPPER</option>
     <option value="10">KFG</option>
   `;
-  if (isEdit && client.rate_source_client_id) {
-    rateSourceSelect.value = client.rate_source_client_id;
+  if (isEdit && client.rateSourceClientId) {
+    rateSourceSelect.value = client.rateSourceClientId;
   }
   
   document.getElementById('inv-client-form').style.display = '';
@@ -911,8 +914,9 @@ export async function saveClient() {
   if (!payload.name) return showToast('⚠ Client name is required');
   const url    = id ? `/api/clients/${id}` : '/api/clients';
   const method = id ? 'PUT' : 'POST';
-  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const d = await r.json();
+  const d = id
+    ? await fetchValidatedJson(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, parseOkResult)
+    : await fetchValidatedJson(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, parseCreateClientResult);
   if (d.ok || d.clientId) {
     showToast(id ? '✅ Client updated' : `✅ Client "${payload.name}" added`);
     hideClientForm();
@@ -923,10 +927,9 @@ export async function saveClient() {
 
 export async function deleteClient(clientId, name) {
   if (!confirm(`Delete client "${name}"? Their inventory records will be preserved.`)) return;
-  const r = await fetch(`/api/clients/${clientId}`, { method: 'DELETE' });
-  const d = await r.json();
+  const d = await fetchValidatedJson(`/api/clients/${clientId}`, { method: 'DELETE' }, parseOkResult);
   if (d.ok) { showToast(`✅ Client deleted`); await loadInventoryView(); renderClientsTab(); }
-  else showToast('❌ ' + d.error);
+  else showToast('❌ Delete failed');
 }
 
 // ── History Tab ──────────────────────────────────────────────────────────────
@@ -946,7 +949,7 @@ export async function loadHistoryTab() {
     if (dateFrom) params.set('dateStart', String(new Date(dateFrom + 'T00:00:00').getTime()));
     if (dateTo)   params.set('dateEnd',   String(new Date(dateTo   + 'T23:59:59').getTime()));
 
-    const rows = await fetch('/api/inventory/ledger?' + params).then(r => r.json());
+    const rows = await fetchValidatedJson('/api/inventory/ledger?' + params, undefined, parseInventoryLedgerEntryList);
     if (!rows.length) { el.innerHTML = '<div class="empty-state">No movements found</div>'; return; }
     renderLedgerTable(rows);
   } catch (e) {
@@ -1020,8 +1023,7 @@ export async function openSkuDrawer(invSkuId) {
 
   // Fetch data
   try {
-    const data = await fetch(`/api/inventory/${invSkuId}/sku-orders`).then(r => r.json());
-    if (data.error) throw new Error(data.error);
+    const data = await fetchValidatedJson(`/api/inventory/${invSkuId}/sku-orders`, undefined, parseInventorySkuOrdersResponse);
 
     document.getElementById('skuDrawerTitle').textContent = data.name || data.sku;
     document.getElementById('skuDrawerSub').textContent   = data.sku;

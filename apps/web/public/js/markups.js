@@ -1,13 +1,15 @@
 import { state } from './state.js';
 import { escHtml, showToast } from './utils.js';
 import { isBlockedRate } from './constants.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseRbMarkups } from './api-contracts.js';
 
 // ═══════════════════════════════════════════════
 //  MARKUP LOADING & SAVING
 // ═══════════════════════════════════════════════
 export async function loadRbMarkups() {
   try {
-    const data = await fetch('/api/settings/rbMarkups').then(r => r.json());
+    const data = await fetchValidatedJson('/api/settings/rbMarkups', undefined, parseRbMarkups);
     if (data && typeof data === 'object') state.rbMarkups = data;
   } catch {
     try {
@@ -91,14 +93,11 @@ export function priceDisplay(rawCost, markedCost, opts = {}) {
 }
 
 export function isResidential(o) {
-  // Priority 1: manual override stored in order_local
-  if (o._residential === 1) return true;
-  if (o._residential === 0) return false;
-  // Priority 2: ShipStation's own residential determination (from shipTo.residential)
-  if (o._ssResidential === 1) return true;
-  if (o._ssResidential === 0) return false;
-  // Priority 3: no company name = residential (common industry fallback)
-  return !o._shipCompany;
+  if (o.residential === true) return true;
+  if (o.residential === false) return false;
+  if (o.sourceResidential === true) return true;
+  if (o.sourceResidential === false) return false;
+  return !o.shipTo?.company;
 }
 
 export function isOrionRate(rate) {

@@ -42,6 +42,25 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 - `packages/shared` config, DI, and SQLite utilities
 - `docs` architecture and migration planning
 
+## Frontend Validation Hardening
+
+The copied V1 frontend in `apps/web` is still DOM-driven and not fully typed at runtime. To reduce DTO drift bugs without forcing a React rewrite, V2 now includes a browser-side validation boundary for high-risk API responses.
+
+V2 now also has stricter API ingress validation for migrated routes. Malformed JSON request bodies and invalid numeric/boolean request input are rejected with `400` responses instead of being silently coerced into defaults or bubbling out as `500`s.
+
+Current entry points:
+
+- `apps/web/public/js/api-client.js`
+- `apps/web/public/js/api-contracts.js`
+- `apps/web/test/api-contracts.test.ts`
+- `packages/contracts/src/common/input-validation.ts`
+- `apps/api/src/app/create-app.ts`
+
+Current notes and next targets:
+
+- `docs/frontend-validation-hardening.md`
+- `docs/frontend-api-audit.md`
+
 ## Configuration
 
 ```bash
@@ -235,6 +254,7 @@ Migration intent:
 - fixture-backed API tests pass for `orders`, `clients`, `locations`, `settings`, and `packages`
 - fixture-backed API tests pass for `billing`, `analysis`, `init`, `inventory`, `orders`, `clients`, `locations`, `settings`, `packages`, `rates`, `manifests`, `labels`, and `shipments`
 - fixture-backed API tests pass for `products`, inventory helper flows, and order daily-stats compatibility routes
+- tests now include malformed-request regression coverage for strict request parsing on `orders`, `billing`, `packages`, `inventory`, and `rates`
 - tests now include SQLite adapter integration coverage, a memory-provider boot test, and storage-independent service tests
 - current command:
 

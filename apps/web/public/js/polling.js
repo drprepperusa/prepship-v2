@@ -4,6 +4,8 @@
 
 import { state } from './state.js';
 import { renderOrders } from './orders.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseListOrdersResponse } from './api-contracts.js';
 
 const POLL_INTERVAL_MS = 2000; // 2 seconds — faster rate updates during initial load
 let pollingActive = false;
@@ -22,11 +24,9 @@ async function fetchFreshOrders() {
     if (range?.start) params.set('dateStart', range.start.toISOString());
     if (range?.end)   params.set('dateEnd',   range.end.toISOString());
 
-    const resp = await fetch(`/api/orders?${params.toString()}`, {
+    return await fetchValidatedJson(`/api/orders?${params.toString()}`, {
       headers: { 'X-App-Token': window.APP_TOKEN || '' },
-    });
-    if (!resp.ok) return null;
-    return await resp.json();
+    }, parseListOrdersResponse);
   } catch (e) {
     console.warn('[Polling] fetch error:', e.message);
     return null;

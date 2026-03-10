@@ -4,6 +4,16 @@ import { CARRIER_NAMES, SERVICE_NAMES, isBlockedRate } from './constants.js';
 import { applyCarrierMarkup, pickBestRate, isResidential } from './markups.js';
 import { getStoreName } from './stores.js';
 import { getOrderPrimarySku, updateBatchBar } from './table.js';
+import { fetchValidatedJson, parseErrorResponse } from './api-client.js';
+import { getOrderBillingProviderId, getOrderDimensions, getOrderStoreId } from './order-data.js';
+import {
+  parseAutoCreatePackageResponse,
+  parseBulkCachedRatesResponse,
+  parseCreateLabelResponse,
+  parseLiveRatesResponse,
+  parseNullablePackageDto,
+  parsePackageDtoList,
+} from './api-contracts.js';
 
 export async function getRates() {
   const wt  = parseFloat(document.getElementById('rWeight').value) || 0;
@@ -23,12 +33,11 @@ export async function getRates() {
   }
   document.getElementById('ratesResult').innerHTML = '<div class="loading"><div class="spinner"></div><div>Fetching live rates…</div></div>';
   try {
-    const r = await fetch('/api/rates', {
+    const allRates = await fetchValidatedJson('/api/rates', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fromPostalCode: fromZip, toPostalCode: toZip, toCountry: 'US',
         weight: { value: wt, units: 'ounces' }, dimensions: { units: 'inches', length: len, width: wid, height: hgt } }),
-    });
-    const allRates = await r.json();
+    }, parseLiveRatesResponse);
     if (!Array.isArray(allRates) || !allRates.length) {
       document.getElementById('ratesResult').innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>No rates returned.</div></div>';
       return;
@@ -101,7 +110,7 @@ export function showBatchPanel() {
   const stateList = Object.entries(statesMap).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([st,n])=>`${st} (${n})`).join(', ');
   const first = orders[0];
   const wt = (first._enrichedWeight || first.weight)?.value || 0;
-  const dSrc = first._enrichedDims || first.dimensions || {};
+  const dSrc = first._enrichedDims || getOrderDimensions(first) || {};
   const pkgOpts = state.packagesList.filter(p => p.source === 'custom').map(p => `<option value="${p.packageId}">${escHtml(p.name)} (${p.length}×${p.width}×${p.height})</option>`).join('');
 
   state.currentPanelOrder = null;
@@ -240,15 +249,15 @@ export function showBatchPanel() {
     let html = '', totalCost = 0, rated = 0, missing = 0;
 
     for (const o of orders) {
-      const spid    = o.advancedOptions?.billToMyOtherAccount;
-      const storeId = o.advancedOptions?.storeId || null;
+      const spid    = getOrderBillingProviderId(o);
+      const storeId = getOrderStoreId(o);
       const cached  = state.orderBestRate[o.orderId];
       if (cached) {
         const cc   = CARRIER_NAMES[cached.carrierCode] || cached.carrierCode;
         const sc   = SERVICE_NAMES[cached.serviceCode] || cached.serviceName || cached.serviceCode;
         const cost = applyCarrierMarkup(cached, spid, storeId);
         const _nick = cached.carrierNickname && !cached.carrierNickname.startsWith('se-') ? cached.carrierNickname : '';
-        const acct = _nick || cached._carrierName || state.carrierAccountMap[cached.shippingProviderId] || cc;
+        const acct = _nick || state.carrierAccountMap[cached.shippingProviderId] || cc;
         totalCost += cost;
         rated++;
         html += `<div style="padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
@@ -304,8 +313,7 @@ export async function autoMatchPackageByDims() {
 
   try {
     // Try to find existing package with matching dims
-    const r = await fetch(`/api/packages/find-by-dims?length=${l}&width=${w}&height=${h}`);
-    const pkg = await r.json();
+    const pkg = await fetchValidatedJson(`/api/packages/find-by-dims?length=${l}&width=${w}&height=${h}`, undefined, parseNullablePackageDto);
 
     if (pkg) {
       // Found exact match — auto-select it
@@ -320,24 +328,22 @@ export async function autoMatchPackageByDims() {
 
       if (isSingleSku) {
         // Get clientId from any order's store
-        const storeId = orders[0]?.advancedOptions?.storeId;
-        const client = (state.clientsList || []).find(c => c.storeIds && JSON.parse(c.storeIds || '[]').includes(storeId));
+        const storeId = getOrderStoreId(orders[0]);
+        const client = (state.clientsList || []).find(c => Array.isArray(c.storeIds) && c.storeIds.includes(storeId));
         const clientId = client?.clientId;
 
         if (clientId) {
           // Auto-create the package and set as SKU default
-          const cr = await fetch('/api/packages/auto-create', {
+          const createResult = await fetchValidatedJson('/api/packages/auto-create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ length: l, width: w, height: h, sku: isSingleSku, clientId }),
-          });
-          const createResult = await cr.json();
+          }, parseAutoCreatePackageResponse);
           if (createResult.ok && createResult.package) {
             pkgSel.value = createResult.package.packageId;
             showToast(`✨ Created & selected: ${createResult.package.name} (saved as default for ${isSingleSku})`);
             // Refresh packages list to include new package
-            const pkgResp = await fetch('/api/packages?source=custom');
-            const pkgs = await pkgResp.json();
+            const pkgs = await fetchValidatedJson('/api/packages?source=custom', undefined, parsePackageDtoList);
             state.packagesList = pkgs;
           }
         }
@@ -359,7 +365,7 @@ export async function batchRateShop() {
   function getOrderParams(o) {
     if (state.batchForceShared) return { wt: sharedWt, l: sharedL, w: sharedW, h: sharedH };
     const wt   = (o._enrichedWeight || o.weight)?.value || sharedWt;
-    const dSrc = o._enrichedDims || o.dimensions || {};
+    const dSrc = o._enrichedDims || getOrderDimensions(o) || {};
     return { wt, l: dSrc.length || sharedL, w: dSrc.width || sharedW, h: dSrc.height || sharedH };
   }
 
@@ -386,7 +392,7 @@ export async function batchRateShop() {
   orders.forEach(o => {
     const p   = getOrderParams(o);
     const zip = (o.shipTo?.postalCode || '').replace(/\D/g,'').slice(0,5);
-    const storeId = o?.advancedOptions?.storeId || null;
+    const storeId = getOrderStoreId(o);
     const key = `${Math.round(p.wt)}|${zip}|${p.l}x${p.w}x${p.h}|${storeId}`;
     if (!groups[key]) groups[key] = { key, wt: Math.round(p.wt), zip, dims: { length: p.l, width: p.w, height: p.h }, storeId, ids: [] };
     groups[key].ids.push(o.orderId);
@@ -394,11 +400,10 @@ export async function batchRateShop() {
 
   // Try bulk cache first — returns { results: { [key]: { cached, rates } }, missing: [...] }
   try {
-    const r = await fetch('/api/rates/cached/bulk', {
+    const data = await fetchValidatedJson('/api/rates/cached/bulk', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(Object.values(groups).map(g => ({ key: g.key, wt: g.wt, zip: g.zip, dims: g.dims, ids: g.ids, storeId: g.storeId }))),
-    });
-    const data = await r.json();
+    }, parseBulkCachedRatesResponse);
 
     for (const [key, item] of Object.entries(data.results || {})) {
       if (item.cached && item.rates?.length) {
@@ -406,8 +411,8 @@ export async function batchRateShop() {
         if (!group) continue;
         group.ids.forEach(id => {
           const ord     = state.allOrders.find(o => o.orderId === id);
-          const spid    = ord?.advancedOptions?.billToMyOtherAccount;
-          const storeId = ord?.advancedOptions?.storeId || null;
+          const spid    = getOrderBillingProviderId(ord);
+          const storeId = getOrderStoreId(ord);
           const best    = pickBestRate(item.rates, spid, storeId);
           if (best) {
             state.orderBestRate[id] = best;
@@ -432,14 +437,13 @@ export async function batchRateShop() {
   for (const o of uncached) {
     const p   = getOrderParams(o);
     const zip = (o.shipTo?.postalCode || '').replace(/\D/g,'').slice(0,5);
-    const storeId = o.advancedOptions?.storeId || null;
+    const storeId = getOrderStoreId(o);
     try {
-      const r = await fetch('/api/rates', {
+      const rates = await fetchValidatedJson('/api/rates', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromPostalCode: '90248', toPostalCode: zip, weight: { value: p.wt, units: 'ounces' }, dimensions: { length: p.l, width: p.w, height: p.h }, storeId }),
-      });
-      const rates = await r.json();
-      const spid  = o.advancedOptions?.billToMyOtherAccount;
+      }, parseLiveRatesResponse);
+      const spid  = getOrderBillingProviderId(o);
       const best  = pickBestRate(rates, spid, storeId);
       const el    = document.getElementById(`br-${o.orderId}`);
       if (best) {
@@ -512,7 +516,7 @@ export async function batchCreateLabels() {
 
   let created = 0, failed = 0;
   const failures  = [];
-  const labelPdfs = []; // collect { orderNumber, tracking, pdf } for auto-download
+  const labelDownloads = []; // collect { orderNumber, tracking, labelUrl } for auto-download
 
   for (const o of orders) {
     try {
@@ -538,29 +542,21 @@ export async function batchCreateLabels() {
         ...(hasPanelDims  ? { length: panelL, width: panelW, height: panelH }  : {}),
       };
 
-      const r = await fetch('/api/labels/create', {
+      const data = await fetchValidatedJson('/api/labels/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(labelReq),
-      });
+      }, parseCreateLabelResponse);
 
-      const data = await r.json();
-
-      if (r.ok) {
-        created++;
-        console.log(`[Batch] ✓ Created label for ${o.orderNumber}`, data);
-        if (data.labelData) {
-          labelPdfs.push({ orderNumber: o.orderNumber, tracking: data.trackingNumber, pdf: data.labelData });
-        }
-      } else {
-        console.error(`[Batch] Failed for ${o.orderNumber}:`, data.error);
-        failed++;
-        failures.push(`${o.orderNumber} (${data.error || 'unknown'})`);
+      created++;
+      console.log(`[Batch] ✓ Created label for ${o.orderNumber}`, data);
+      if (data.labelUrl) {
+        labelDownloads.push({ orderNumber: o.orderNumber, tracking: data.trackingNumber, labelUrl: data.labelUrl });
       }
     } catch (e) {
       console.error(`[Batch] Exception for ${o.orderNumber}:`, e.message);
       failed++;
-      failures.push(o.orderNumber);
+      failures.push(`${o.orderNumber} (${e.message || 'unknown'})`);
     }
   }
 
@@ -576,29 +572,25 @@ export async function batchCreateLabels() {
   }
 
   // Auto-download all label PDFs — use <a download> to avoid popup blocking
-  if (labelPdfs.length > 0) {
-    for (const { orderNumber, tracking, pdf } of labelPdfs) {
+  if (labelDownloads.length > 0) {
+    for (const { orderNumber, tracking, labelUrl } of labelDownloads) {
       try {
-        const binary = atob(pdf);
-        const bytes  = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob   = new Blob([bytes], { type: 'application/pdf' });
-        const url    = URL.createObjectURL(blob);
         const a      = document.createElement('a');
-        a.href       = url;
+        a.href       = labelUrl;
         a.download   = `label-${tracking || orderNumber}.pdf`;
+        a.target     = '_blank';
+        a.rel        = 'noopener';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 15_000);
         // Brief pause between downloads to avoid browser rate-limiting
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch (pdfErr) {
         console.warn(`[Batch] Could not download PDF for ${orderNumber}:`, pdfErr.message);
       }
     }
-    if (labelPdfs.length < created) {
-      showToast(`⚠ ${created - labelPdfs.length} label(s) created but no PDF returned — check ShipStation`);
+    if (labelDownloads.length < created) {
+      showToast(`⚠ ${created - labelDownloads.length} label(s) created but no PDF returned — check ShipStation`);
     }
   }
 
@@ -653,8 +645,7 @@ export async function saveBatchSkuDims(sku, orderCount) {
       showToast(`✅ Saved defaults for ${sku} (applies to all future orders)`);
       console.log(`[Batch] Saved SKU defaults:`, { sku, wt, l, w, h, pkg });
     } else {
-      const err = await r.json();
-      showToast(`❌ Error saving defaults: ${err.error || 'Unknown error'}`);
+      showToast(`❌ Error saving defaults: ${await parseErrorResponse(r)}`);
     }
   } catch (e) {
     console.error('[Batch] Error saving SKU defaults:', e.message);

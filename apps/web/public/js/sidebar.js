@@ -1,13 +1,14 @@
 import { state } from './state.js';
 import { escHtml } from './utils.js';
+import { fetchValidatedJson } from './api-client.js';
+import { parseInitCountsDto } from './api-contracts.js';
 
 // ═══════════════════════════════════════════════
 //  SIDEBAR COUNTS
 // ═══════════════════════════════════════════════
 export async function loadCounts() {
   try {
-    const r    = await fetch('/api/counts');
-    const data = await r.json();
+    const data = await fetchValidatedJson('/api/counts', undefined, parseInitCountsDto);
     buildSidebarCounts(data);
     renderSidebarSections();
   } catch (e) { console.warn('loadCounts:', e); }

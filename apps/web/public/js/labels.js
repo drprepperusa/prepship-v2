@@ -1,6 +1,14 @@
 import { state } from './state.js';
 import { showToast } from './utils.js';
 import { applyCarrierMarkup } from './markups.js';
+import { fetchValidatedJson } from './api-client.js';
+import {
+  parseCreateLabelResponse,
+  parseRetrieveLabelResponse,
+  parseReturnLabelResponse,
+  parseVoidLabelResponse,
+} from './api-contracts.js';
+import { getOrderShipTo } from './order-data.js';
 
 // ═══════════════════════════════════════════════
 //  LABEL CREATION
@@ -70,6 +78,7 @@ export async function createLabel(testLabel = false) {
   const acct = state.carriersList.find(c => c.shippingProviderId === pid);
   const carrierCode = acct?.code || '';
   if (!carrierCode) return showToast('⚠ Could not resolve carrier code — select a valid account');
+  const shipTo = getOrderShipTo(o);
 
   const payload = {
     orderId:     o.orderId,
@@ -84,15 +93,15 @@ export async function createLabel(testLabel = false) {
     testLabel:   !!testLabel,
     shippingProviderId: pid,
     shipTo: {
-      name:       o.shipTo?.name       || '',
-      company:    o.shipTo?.company    || '',
-      street1:    o.shipTo?.street1    || '',
-      street2:    o.shipTo?.street2    || '',
-      city:       o.shipTo?.city       || '',
-      state:      o.shipTo?.state      || '',
-      postalCode: o.shipTo?.postalCode || '',
-      country:    o.shipTo?.country    || 'US',
-      phone:      o.shipTo?.phone      || '',
+      name:       shipTo.name       || '',
+      company:    shipTo.company    || '',
+      street1:    shipTo.street1    || '',
+      street2:    shipTo.street2    || '',
+      city:       shipTo.city       || '',
+      state:      shipTo.state      || '',
+      postalCode: shipTo.postalCode || '',
+      country:    shipTo.country    || 'US',
+      phone:      shipTo.phone      || '',
     },
     ...(shipFrom ? { shipFrom } : {}),
   };
@@ -101,18 +110,11 @@ export async function createLabel(testLabel = false) {
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Creating…'; }
 
   try {
-    const r    = await fetch('/api/labels/create', {
+    const data = await fetchValidatedJson('/api/labels/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    });
-    const data = await r.json();
-
-    if (!r.ok) {
-      showToast('❌ ' + (data.error || 'Label creation failed'));
-      if (btn) { btn.disabled = false; btn.innerHTML = '🖨️ Create + Print Label <span class="create-label-caret">▾</span>'; }
-      return;
-    }
+    }, parseCreateLabelResponse);
 
     const tracking = data.trackingNumber || '';
     showToast(
@@ -121,55 +123,23 @@ export async function createLabel(testLabel = false) {
         : `✅ Label created${tracking ? ': ' + tracking : ''}`
     );
 
-    // Debug: log what we got from API
     console.log('[Labels] API Response:', {
       labelUrl: data.labelUrl || 'MISSING',
-      labelData: data.labelData ? `${data.labelData.slice(0, 50)}...` : 'MISSING',
       trackingNumber: data.trackingNumber,
       shipmentId: data.shipmentId,
     });
 
-    // Open label PDF.
-    // SS v2 returns a URL in `labelUrl` (usually a temporary ShipStation download link).
-    // SS v1 returns base64 PDF in `labelData` (fallback for older API).
-    // Try URL first; fall back to base64 → Blob → object URL.
     if (data.labelUrl) {
       console.log('[Labels] Opening PDF URL:', data.labelUrl);
-      // IMPORTANT: Open window BEFORE async operations to preserve user gesture context
-      // (prevents popup blocker from triggering)
       const pdfWindow = window.open('about:blank', '_blank');
       if (!pdfWindow || pdfWindow.closed || typeof pdfWindow.closed === 'undefined') {
         console.warn('[Labels] Popup may have been blocked. Showing manual download option.');
         showToast(`📄 Popup blocked. PDF: <a href="${data.labelUrl}" target="_blank">Click here to download label</a>`, 5000);
       } else {
-        // Window opened successfully; now navigate to the PDF URL
         pdfWindow.location.href = data.labelUrl;
       }
-    } else if (data.labelData) {
-      // Decode base64 PDF and open as a Blob URL
-      try {
-        const binary = atob(data.labelData);
-        const bytes  = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob   = new Blob([bytes], { type: 'application/pdf' });
-        const objUrl = URL.createObjectURL(blob);
-        // Open window BEFORE setting location to preserve user gesture
-        const pdfWindow = window.open('about:blank', '_blank');
-        if (!pdfWindow || pdfWindow.closed || typeof pdfWindow.closed === 'undefined') {
-          console.warn('[Labels] Popup may have been blocked.');
-          showToast(`📄 Popup blocked. <a href="${objUrl}" target="_blank">Click here to download</a>`, 5000);
-          URL.revokeObjectURL(objUrl);
-        } else {
-          pdfWindow.location.href = objUrl;
-          // Clean up object URL after the browser has loaded it
-          setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
-        }
-      } catch (pdfErr) {
-        console.warn('[Labels] Could not decode PDF:', pdfErr.message);
-        showToast('⚠ Label created but could not open PDF — check ShipStation dashboard');
-      }
     } else {
-      console.error('[Labels] No labelUrl or labelData returned from server', data);
+      console.error('[Labels] No labelUrl returned from server', data);
       showToast('⚠ Label created but no PDF returned — check ShipStation dashboard');
     }
 
@@ -255,8 +225,8 @@ export async function toggleResidential(orderId) {
   if (!o) return;
   // Cycle: auto → manual-residential → manual-commercial → auto
   let next;
-  if (o._residential === null || o._residential == null) next = 1;
-  else if (o._residential === 1 || o._residential === true) next = 0;
+  if (o.residential === null || o.residential == null) next = 1;
+  else if (o.residential === true) next = 0;
   else next = null;
   try {
     await fetch(`/api/orders/${orderId}/residential`, {
@@ -282,28 +252,22 @@ export async function voidLabel() {
   if (!o) return showToast('⚠ No order selected');
   
   // Find the shipment record
-  const shipmentId = o._labelShipmentId || o.shipmentId;
+  const shipmentId = o.label?.shipmentId || o.shipmentId;
   if (!shipmentId) return showToast('⚠ No label found to void');
 
   // Confirm action
-  if (!confirm(`Void label for order ${o.orderNumber}?\n\nRefund will be requested from the carrier (${o._labelCarrier || 'Unknown'}).\n\nRefund timeline: 2-7 business days.`)) {
+  if (!confirm(`Void label for order ${o.orderNumber}?\n\nRefund will be requested from the carrier (${o.label?.carrierCode || 'Unknown'}).\n\nRefund timeline: 2-7 business days.`)) {
     return;
   }
 
   showToast('⏳ Voiding label...');
 
   try {
-    const res = await fetch(`/api/labels/${shipmentId}/void`, {
+    const data = await fetchValidatedJson(`/api/labels/${shipmentId}/void`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({}),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return showToast(`❌ Void failed: ${data.error || 'Unknown error'}`);
-    }
+    }, parseVoidLabelResponse);
 
     showToast(`✓ Label voided!\n💰 Refund initiated (${data.refundEstimate})\nOrder reset to "Awaiting Shipment" — you can create a new label.`);
 
@@ -321,33 +285,24 @@ export async function generateReturnLabel() {
   const o = state.currentPanelOrder;
   if (!o) return showToast('⚠ No order selected');
   
-  const shipmentId = o._labelShipmentId;
+  const shipmentId = o.label?.shipmentId;
   if (!shipmentId) return showToast('⚠ No shipment found for this order');
 
   const btn = document.querySelector('[onclick="generateReturnLabel()"]');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating…'; }
 
   try {
-    const r = await fetch(`/api/labels/${shipmentId}/return`, {
+    const data = await fetchValidatedJson(`/api/labels/${shipmentId}/return`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: 'Customer Return' }),
-    });
-
-    if (!r.ok) {
-      const data = await r.json();
-      showToast('❌ ' + (data.error || 'Return label generation failed'));
-      if (btn) { btn.disabled = false; btn.innerHTML = '↩️ Return Label'; }
-      return;
-    }
-
-    const data = await r.json();
+    }, parseReturnLabelResponse);
     showToast(`✅ Return label generated: ${data.returnTrackingNumber}`);
     
     // Re-render panel to show return label info
     if (typeof window.fetchOrders === 'function') {
       await window.fetchOrders(state.currentPage || 1);
-      window.openPanel(o);
+      window.openPanel(o.orderId);
     }
   } catch (e) {
     showToast('❌ ' + e.message);
@@ -376,26 +331,9 @@ export async function reprintLabel(orderId) {
   
   try {
     console.log('[reprintLabel] fetching label from /api/labels/' + orderId + '/retrieve');
-    const r = await fetch(`/api/labels/${orderId}/retrieve`);
-    console.log('[reprintLabel] fetch response status:', r.status, r.ok);
-    if (!r.ok) {
-      const data = await r.json();
-      pdfWindow.close();
-      showToast('❌ ' + (data.error || 'Could not retrieve label'));
-      return;
-    }
-    
-    const data = await r.json();
+    const data = await fetchValidatedJson(`/api/labels/${orderId}/retrieve`, undefined, parseRetrieveLabelResponse);
     console.log('[reprintLabel] got data:', data);
-    
-    if (!data.labelUrl) {
-      console.log('[reprintLabel] no labelUrl in response');
-      pdfWindow.close();
-      showToast('❌ No label URL available');
-      return;
-    }
-    
-    // Navigate to PDF URL in already-open window
+
     console.log('[reprintLabel] navigating to PDF:', data.labelUrl);
     pdfWindow.location.href = data.labelUrl;
     showToast(`📄 Label opened for ${data.trackingNumber || 'printing'}`);

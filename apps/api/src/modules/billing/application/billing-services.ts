@@ -32,6 +32,13 @@ const DEFAULT_BILLING_CONFIG = {
   palletCuFt: 80,
 } as const;
 
+function isIsoDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return false;
+  return new Date(parsed).toISOString().slice(0, 10) === value;
+}
+
 export class BillingServices {
   private readonly repository: BillingRepository;
   private readonly referenceRateFetcher: BillingReferenceRateFetcher;
@@ -74,12 +81,18 @@ export class BillingServices {
     if (!query.from || !query.to) {
       throw new Error("from and to required");
     }
+    if (!isIsoDateOnly(query.from) || !isIsoDateOnly(query.to)) {
+      throw new Error("from and to must be YYYY-MM-DD");
+    }
     return this.repository.listSummary(query);
   }
 
   getDetails(query: BillingDetailsQuery) {
     if (!query.from || !query.to || !query.clientId) {
       throw new Error("from, to, clientId required");
+    }
+    if (!isIsoDateOnly(query.from) || !isIsoDateOnly(query.to)) {
+      throw new Error("from and to must be YYYY-MM-DD");
     }
     return this.repository.listDetails({
       from: query.from,
@@ -98,6 +111,9 @@ export class BillingServices {
   getInvoice(clientId: number, from: string, to: string) {
     if (!clientId || !from || !to) {
       throw new Error("from, to, clientId required");
+    }
+    if (!isIsoDateOnly(from) || !isIsoDateOnly(to)) {
+      throw new Error("from and to must be YYYY-MM-DD");
     }
     return this.repository.getInvoice(clientId, from, to);
   }
@@ -218,6 +234,9 @@ export class BillingServices {
   generate(input: GenerateBillingInput): GenerateBillingResult {
     if (!input.from || !input.to) {
       throw new Error("from and to required");
+    }
+    if (!isIsoDateOnly(input.from) || !isIsoDateOnly(input.to)) {
+      throw new Error("from and to must be YYYY-MM-DD");
     }
     return this.repository.generate(input);
   }

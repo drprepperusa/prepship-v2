@@ -1,3 +1,5 @@
+import { parseOptionalIntegerParam } from "../common/input-validation.ts";
+
 export interface AnalysisSkuQuery {
   from?: string;
   to?: string;
@@ -50,26 +52,20 @@ export interface AnalysisDailySalesResponse {
   series: Record<string, number[]>;
 }
 
-function parseOptionalInt(value: string | null): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 export function parseAnalysisSkuQuery(url: URL): AnalysisSkuQuery {
   return {
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
   };
 }
 
 export function parseAnalysisDailySalesQuery(url: URL): AnalysisDailySalesQuery {
-  const top = parseOptionalInt(url.searchParams.get("top")) ?? 5;
+  const top = parseOptionalIntegerParam(url.searchParams.get("top"), "top") ?? 5;
   return {
     from: url.searchParams.get("from") ?? undefined,
     to: url.searchParams.get("to") ?? undefined,
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
     top: Math.min(Math.max(top, 1), 10),
   };
 }

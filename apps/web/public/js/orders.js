@@ -6,9 +6,9 @@ import { getStoreName, getShipAcct } from './stores.js';
 import { buildTableHead, applyColVisibility, sortFilteredOrders, updatePagination, updateBatchBar, updateStats, getOrderPrimarySku, getOrderTotalQty } from './table.js';
 import { loadCounts } from './sidebar.js';
 import { getTrackingUrl, getExpedited } from './carriers.js';
-
-// Best-rate lock: skip re-fetch on page reload if rate is < 30 min old and dims unchanged
-const BEST_RATE_LOCK_MS = 30 * 60 * 1000;
+import { fetchValidatedJson } from './api-client.js';
+import { parseBulkCachedRatesResponse, parseListOrdersResponse, parseLiveRatesResponse, parseOrderIdsResponse, parseOrderPicklistResponse, parseProductBulkMap } from './api-contracts.js';
+import { getOrderBillingProviderId, getOrderDimensions, getOrderRequestedService, getOrderStoreId } from './order-data.js';
 
 // Fire-and-forget: persist best rate to DB so page reloads skip re-fetching
 function saveBestRate(orderId, best, dimsStr) {
@@ -107,18 +107,14 @@ export async function fetchOrders(page = 1, skipRatesHint = false) {
     if (state.currentStatus === 'shipped') {
       const cached = getShippedOrdersFromCache(state.currentStoreId, page);
       if (cached) {
-        data = cached;
+        data = parseListOrdersResponse(cached);
       } else {
-        const r = await fetch('/api/orders?' + params);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        data = await r.json();
+        data = await fetchValidatedJson('/api/orders?' + params, undefined, parseListOrdersResponse);
         setShippedOrdersInCache(state.currentStoreId, data, page);
       }
     } else {
       // Non-shipped orders: always fetch fresh (awaiting_shipment, cancelled, etc.)
-      const r = await fetch('/api/orders?' + params);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      data = await r.json();
+      data = await fetchValidatedJson('/api/orders?' + params, undefined, parseListOrdersResponse);
     }
 
     state.allOrders   = data.orders || [];
@@ -322,7 +318,7 @@ export function renderOrders(skipRates = false) {
         case 'select':    return `<td data-col="select"><input type="checkbox" ${chk} onclick="event.stopPropagation();toggleCheckbox(${o.orderId},this.checked)" tabindex="-1"></td>`;
         case 'date': {
           const _pb = o.bestRate;
-          const serviceCode = _pb?.serviceCode || o.serviceCode || o.requestedShippingService || '';
+          const serviceCode = _pb?.serviceCode || getOrderRequestedService(o) || '';
           const expedited = getExpedited(serviceCode);
           const expeditedHtml = expedited
             ? `<div style="font-size:9.5px;font-weight:700;color:${expedited === '1-day' ? '#dc2626' : '#d97706'};margin-bottom:2px">${expedited === '1-day' ? '🔴 1-day' : '🟠 2-day'}</div>`
@@ -489,7 +485,7 @@ export function renderOrders(skipRates = false) {
           }
           return `<td data-col="tracking" style="font-size:11px;font-family:monospace"><span style="color:var(--ss-blue);cursor:pointer" onclick="event.stopPropagation();navigator.clipboard.writeText('${escHtml(trackingNum)}').then(()=>showToast('Tracking # copied!'))" title="Click to copy">${escHtml(trackingNum)}</span></td>`;
         }
-        case 'requested': return `<td data-col="requested" style="font-size:11px;color:var(--text3)">${escHtml(o.requestedShippingService || '—')}</td>`;
+        case 'requested': return `<td data-col="requested" style="font-size:11px;color:var(--text3)">${escHtml(getOrderRequestedService(o) || '—')}</td>`;
         case 'age':       return `<td data-col="age"><div class="age-wrap"><span class="age-dot" style="background:${ageDot}"></span><span style="font-size:11px;color:${hrs > 48 ? 'var(--red)' : hrs > 24 ? '#d97706' : 'var(--text3)'}">${ageText}</span></div></td>`;
         
         // ═══════════════════════════════════════════════
@@ -514,11 +510,11 @@ export function renderOrders(skipRates = false) {
           const sc = isShipped ? (o.selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '—') : (o.bestRate?.serviceCode || '—');
           return `<td data-col="test_serviceCode" style="font-size:10px;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(sc)}">${escHtml(sc)}</td>`;
         }
-        case 'test_bestRateJson': {
+        case 'test_bestRate': {
           const brj = o.bestRate;
-          if (!brj) return `<td data-col="test_bestRateJson" style="font-size:10px;color:var(--text3)">—</td>`;
+          if (!brj) return `<td data-col="test_bestRate" style="font-size:10px;color:var(--text3)">—</td>`;
           const display = `${brj.carrierCode || '?'}|${brj.serviceCode || '?'}|$${((brj.shipmentCost || 0) + (brj.otherCost || 0)).toFixed(2)}`;
-          return `<td data-col="test_bestRateJson" style="font-size:9px;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(JSON.stringify(brj))}">${escHtml(display)}</td>`;
+          return `<td data-col="test_bestRate" style="font-size:9px;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(JSON.stringify(brj))}">${escHtml(display)}</td>`;
         }
         case 'test_orderLocal': {
           const parts = [];
@@ -542,7 +538,7 @@ export function renderOrders(skipRates = false) {
 
     const _cp = clientPalette(storeName);
     const _pb = o.bestRate;
-    const serviceCode = _pb?.serviceCode || o.serviceCode || o.requestedShippingService || '';
+    const serviceCode = _pb?.serviceCode || getOrderRequestedService(o) || '';
     const expedited = getExpedited(serviceCode);
     const expeditedBg = expedited ? 'background:rgba(34,197,94,.08)' : '';
     return groupHeader + `<tr id="row-${o.orderId}" class="order-row${rowCls}" style="border-left:3px solid ${_cp.border};${expeditedBg}" onclick="toggleRowSelect(${o.orderId})" ondblclick="event.stopPropagation();window.open('https://ship.shipstation.com/orders/${o.orderId}','_blank')" onmouseenter="setKbRow(${idx})">${cells}</tr>`;
@@ -587,7 +583,7 @@ export function renderRateCell(id, best, spid) {
 
   if (!spid) {
     const ord = state.allOrders.find(o => o.orderId === id);
-    spid = ord?.advancedOptions?.billToMyOtherAccount;
+    spid = getOrderBillingProviderId(ord);
   }
 
   if (best) {
@@ -672,54 +668,45 @@ export async function fetchCheapestRates(orders) {
   // Enrich missing weight/dims from product DB
   const needsDefault = orders.filter(o => {
     const hasWt   = o.weight?.value > 0;
-    const hasDims = o.dimensions?.length > 0 && o.dimensions?.width > 0 && o.dimensions?.height > 0;
+    const dims = getOrderDimensions(o);
+    const hasDims = dims.length > 0 && dims.width > 0 && dims.height > 0;
     return (!hasWt || !hasDims) && (o.items || []).filter(i => !i.adjustment && i.sku).length > 0;
   });
   if (needsDefault.length) {
     const skuSet = new Set(needsDefault.flatMap(o => (o.items || []).filter(i => !i.adjustment && i.sku).map(i => i.sku)));
     try {
-      const r = await fetch(`/api/products/bulk?skus=${[...skuSet].map(encodeURIComponent).join(',')}`);
-      if (r.ok) {
-        const prodMap = await r.json();
-        for (const o of needsDefault) {
-          const items      = (o.items || []).filter(i => !i.adjustment && i.sku);
-          const uniqueSkus = [...new Set(items.map(i => i.sku))];
-          if (uniqueSkus.length !== 1) continue;
-          const prod = prodMap[uniqueSkus[0]];
-          if (!prod) continue;
-          const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
-          if (!(o.weight?.value > 0) && prod.weightOz > 0) {
-            o._enrichedWeight = { value: +(prod.weightOz * qty).toFixed(2), units: 'ounces' };
-          }
-          if (!(o.dimensions?.length > 0) && prod.length > 0) {
-            o._enrichedDims = { length: prod.length, width: prod.width, height: prod.height };
-          }
+      const prodMap = await fetchValidatedJson(
+        `/api/products/bulk?skus=${[...skuSet].map(encodeURIComponent).join(',')}`,
+        undefined,
+        parseProductBulkMap,
+      );
+      for (const o of needsDefault) {
+        const items      = (o.items || []).filter(i => !i.adjustment && i.sku);
+        const uniqueSkus = [...new Set(items.map(i => i.sku))];
+        if (uniqueSkus.length !== 1) continue;
+        const prod = prodMap[uniqueSkus[0]];
+        if (!prod) continue;
+        const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+        if (!(o.weight?.value > 0) && prod.weightOz > 0) {
+          o._enrichedWeight = { value: +(prod.weightOz * qty).toFixed(2), units: 'ounces' };
+        }
+        const dims = getOrderDimensions(o);
+        if (!(dims.length > 0) && prod.length > 0) {
+          o._enrichedDims = { length: prod.length, width: prod.width, height: prod.height };
         }
       }
     } catch { /* continue */ }
   }
 
-  // ── Best-rate lock: render immediately for orders with a fresh cached rate ─
-  const now      = Date.now();
-  const freshIds = new Set();
   orders.forEach(o => {
-    if (!o._bestRateJson || !o._bestRateAt) return;
-    if ((now - o._bestRateAt) >= BEST_RATE_LOCK_MS) return;
-    // Verify dims still match what was used when rate was computed
-    const dSrc       = o._enrichedDims || o.dimensions;
-    const curDims    = (dSrc?.length > 0 && dSrc?.width > 0 && dSrc?.height > 0)
-                       ? `${dSrc.length}x${dSrc.width}x${dSrc.height}` : null;
-    if (!curDims || curDims !== o._bestRateDims) return;
-    renderRateCell(o.orderId, o._bestRateJson);
-    freshIds.add(o.orderId);
+    if (o.bestRate) renderRateCell(o.orderId, o.bestRate);
   });
-  const ordersToProcess = orders.filter(o => !freshIds.has(o.orderId));
-  if (!ordersToProcess.length) { state.rateFetchActive = false; return; }
+  const ordersToProcess = orders;
 
   const groups = {};
   ordersToProcess.forEach(o => {
     const rawWt = (o._enrichedWeight || o.weight)?.value;
-    const dSrc  = o._enrichedDims || o.dimensions;
+    const dSrc  = o._enrichedDims || getOrderDimensions(o);
     const dims  = (dSrc?.length > 0 && dSrc?.width > 0 && dSrc?.height > 0) ? dSrc : null;
 
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
@@ -738,7 +725,7 @@ export async function fetchCheapestRates(orders) {
     const dimStr      = `${dims.length}x${dims.width}x${dims.height}`;
     const residential = isResidential(o);
     const resFlag     = residential ? 'R' : 'C';
-    const storeId     = o?.advancedOptions?.storeId || null;
+    const storeId     = getOrderStoreId(o);
     const key         = `${wt}|${zip}|${dimStr}|${resFlag}|${storeId}`;
     if (!groups[key]) groups[key] = { key, wt, zip, dims, residential, storeId, ids: [] };
     groups[key].ids.push(o.orderId);
@@ -749,8 +736,8 @@ export async function fetchCheapestRates(orders) {
     if (state.rateCache[g.key]) {
       g.ids.forEach(id => {
         const ord     = state.allOrders.find(o => o.orderId === id);
-        const spid    = ord?.advancedOptions?.billToMyOtherAccount;
-        const storeId = ord?.advancedOptions?.storeId || null;
+        const spid    = getOrderBillingProviderId(ord);
+        const storeId = getOrderStoreId(ord);
         // Debug: log storeId when Media Mail allowed store detected
         if (storeId === 376759) {
           console.log(`[orders-cached] Order ${ord.orderNumber} storeId=${storeId}, rates=${state.rateCache[g.key]?.length || 0}`);
@@ -766,11 +753,10 @@ export async function fetchCheapestRates(orders) {
   if (!needsLookup.length) { state.rateFetchActive = false; return; }
 
   try {
-    const r    = await fetch('/api/rates/cached/bulk', {
+    const data = await fetchValidatedJson('/api/rates/cached/bulk', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(needsLookup.map(g => ({ key: g.key, wt: g.wt, zip: g.zip, dims: g.dims, residential: g.residential, ids: g.ids, storeId: g.storeId }))),
-    });
-    const data = await r.json();
+    }, parseBulkCachedRatesResponse);
 
     const stillMissing = [];
     needsLookup.forEach(g => {
@@ -779,8 +765,8 @@ export async function fetchCheapestRates(orders) {
         state.rateCache[g.key] = result.rates;
         g.ids.forEach(id => {
           const ord     = state.allOrders.find(o => o.orderId === id);
-          const spid    = ord?.advancedOptions?.billToMyOtherAccount;
-          const storeId = ord?.advancedOptions?.storeId || null;
+          const spid    = getOrderBillingProviderId(ord);
+          const storeId = getOrderStoreId(ord);
           // Debug: log storeId when Media Mail allowed store detected
           if (storeId === 376759) {
             console.log(`[orders-bulk] Order ${ord.orderNumber} storeId=${storeId}, rates=${result.rates.length}`);
@@ -813,15 +799,14 @@ export async function fetchCheapestRates(orders) {
             try {
               if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
               if (state.rateFetchGeneration !== myGen) return;
-              const r2    = await fetch('/api/rates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-              const rates = await r2.json();
+              const rates = await fetchValidatedJson('/api/rates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, parseLiveRatesResponse);
               if (Array.isArray(rates) && rates.length) {
                 state.rateCache[g.key] = rates;
                 if (state.rateFetchGeneration !== myGen) return;
                 g.ids.forEach(id => {
                   const ord     = state.allOrders.find(o => o.orderId === id);
-                  const spid    = ord?.advancedOptions?.billToMyOtherAccount;
-                  const storeId = ord?.advancedOptions?.storeId || null;
+                  const spid    = getOrderBillingProviderId(ord);
+                  const storeId = getOrderStoreId(ord);
                   // Debug: log storeId when Media Mail allowed store detected
                   if (storeId === 376759) {
                     console.log(`[orders-live] Order ${ord.orderNumber} storeId=${storeId}, rates=${rates.length}`);
@@ -935,8 +920,7 @@ export async function toggleSkuGroup(currentPageIds, checked, skuJson) {
         const params = new URLSearchParams({ sku: JSON.stringify(sku) });
         if (state.currentStatus) params.set('orderStatus', state.currentStatus);
         if (state.currentStoreId) params.set('storeId', state.currentStoreId);
-        const resp = await fetch(`/api/orders/ids?${params}`);
-        const data = await resp.json();
+        const data = await fetchValidatedJson(`/api/orders/ids?${params}`, undefined, parseOrderIdsResponse);
         if (data.ids) data.ids.forEach(id => state.selectedOrders.add(id));
       } catch (e) {
         console.warn('toggleSkuGroup cross-page fetch failed', e);
@@ -951,8 +935,7 @@ export async function toggleSkuGroup(currentPageIds, checked, skuJson) {
         const params = new URLSearchParams({ sku: JSON.stringify(sku) });
         if (state.currentStatus) params.set('orderStatus', state.currentStatus);
         if (state.currentStoreId) params.set('storeId', state.currentStoreId);
-        const resp = await fetch(`/api/orders/ids?${params}`);
-        const data = await resp.json();
+        const data = await fetchValidatedJson(`/api/orders/ids?${params}`, undefined, parseOrderIdsResponse);
         if (data.ids) data.ids.forEach(id => state.selectedOrders.delete(id));
       } catch (e) {
         console.warn('toggleSkuGroup cross-page fetch failed', e);
@@ -989,8 +972,7 @@ export async function selectSkuGroupAndShowBatch(currentPageIds, skuJson, qtyJso
       if (qty !== null && qty !== undefined) params.set('qty', qty);
       if (state.currentStatus) params.set('orderStatus', state.currentStatus);
       if (state.currentStoreId) params.set('storeId', state.currentStoreId);
-      const resp = await fetch(`/api/orders/ids?${params}`);
-      const data = await resp.json();
+      const data = await fetchValidatedJson(`/api/orders/ids?${params}`, undefined, parseOrderIdsResponse);
       if (data.ids) allGroupIds = data.ids;
     } catch (e) {
       console.warn('selectSkuGroupAndShowBatch cross-page fetch failed', e);
@@ -1044,9 +1026,7 @@ export async function printPicklist() {
 
   let data;
   try {
-    const r = await fetch(`/api/orders/picklist?${params}`);
-    data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Server error');
+    data = await fetchValidatedJson(`/api/orders/picklist?${params}`, undefined, parseOrderPicklistResponse);
   } catch (e) {
     return showToast(`❌ Picklist error: ${e.message}`);
   }

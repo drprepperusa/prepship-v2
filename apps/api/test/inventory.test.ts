@@ -331,3 +331,32 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   assert.equal(skuOrdersPayload.sku, "SKU-1");
   assert.deepEqual(skuOrdersPayload.orders.map((order) => order.orderId), [101]);
 });
+
+test("inventory endpoints reject invalid query params and malformed JSON", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedInventoryDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  });
+
+  const invalidImportDims = await app(new Request("http://127.0.0.1:4010/api/inventory/import-dims?clientId=1abc&overwrite=1", {
+    method: "POST",
+  }));
+  assert.equal(invalidImportDims.status, 400);
+  assert.deepEqual(await invalidImportDims.json(), { error: "clientId must be an integer" });
+
+  const invalidSkuOrders = await app(new Request("http://127.0.0.1:4010/api/inventory/1/sku-orders?days=7days"));
+  assert.equal(invalidSkuOrders.status, 400);
+  assert.deepEqual(await invalidSkuOrders.json(), { error: "days must be an integer" });
+
+  const malformedAdjust = await app(new Request("http://127.0.0.1:4010/api/inventory/adjust", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{\"invSkuId\":",
+  }));
+  assert.equal(malformedAdjust.status, 400);
+  assert.deepEqual(await malformedAdjust.json(), { error: "Malformed JSON body" });
+});

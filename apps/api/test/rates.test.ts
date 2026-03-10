@@ -274,3 +274,32 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
   }));
   assert.equal(prefetchResponse.status, 200);
 });
+
+test("rates endpoints reject invalid query params and malformed JSON", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedRatesDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  }, {
+    rateShopper: new FakeRateShopper(),
+  });
+
+  const invalidCarrierLookup = await app(new Request("http://127.0.0.1:4010/api/carriers-for-store?storeId=4002abc"));
+  assert.equal(invalidCarrierLookup.status, 400);
+  assert.deepEqual(await invalidCarrierLookup.json(), { error: "storeId must be an integer" });
+
+  const invalidCachedResidential = await app(new Request("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&residential=maybe"));
+  assert.equal(invalidCachedResidential.status, 400);
+  assert.deepEqual(await invalidCachedResidential.json(), { error: "residential must be true/false or 1/0" });
+
+  const malformedBrowseBody = await app(new Request("http://127.0.0.1:4010/api/rates/browse", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{\"shippingProviderId\":",
+  }));
+  assert.equal(malformedBrowseBody.status, 400);
+  assert.deepEqual(await malformedBrowseBody.json(), { error: "Malformed JSON body" });
+});

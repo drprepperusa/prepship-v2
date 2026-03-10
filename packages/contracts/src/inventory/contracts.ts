@@ -1,3 +1,5 @@
+import { parseOptionalIntegerParam } from "../common/input-validation.ts";
+
 export interface InventoryItemDto {
   id: number;
   clientId: number;
@@ -170,26 +172,20 @@ export interface BulkUpdateInventoryDimensionsInput {
   }>;
 }
 
-function parseOptionalInt(value: string | null): number | undefined {
-  if (value == null || value.trim() === "") return undefined;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 export function parseListInventoryQuery(url: URL): ListInventoryQuery {
   return {
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
     sku: url.searchParams.get("sku") ?? undefined,
   };
 }
 
 export function parseListInventoryLedgerQuery(url: URL): ListInventoryLedgerQuery {
-  const limit = parseOptionalInt(url.searchParams.get("limit")) ?? 500;
+  const limit = parseOptionalIntegerParam(url.searchParams.get("limit"), "limit") ?? 500;
   return {
-    clientId: parseOptionalInt(url.searchParams.get("clientId")),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
     type: url.searchParams.get("type") ?? undefined,
-    dateStart: parseOptionalInt(url.searchParams.get("dateStart")),
-    dateEnd: parseOptionalInt(url.searchParams.get("dateEnd")),
+    dateStart: parseOptionalIntegerParam(url.searchParams.get("dateStart"), "dateStart"),
+    dateEnd: parseOptionalIntegerParam(url.searchParams.get("dateEnd"), "dateEnd"),
     limit: Math.min(Math.max(limit, 1), 2000),
   };
 }

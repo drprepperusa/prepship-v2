@@ -559,3 +559,30 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
   assert.equal(fetchedOrder?.rate_weight_oz, 16);
   db.close();
 });
+
+test("billing endpoints reject malformed JSON and invalid query/date input", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedBillingDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  });
+
+  const invalidPackagePrices = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices?clientId=1abc"));
+  assert.equal(invalidPackagePrices.status, 400);
+  assert.deepEqual(await invalidPackagePrices.json(), { error: "clientId must be an integer" });
+
+  const invalidSummaryDate = await app(new Request("http://127.0.0.1:4010/api/billing/summary?from=2026-02-30&to=2026-03-31"));
+  assert.equal(invalidSummaryDate.status, 400);
+  assert.deepEqual(await invalidSummaryDate.json(), { error: "from and to must be YYYY-MM-DD" });
+
+  const malformedConfigUpdate = await app(new Request("http://127.0.0.1:4010/api/billing/config/1", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: "{\"pickPackFee\":",
+  }));
+  assert.equal(malformedConfigUpdate.status, 400);
+  assert.deepEqual(await malformedConfigUpdate.json(), { error: "Malformed JSON body" });
+});

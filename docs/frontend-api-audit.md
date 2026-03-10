@@ -109,6 +109,12 @@ Status meanings:
 ## Notes
 
 - The copied V1 frontend label workflow now runs against migrated V2 label and shipment ownership endpoints while preserving the existing UI flow.
+- Frontend runtime contract validation now covers labels, orders list/polling, product defaults, package/locations/settings views, billing, inventory, app bootstrap/init, sync status, analysis, and rate-browser responses; see [frontend-validation-hardening.md](/home/tito/dev/prepshipv2/docs/frontend-validation-hardening.md).
+- API ingress validation now also rejects malformed JSON and invalid numeric/boolean request input with `400` responses instead of silently coercing bad values; see [frontend-validation-hardening.md](/home/tito/dev/prepshipv2/docs/frontend-validation-hardening.md) for the current hardening summary and linked tests.
+- Current frontend cleanup direction is strict V2 DTO adoption: if the copied UI still reads a deprecated V1-era field name or shape, update the consumer to the V2 contract rather than preserving the old name in the browser.
+- The main copied order-flow modules now follow that rule more strictly: `orders.js`, `panel.js`, `order-detail.js`, `rate-browser.js`, and `stores.js` were moved off deprecated top-level order aliases and now read V2 DTO fields plus `order.raw`/`local` data explicitly.
+- The previous repo-wide list of unvalidated success-path JSON consumers is now stale. The only intentional transport exceptions left in the audited frontend are `manifests.js` handling a CSV blob response directly and `rate-browser.js` keeping one fire-and-forget non-JSON write.
+- The concrete frontend/API drift caused by deprecated V1-style order field reads has been addressed in the copied order flows; future cleanup should focus on newly introduced API slices or DTO changes rather than old field-name compatibility.
 - Rate cache clear/refetch now runs against V2 rates services and asynchronously repopulates awaiting-shipment caches.
 - Carrier package sync now runs against V2 package services and upserts ShipStation carrier package types into the shared package catalog.
 - `billing/invoice` is now migrated as a local reporting flow because it depends on V2 billing data only.
