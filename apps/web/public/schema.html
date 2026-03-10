@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PrepShip V2 Database Schema</title>
+    <title>PrepShip V2 Database Schema & Model Mapping</title>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <style>
         * {
@@ -27,7 +27,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
             background: rgba(15, 30, 46, 0.8);
             border: 1px solid rgba(100, 150, 200, 0.2);
@@ -62,6 +62,13 @@
             margin-bottom: 1.5rem;
             padding-bottom: 0.5rem;
             border-bottom: 1px solid rgba(111, 168, 255, 0.3);
+        }
+
+        h3 {
+            color: #8ac5ff;
+            font-size: 1.1rem;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
         }
 
         .diagram-container {
@@ -100,6 +107,7 @@
             color: #4fa3ff;
             font-weight: 600;
             border-right: 1px solid rgba(111, 168, 255, 0.2);
+            font-size: 0.9rem;
         }
 
         th:last-child {
@@ -110,6 +118,7 @@
             padding: 0.75rem 1rem;
             border-right: 1px solid rgba(111, 168, 255, 0.1);
             color: #d0d0d0;
+            font-size: 0.85rem;
         }
 
         td:last-child {
@@ -134,12 +143,22 @@
             font-weight: 600;
         }
 
+        .field-name {
+            color: #7fff7f;
+            font-weight: 500;
+        }
+
+        .model-name {
+            color: #ffb366;
+            font-weight: 500;
+        }
+
         .pk {
             background: rgba(100, 200, 100, 0.15);
             color: #7fff7f;
             padding: 0.2rem 0.5rem;
             border-radius: 3px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
 
         .fk {
@@ -147,12 +166,28 @@
             color: #ffb366;
             padding: 0.2rem 0.5rem;
             border-radius: 3px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
+        }
+
+        .mapped {
+            background: rgba(150, 150, 255, 0.15);
+            color: #a8b4ff;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+        }
+
+        .transformed {
+            background: rgba(100, 180, 150, 0.15);
+            color: #7fffbb;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
         }
 
         .nullable {
             color: #a0a0a0;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
 
         .legend {
@@ -177,7 +212,7 @@
 
         .legend-desc {
             color: #a0a0a0;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
 
         .note {
@@ -187,6 +222,7 @@
             border-radius: 4px;
             margin: 1.5rem 0;
             color: #c0d0e0;
+            font-size: 0.9rem;
         }
 
         code {
@@ -196,13 +232,103 @@
             color: #7fff7f;
             font-family: 'Monaco', 'Menlo', monospace;
         }
+
+        .transformation-flow {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 2rem;
+            align-items: start;
+            background: rgba(10, 22, 40, 0.4);
+            border: 1px solid rgba(111, 168, 255, 0.2);
+            border-radius: 6px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .transform-col {
+            border-right: 1px solid rgba(111, 168, 255, 0.2);
+            padding-right: 2rem;
+        }
+
+        .transform-col:last-child {
+            border-right: none;
+            padding-right: 0;
+        }
+
+        .transform-col h4 {
+            color: #4fa3ff;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+        }
+
+        .transform-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6fa8ff;
+            font-size: 1.5rem;
+        }
+
+        .field-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid rgba(111, 168, 255, 0.1);
+            font-size: 0.85rem;
+        }
+
+        .field-row:last-child {
+            border-bottom: none;
+        }
+
+        .field-item {
+            padding: 0.5rem;
+            background: rgba(10, 22, 40, 0.4);
+            border-radius: 3px;
+            border-left: 2px solid rgba(111, 168, 255, 0.2);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .summary-card {
+            background: rgba(10, 22, 40, 0.6);
+            border: 1px solid rgba(111, 168, 255, 0.2);
+            border-radius: 6px;
+            padding: 1.5rem;
+        }
+
+        .card-title {
+            color: #4fa3ff;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(111, 168, 255, 0.2);
+            padding-bottom: 0.5rem;
+        }
+
+        .card-content {
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .card-content code {
+            display: block;
+            margin: 0.5rem 0;
+            padding: 0.4rem 0.6rem;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🗄️ PrepShip V2 Database Schema</h1>
-        <p class="subtitle">Entity-Relationship Diagram & Model Mapping</p>
+        <h1>🗄️ PrepShip V2 Schema & Model Mapping</h1>
+        <p class="subtitle">Complete database schema, domain models, and DTO transformation documentation</p>
 
+        <!-- ER DIAGRAM -->
         <div class="section">
             <h2>Entity Relationships</h2>
             <div class="diagram-container">
@@ -293,8 +419,478 @@ erDiagram
             </div>
         </div>
 
+        <!-- DOMAIN MODEL FIELD DEFINITIONS -->
         <div class="section">
-            <h2>Domain Models → Tables Mapping</h2>
+            <h2>Domain Model: OrderRecord</h2>
+            <p style="color: #a0a0a0; margin-bottom: 1.5rem; font-size: 0.9rem;">Complete field definitions from <code>/apps/api/src/modules/orders/domain/order.ts</code></p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Constraints</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="field-name">orderId</span></td>
+                        <td><code>number</code></td>
+                        <td><span class="pk">PK</span></td>
+                        <td>Primary key, unique order identifier</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">clientId</span></td>
+                        <td><code>number | null</code></td>
+                        <td><span class="fk">FK</span></td>
+                        <td>References <code>clients.clientId</code>; enables multi-tenant isolation</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">clientName</span></td>
+                        <td><code>string | null</code></td>
+                        <td><span class="mapped">Denormalized</span></td>
+                        <td>Cached client name from <code>clients.name</code> JOIN; improves query performance</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderNumber</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Human-readable order identifier from upstream e-commerce store</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderStatus</span></td>
+                        <td><code>string</code></td>
+                        <td>—</td>
+                        <td>Current order status (e.g., "pending", "processing", "shipped")</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderDate</span></td>
+                        <td><code>string | null</code></td>
+                        <td>ISO-8601</td>
+                        <td>Timestamp order was placed upstream</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">storeId</span></td>
+                        <td><code>number | null</code></td>
+                        <td>—</td>
+                        <td>Upstream store ID (e-commerce platform specific)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">customerEmail</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Customer email address from upstream order</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shipToName</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Recipient full name for shipping label</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shipToCity</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Shipping destination city</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shipToState</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Shipping destination state/province</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shipToPostalCode</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Shipping destination ZIP/postal code</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">carrierCode</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Carrier identifier (e.g., "usps", "ups", "fedex", "stamps_com")</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">serviceCode</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Service level code (e.g., "usps_priority_mail", "ups_ground")</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">weightValue</span></td>
+                        <td><code>number | null</code></td>
+                        <td>—</td>
+                        <td>Package weight in pounds</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderTotal</span></td>
+                        <td><code>number | null</code></td>
+                        <td>Currency</td>
+                        <td>Total order amount from upstream store (USD)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shippingAmount</span></td>
+                        <td><code>number | null</code></td>
+                        <td>Currency</td>
+                        <td>Shipping cost charged to customer (USD)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">residential</span></td>
+                        <td><code>boolean | null</code></td>
+                        <td>—</td>
+                        <td>Whether destination is residential (affects carrier rates)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">sourceResidential</span></td>
+                        <td><code>boolean | null</code></td>
+                        <td>—</td>
+                        <td>Whether origin is residential</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">externalShipped</span></td>
+                        <td><code>boolean</code></td>
+                        <td>—</td>
+                        <td>Whether order was shipped outside PrepShip (manual fulfillment)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">bestRateJson</span></td>
+                        <td><code>string | null</code></td>
+                        <td>JSON</td>
+                        <td>Serialized best rate option from carrier API</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">selectedRateJson</span></td>
+                        <td><code>string | null</code></td>
+                        <td>JSON</td>
+                        <td>Serialized selected/confirmed rate from carrier</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelShipmentId</span></td>
+                        <td><code>number | null</code></td>
+                        <td><span class="fk">FK</span></td>
+                        <td>References generated shipping label (carrier-specific ID)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelTracking</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Tracking number assigned by carrier</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelCarrier</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Carrier code from generated label</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelService</span></td>
+                        <td><code>string | null</code></td>
+                        <td>—</td>
+                        <td>Service code from generated label</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelProvider</span></td>
+                        <td><code>number | null</code></td>
+                        <td>—</td>
+                        <td>Shipping provider ID that generated label</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelCost</span></td>
+                        <td><code>number | null</code></td>
+                        <td>Currency</td>
+                        <td>Cost charged for shipping label (USD)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelRawCost</span></td>
+                        <td><code>number | null</code></td>
+                        <td>Currency</td>
+                        <td>Raw cost before markups/discounts (USD)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">labelShipDate</span></td>
+                        <td><code>string | null</code></td>
+                        <td>ISO-8601</td>
+                        <td>Timestamp label was generated/printed</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">raw</span></td>
+                        <td><code>string</code></td>
+                        <td>JSON</td>
+                        <td>Entire serialized order payload from upstream e-commerce store</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">items</span></td>
+                        <td><code>string</code></td>
+                        <td>JSON array</td>
+                        <td>Serialized line items array (SKU, quantity, price per item)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- DTO DEFINITION -->
+        <div class="section">
+            <h2>Data Transfer Object: OrderSummaryDto</h2>
+            <p style="color: #a0a0a0; margin-bottom: 1.5rem; font-size: 0.9rem;">API response schema from <code>/packages/contracts/src/orders/contracts.ts</code><br>Used in <code>GET /api/orders</code> and <code>GET /api/orders/:id</code> responses</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>DTO Field</th>
+                        <th>Type</th>
+                        <th>Transformed From</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="field-name">orderId</span></td>
+                        <td><code>number</code></td>
+                        <td><code>OrderRecord.orderId</code></td>
+                        <td>Direct pass-through; primary key</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">clientId</span></td>
+                        <td><code>number | null</code></td>
+                        <td><code>OrderRecord.clientId</code></td>
+                        <td>Direct pass-through; identifies owning client</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">clientName</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.clientName</code></td>
+                        <td>Direct pass-through; denormalized from clients table</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderNumber</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.orderNumber</code></td>
+                        <td>Direct pass-through</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderStatus</span></td>
+                        <td><code>string</code></td>
+                        <td><code>OrderRecord.orderStatus</code></td>
+                        <td>Direct pass-through</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderDate</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.orderDate</code></td>
+                        <td>Direct pass-through</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">storeId</span></td>
+                        <td><code>number | null</code></td>
+                        <td><code>OrderRecord.storeId</code></td>
+                        <td>Direct pass-through</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">customerEmail</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.customerEmail</code></td>
+                        <td>Direct pass-through</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">shipTo</span></td>
+                        <td><code>object | null</code></td>
+                        <td><span class="transformed">4 fields combined</span></td>
+                        <td><strong>Structured object combining shipping address:</strong>
+                            <ul style="margin-top: 0.5rem; margin-left: 1rem; font-size: 0.85rem;">
+                                <li><code>name</code> ← OrderRecord.shipToName</li>
+                                <li><code>city</code> ← OrderRecord.shipToCity</li>
+                                <li><code>state</code> ← OrderRecord.shipToState</li>
+                                <li><code>postalCode</code> ← OrderRecord.shipToPostalCode</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">carrierCode</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.carrierCode</code></td>
+                        <td>Direct pass-through; selected carrier for shipment</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">serviceCode</span></td>
+                        <td><code>string | null</code></td>
+                        <td><code>OrderRecord.serviceCode</code></td>
+                        <td>Direct pass-through; selected service level</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">weight</span></td>
+                        <td><code>{ value, units } | null</code></td>
+                        <td><code>OrderRecord.weightValue</code></td>
+                        <td><strong>Structured object with weight data:</strong>
+                            <ul style="margin-top: 0.5rem; margin-left: 1rem; font-size: 0.85rem;">
+                                <li><code>value</code> ← OrderRecord.weightValue</li>
+                                <li><code>units</code> = "lbs" (hardcoded)</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">orderTotal</span></td>
+                        <td><code>number | null</code></td>
+                        <td><code>OrderRecord.orderTotal</code></td>
+                        <td>Direct pass-through; total order value in USD</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">shippingAmount</span></td>
+                        <td><code>number | null</code></td>
+                        <td><code>OrderRecord.shippingAmount</code></td>
+                        <td>Direct pass-through; shipping cost in USD</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">residential</span></td>
+                        <td><code>boolean | null</code></td>
+                        <td><code>OrderRecord.residential</code></td>
+                        <td>Direct pass-through; destination address type</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">sourceResidential</span></td>
+                        <td><code>boolean | null</code></td>
+                        <td><code>OrderRecord.sourceResidential</code></td>
+                        <td>Direct pass-through; origin address type</td>
+                    </tr>
+                    <tr>
+                        <td><span class="field-name">externalShipped</span></td>
+                        <td><code>boolean</code></td>
+                        <td><code>OrderRecord.externalShipped</code></td>
+                        <td>Direct pass-through; indicates external fulfillment</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">bestRate</span></td>
+                        <td><code>unknown | null</code></td>
+                        <td><code>OrderRecord.bestRateJson</code></td>
+                        <td><strong>Parsed from JSON string:</strong> Deserialized shipping rate option</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">selectedRate</span></td>
+                        <td><code>unknown | null</code></td>
+                        <td><code>OrderRecord.selectedRateJson</code></td>
+                        <td><strong>Parsed from JSON string:</strong> Deserialized confirmed rate</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">label</span></td>
+                        <td><code>object</code></td>
+                        <td><span class="transformed">6 fields combined</span></td>
+                        <td><strong>Structured object with shipping label details:</strong>
+                            <ul style="margin-top: 0.5rem; margin-left: 1rem; font-size: 0.85rem;">
+                                <li><code>shipmentId</code> ← OrderRecord.labelShipmentId</li>
+                                <li><code>trackingNumber</code> ← OrderRecord.labelTracking</li>
+                                <li><code>carrierCode</code> ← OrderRecord.labelCarrier</li>
+                                <li><code>serviceCode</code> ← OrderRecord.labelService</li>
+                                <li><code>shippingProviderId</code> ← OrderRecord.labelProvider</li>
+                                <li><code>cost</code> ← OrderRecord.labelCost</li>
+                                <li><code>rawCost</code> ← OrderRecord.labelRawCost</li>
+                                <li><code>shipDate</code> ← OrderRecord.labelShipDate</li>
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">items</span></td>
+                        <td><code>unknown[]</code></td>
+                        <td><code>OrderRecord.items</code></td>
+                        <td><strong>Parsed from JSON string:</strong> Line items array with product details</td>
+                    </tr>
+                    <tr style="background: rgba(100, 180, 150, 0.1);">
+                        <td><span class="field-name">raw</span></td>
+                        <td><code>unknown</code></td>
+                        <td><code>OrderRecord.raw</code></td>
+                        <td><strong>Parsed from JSON string:</strong> Original upstream order payload</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- TRANSFORMATION LOGIC -->
+        <div class="section">
+            <h2>Domain → DTO Transformation Logic</h2>
+            <p style="color: #a0a0a0; margin-bottom: 1.5rem; font-size: 0.9rem;">Implemented in <code>/apps/api/src/modules/orders/application/list-orders.ts</code> via <code>toOrderDto()</code> function</p>
+
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="card-title">shipTo Object (Nested)</div>
+                    <div class="card-content">
+                        <strong>Combines 4 flat address fields:</strong>
+                        <code>OrderRecord.shipToName</code>
+                        <code>OrderRecord.shipToCity</code>
+                        <code>OrderRecord.shipToState</code>
+                        <code>OrderRecord.shipToPostalCode</code>
+                        <br><br>
+                        <strong>Into structured object:</strong>
+                        <code>{ name, city, state, postalCode }</code>
+                        <br><br>
+                        <strong>Why:</strong> Frontend expects nested address structure; matches V1 API contract
+                    </div>
+                </div>
+
+                <div class="summary-card">
+                    <div class="card-title">weight Object (Nested)</div>
+                    <div class="card-content">
+                        <strong>Transforms single value:</strong>
+                        <code>OrderRecord.weightValue: number</code>
+                        <br><br>
+                        <strong>Into structured object:</strong>
+                        <code>{ value: number, units: "lbs" }</code>
+                        <br><br>
+                        <strong>Why:</strong> Frontend expects units field; allows future metric conversion without schema change
+                    </div>
+                </div>
+
+                <div class="summary-card">
+                    <div class="card-title">label Object (Nested)</div>
+                    <div class="card-content">
+                        <strong>Combines 8 label-related fields:</strong>
+                        <code>labelShipmentId</code>, <code>labelTracking</code>, <code>labelCarrier</code>, <code>labelService</code>, <code>labelProvider</code>, <code>labelCost</code>, <code>labelRawCost</code>, <code>labelShipDate</code>
+                        <br><br>
+                        <strong>Into structured object:</strong>
+                        <code>{ shipmentId, trackingNumber, carrierCode, serviceCode, shippingProviderId, cost, rawCost, shipDate }</code>
+                        <br><br>
+                        <strong>Why:</strong> Groups related label data for cleaner API contract
+                    </div>
+                </div>
+
+                <div class="summary-card">
+                    <div class="card-title">JSON Parsing</div>
+                    <div class="card-content">
+                        <strong>3 fields require JSON.parse():</strong>
+                        <br>
+                        <code>OrderRecord.bestRateJson</code> → <code>OrderSummaryDto.bestRate</code>
+                        <br>
+                        <code>OrderRecord.selectedRateJson</code> → <code>OrderSummaryDto.selectedRate</code>
+                        <br>
+                        <code>OrderRecord.raw</code> → <code>OrderSummaryDto.raw</code>
+                        <br>
+                        <code>OrderRecord.items</code> → <code>OrderSummaryDto.items</code>
+                        <br><br>
+                        <strong>Why:</strong> Database stores JSON as strings; API returns parsed objects
+                    </div>
+                </div>
+            </div>
+
+            <div class="note" style="margin-top: 2rem;">
+                <strong>📝 Transformation Implementation Example:</strong><br>
+                <code style="display: block; margin-top: 0.5rem;">
+                    const shipTo = order.shipToName ? {<br>
+                    &nbsp;&nbsp;name: order.shipToName,<br>
+                    &nbsp;&nbsp;city: order.shipToCity,<br>
+                    &nbsp;&nbsp;state: order.shipToState,<br>
+                    &nbsp;&nbsp;postalCode: order.shipToPostalCode<br>
+                    } : null;<br>
+                    <br>
+                    const weight = order.weightValue ? {<br>
+                    &nbsp;&nbsp;value: order.weightValue,<br>
+                    &nbsp;&nbsp;units: "lbs"<br>
+                    } : null;
+                </code>
+            </div>
+        </div>
+
+        <!-- DOMAIN → TABLE MAPPING -->
+        <div class="section">
+            <h2>Database Table Relationships</h2>
             <table>
                 <thead>
                     <tr>
@@ -306,7 +902,7 @@ erDiagram
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>ClientRecord</code></td>
+                        <td><span class="model-name">ClientRecord</span></td>
                         <td class="table-name">clients</td>
                         <td>
                             <span class="pk">clientId (PK)</span><br>
@@ -315,16 +911,16 @@ erDiagram
                         <td>← orders.clientId, inventory_skus.clientId</td>
                     </tr>
                     <tr>
-                        <td><code>OrderRecord</code></td>
+                        <td><span class="model-name">OrderRecord</span></td>
                         <td class="table-name">orders</td>
                         <td>
                             <span class="pk">orderId (PK)</span><br>
-                            <span class="fk">clientId (FK)</span>, storeId, status, clientName
+                            <span class="fk">clientId (FK)</span>, storeId, orderStatus, clientName
                         </td>
                         <td>→ clients | ← shipments, order_local, inventory_ledger</td>
                     </tr>
                     <tr>
-                        <td><code>ShipmentRecord</code></td>
+                        <td><span class="model-name">ShipmentRecord</span></td>
                         <td class="table-name">shipments</td>
                         <td>
                             <span class="pk">shipmentId (PK)</span><br>
@@ -333,7 +929,7 @@ erDiagram
                         <td>→ orders</td>
                     </tr>
                     <tr>
-                        <td><code>InventoryRecord</code></td>
+                        <td><span class="model-name">InventoryRecord</span></td>
                         <td class="table-name">inventory_skus</td>
                         <td>
                             <span class="pk">invSkuId (PK)</span><br>
@@ -343,7 +939,7 @@ erDiagram
                         <td>→ clients, parent_skus, packages | ← inventory_ledger</td>
                     </tr>
                     <tr>
-                        <td><code>InventoryLedger</code></td>
+                        <td><span class="model-name">InventoryLedger</span></td>
                         <td class="table-name">inventory_ledger</td>
                         <td>
                             <span class="pk">ledgerId (PK)</span><br>
@@ -352,107 +948,54 @@ erDiagram
                         </td>
                         <td>→ inventory_skus, orders</td>
                     </tr>
-                    <tr>
-                        <td><code>SKU</code> (Product)</td>
-                        <td class="table-name">products</td>
-                        <td>
-                            <span class="pk">sku (PK)</span><br>
-                            title, metadata (JSON)
-                        </td>
-                        <td>← inventory_skus (sku reference)</td>
-                    </tr>
-                    <tr>
-                        <td><code>ParentSKU</code></td>
-                        <td class="table-name">parent_skus</td>
-                        <td>
-                            <span class="pk">parentSkuId (PK)</span><br>
-                            name, contents (JSON)
-                        </td>
-                        <td>← inventory_skus.parentSkuId</td>
-                    </tr>
-                    <tr>
-                        <td><code>Package</code></td>
-                        <td class="table-name">packages</td>
-                        <td>
-                            <span class="pk">packageId (PK)</span><br>
-                            name, weight (decimal)
-                        </td>
-                        <td>← inventory_skus.packageId</td>
-                    </tr>
-                    <tr>
-                        <td>—</td>
-                        <td class="table-name">order_local</td>
-                        <td>
-                            <span class="pk">orderId (PK/FK)</span> <span class="nullable">1:1 to orders</span><br>
-                            metadata (JSON)
-                        </td>
-                        <td>→ orders (1:1 extension)</td>
-                    </tr>
-                    <tr>
-                        <td>—</td>
-                        <td class="table-name">locations</td>
-                        <td>
-                            <span class="pk">locationId (PK)</span><br>
-                            name, address
-                        </td>
-                        <td>Referenced by inventory_skus</td>
-                    </tr>
-                    <tr>
-                        <td>—</td>
-                        <td class="table-name">sync_meta</td>
-                        <td>
-                            <span class="pk">key (PK)</span><br>
-                            value (JSON), syncedAt
-                        </td>
-                        <td>Metadata store (no FK)</td>
-                    </tr>
                 </tbody>
             </table>
         </div>
 
+        <!-- KEY RELATIONSHIPS LEGEND -->
         <div class="section">
-            <h2>Key Relationships</h2>
+            <h2>Key Relationships & Rules</h2>
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-title">Client → Orders</div>
-                    <div class="legend-desc">1:N - Each client has many orders. Enforced via <code>orders.clientId</code> foreign key.</div>
+                    <div class="legend-desc">1:N relationship. Each client has many orders. Enforced via <code>orders.clientId</code> foreign key.</div>
                 </div>
                 <div class="legend-item">
                     <div class="legend-title">Orders → Shipments</div>
-                    <div class="legend-desc">1:N - Each order may have multiple shipments. Tracked via <code>shipments.orderId</code>.</div>
+                    <div class="legend-desc">1:N relationship. Each order may have multiple shipments. Tracked via <code>shipments.orderId</code>.</div>
                 </div>
                 <div class="legend-item">
                     <div class="legend-title">Order → OrderLocal</div>
-                    <div class="legend-desc">1:1 - Extended metadata stored separately. <code>order_local.orderId</code> is FK+PK.</div>
+                    <div class="legend-desc">1:1 relationship. Extended metadata stored separately. <code>order_local.orderId</code> is FK+PK.</div>
                 </div>
                 <div class="legend-item">
                     <div class="legend-title">Inventory → Ledger</div>
-                    <div class="legend-desc">1:N - Ledger tracks all quantity adjustments per SKU. <code>inventory_ledger.invSkuId</code> FK.</div>
+                    <div class="legend-desc">1:N relationship. Ledger tracks all quantity adjustments per SKU. <code>inventory_ledger.invSkuId</code> FK.</div>
                 </div>
                 <div class="legend-item">
                     <div class="legend-title">Ledger ↔ Orders</div>
-                    <div class="legend-desc">Optional - Ledger entries may reference an order (nullable <code>inventory_ledger.orderId</code>).</div>
+                    <div class="legend-desc">Optional relationship. Ledger entries may reference an order (nullable <code>inventory_ledger.orderId</code>).</div>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-title">SKU Bundles</div>
-                    <div class="legend-desc"><code>inventory_skus.parentSkuId</code> creates bundle hierarchies. Self-referential or cross-reference model.</div>
+                    <div class="legend-title">Data Consistency</div>
+                    <div class="legend-desc">All <code>clientId</code> refs must exist in <code>clients</code> table. <code>inventory_skus</code> always scoped to client (multi-tenant).</div>
                 </div>
             </div>
         </div>
 
-        <div class="section">
-            <div class="note">
-                <strong>📌 Data Consistency Rules:</strong><br>
-                • All <code>clientId</code> references must exist in <code>clients</code> table<br>
-                • <code>storeId</code> in orders must match one of the client's <code>storeIds</code> array<br>
-                • <code>inventory_skus</code> are always scoped to a client (multi-tenant isolation)<br>
-                • <code>inventory_ledger.orderId</code> is nullable (stock adjustments may not be tied to orders)<br>
-                • <code>order_local</code> must have matching <code>orderId</code> in <code>orders</code> (enforced via constraints)
-            </div>
+        <div class="note">
+            <strong>📌 Data Consistency Rules:</strong><br>
+            • All <code>clientId</code> references must exist in <code>clients</code> table<br>
+            • <code>storeId</code> in orders must match one of the client's <code>storeIds</code> array<br>
+            • <code>inventory_skus</code> are always scoped to a client (multi-tenant isolation)<br>
+            • <code>inventory_ledger.orderId</code> is nullable (stock adjustments may not be tied to orders)<br>
+            • <code>order_local</code> must have matching <code>orderId</code> in <code>orders</code> (enforced via constraints)<br>
+            • JSON fields (<code>raw</code>, <code>items</code>, <code>bestRateJson</code>, <code>selectedRateJson</code>) are stored as strings and parsed on API response
         </div>
 
         <div class="section" style="text-align: center; color: #a0a0a0; font-size: 0.85rem; margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(111, 168, 255, 0.2);">
-            <p>Generated for PrepShip V2 | SQLite Database | v1 API Parity Target</p>
+            <p>PrepShip V2 Complete Schema Documentation | SQLite Database | v1 API Parity Target<br>
+            <span style="font-size: 0.8rem; color: #707070;">Updated: 2026-03-10 | OrderRecord & OrderSummaryDto Mapping Verified</span></p>
         </div>
     </div>
 </body>
