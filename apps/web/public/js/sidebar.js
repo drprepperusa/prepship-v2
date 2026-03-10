@@ -33,6 +33,7 @@ export function buildSidebarCounts({ byStatus, byStatusStore }) {
 }
 
 export function renderSidebarSections() {
+  console.log('renderSidebarSections called. sidebarCounts:', state.sidebarCounts);
   const statuses = ['awaiting_shipment', 'shipped', 'cancelled'];
 
   // Build a global total per store (across all statuses) for consistent ordering
@@ -42,6 +43,7 @@ export function renderSidebarSections() {
       globalTotals[store.storeId] = (globalTotals[store.storeId] || 0) + store.cnt;
     });
   });
+  console.log('renderSidebarSections: globalTotals:', globalTotals, 'storeMap:', state.storeMap);
 
   statuses.forEach(status => {
     const data  = state.sidebarCounts[status] || { total: 0, stores: [] };
@@ -52,17 +54,21 @@ export function renderSidebarSections() {
 
     // Merge counts with full storeMap so all accounts show even at 0 orders
     const storeRows = [...data.stores];
+    console.log(`renderSidebarSections[${status}] starting with data.stores:`, storeRows);
     const seenIds   = new Set(storeRows.map(s => String(s.storeId)));
     Object.entries(state.storeMap).forEach(([sid, name]) => {
       if (!seenIds.has(String(sid))) {
+        console.log(`renderSidebarSections[${status}] adding missing store ${sid}: "${name}"`);
         storeRows.push({ storeId: sid, name, cnt: 0 });
       }
     });
+    console.log(`renderSidebarSections[${status}] final storeRows before sort:`, storeRows);
     // Sort by global total (same order in every section), then alpha for ties
     storeRows.sort((a, b) =>
       (globalTotals[b.storeId] || 0) - (globalTotals[a.storeId] || 0) ||
       a.name.localeCompare(b.name)
     );
+    console.log(`renderSidebarSections[${status}] final storeRows after sort:`, storeRows);
 
     storesEl.innerHTML = storeRows.map(s =>
       `<div class="ss-store${s.cnt === 0 ? ' ss-store-zero' : ''}" id="sstore-${status}-${s.storeId}" onclick="selectStatus('${status}','${s.storeId}')">
