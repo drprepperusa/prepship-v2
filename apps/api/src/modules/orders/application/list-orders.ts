@@ -16,6 +16,9 @@ function parseJson(value: string | null): unknown | null {
 }
 
 function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number]): OrderSummaryDto {
+  const rawData = parseJson(record.raw) as any;
+  const items = rawData?.items || [];
+  
   return {
     orderId: record.orderId,
     clientId: record.clientId,
@@ -41,7 +44,8 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
       rawCost: record.labelRawCost,
       shipDate: record.labelShipDate,
     },
-    raw: parseJson(record.raw),
+    items,
+    raw: rawData,
   };
 }
 

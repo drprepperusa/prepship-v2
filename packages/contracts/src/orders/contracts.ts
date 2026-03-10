@@ -34,6 +34,7 @@ export interface OrderSummaryDto {
     rawCost: number | null;
     shipDate: string | null;
   };
+  items: unknown[];
   raw: unknown;
 }
 

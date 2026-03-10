@@ -57,7 +57,7 @@ export interface BootstrapApiOverrides {
   packageSyncGateway?: PackageSyncGateway;
 }
 
-export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides = {}) {
+export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides = {}, sessionToken?: string) {
   const config = loadAppConfig(env);
   const dataStore = overrides.dataStore ?? buildDataStore(config, overrides.memorySeed);
   const rateShopper = overrides.rateShopper ?? new ShipstationRateShopper();
@@ -111,6 +111,6 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
 
   return {
     config,
-    app: createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler }),
+    app: createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, sessionToken }),
   };
 }
