@@ -85,7 +85,7 @@ export class SqliteInitRepository implements InitRepository {
     `).all(...params) as OrdersByStatusDto[];
 
     const byStatusStore = this.db.prepare(`
-      SELECT o.orderStatus, o.storeId, COUNT(*) AS cnt
+      SELECT o.orderStatus, CAST(o.storeId AS INTEGER) AS storeId, COUNT(*) AS cnt
       FROM orders o
       LEFT JOIN order_local ol ON o.orderId = ol.orderId
       WHERE NOT (o.orderStatus = 'awaiting_shipment' AND COALESCE(ol.external_shipped, 0) = 1)
