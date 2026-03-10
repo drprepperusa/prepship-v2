@@ -321,7 +321,7 @@ export function renderOrders(skipRates = false) {
       switch (c.key) {
         case 'select':    return `<td data-col="select"><input type="checkbox" ${chk} onclick="event.stopPropagation();toggleCheckbox(${o.orderId},this.checked)" tabindex="-1"></td>`;
         case 'date': {
-          const _pb = state.orderBestRate[o.orderId];
+          const _pb = o.bestRate;
           const serviceCode = _pb?.serviceCode || o.serviceCode || o.requestedShippingService || '';
           const expedited = getExpedited(serviceCode);
           const expeditedHtml = expedited
@@ -370,12 +370,12 @@ export function renderOrders(skipRates = false) {
         case 'shipto':    return `<td data-col="shipto" style="font-size:11.5px;color:var(--text2)">${escHtml(shiptoStr || '—')}</td>`;
         case 'carrier': {
           // Check if order is shipped: either status=shipped OR has a label
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
-            if (o._externalShipped) return `<td data-col="carrier"><span style="font-size:10px;color:var(--text2)">Externally Shipped</span></td>`;
+            if (o.externalShipped) return `<td data-col="carrier"><span style="font-size:10px;color:var(--text2)">Externally Shipped</span></td>`;
             return `<td data-col="carrier">${cc}</td>`;
           }
-          const _pb  = state.orderBestRate[o.orderId];
+          const _pb  = o.bestRate;
           if (!_pb)  return `<td data-col="carrier"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
@@ -384,37 +384,37 @@ export function renderOrders(skipRates = false) {
         }
         case 'custcarrier': {
           // Check if order is shipped: either status=shipped OR has a label
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
             // Check if marked as externally shipped first
-            if (o._externalShipped) {
+            if (o.externalShipped) {
               return `<td data-col="custcarrier" data-acct-name="Externally Shipped" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">Externally Shipped</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$0.00</div></div></td>`;
             }
-            // Check for selected_rate_json (actual rate used at label creation)
-            if (o._selectedRateJson) {
-              let acctName = o._selectedRateJson.providerAccountNickname || 'External';
-              const _cost = parseFloat(o._selectedRateJson.cost || 0);
+            // Check for selectedRate (actual rate used at label creation)
+            if (o.selectedRate) {
+              let acctName = o.selectedRate.providerAccountNickname || 'External';
+              const _cost = parseFloat(o.selectedRate.cost || 0);
               return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$${_cost.toFixed(2)}</div></div></td>`;
             }
             // No rate data available → eBay/Amazon/Walmart generated the label externally
-            if (!o._labelCost && !o._labelTracking && !o._labelProvider && !o._selectedRateJson) {
+            if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
               return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
             }
-            // For shipped orders: providerAccountId (from v2 carrier_id backfill) is authoritative.
-            // v2 carrier_id → numeric spid → state.carriersList lookup → nickname.
-            // Fall back to generic carrier name if providerAccountId not yet backfilled.
+            // For shipped orders: shippingProviderId is authoritative.
+            // shippingProviderId → numeric spid → state.carriersList lookup → nickname.
+            // Fall back to generic carrier name if shippingProviderId not set.
             let acctName = custCarrierName;
-            if (o._labelProvider) {
-              const acct = state.carriersList.find(c => c.shippingProviderId === o._labelProvider);
+            if (o.label?.shippingProviderId) {
+              const acct = state.carriersList.find(c => c.shippingProviderId === o.label.shippingProviderId);
               if (acct) acctName = acct._label || acct.nickname || acct.accountNumber || acct.name || custCarrierName;
             } else {
-              // providerAccountId not backfilled yet — show generic carrier name
-              const effectiveCode = o._labelCarrier || o.carrierCode;
+              // shippingProviderId not set — show generic carrier name
+              const effectiveCode = o.label?.carrierCode || o.carrierCode;
               if (effectiveCode) acctName = CARRIER_NAMES[effectiveCode] || effectiveCode.replace(/_/g, ' ').toUpperCase();
             }
             return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label"></div></div></td>`;
           }
-          const _pb   = state.orderBestRate[o.orderId];
+          const _pb   = o.bestRate;
           if (_pb?._noDims) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb)   return `<td data-col="custcarrier" style="white-space:nowrap"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
@@ -426,14 +426,14 @@ export function renderOrders(skipRates = false) {
         case 'total':     return `<td data-col="total" style="font-weight:700;white-space:nowrap">$${(o.orderTotal || 0).toFixed(2)}</td>`;
         case 'bestrate': {
           // For shipped orders with label, show label cost
-          if (o._labelCost != null) {
-            const _lc = o._labelCost || 0;
-            const _lm = o._labelMarkedCost || 0;
+          if (o.label?.cost != null) {
+            const _lc = o.label.cost || 0;
+            const _lm = o.label.cost || 0; // TODO: apply carrier markup if needed
             return `<td data-col="bestrate" id="rate-${o.orderId}"><div style="display:flex;align-items:center;gap:6px"><div>${priceDisplay(_lc, _lm, { mainSize:'12px' })}</div></div></td>`;
           }
           // For shipped orders with selected rate (actual rate from label creation), show that
-          if (o._selectedRateJson) {
-            const _srj = o._selectedRateJson;
+          if (o.selectedRate) {
+            const _srj = o.selectedRate;
             const _bcc = _srj.carrierCode || '';
             const _rawCost = parseFloat(_srj.cost || 0);
             const _markedCost = applyCarrierMarkup(_srj);
@@ -443,7 +443,7 @@ export function renderOrders(skipRates = false) {
           if (o.orderStatus !== 'awaiting_shipment') return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="color:var(--text3);font-size:11px">—</span></td>`;
           
           // For awaiting_shipment orders
-          const _pb = state.orderBestRate[o.orderId];
+          const _pb = o.bestRate;
           if (_pb?._noDims) return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb) return `<td data-col="bestrate" id="rate-${o.orderId}"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
@@ -453,18 +453,18 @@ export function renderOrders(skipRates = false) {
         }
         case 'margin': {
           // Check if order is shipped: either status=shipped OR has a label
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
             // Shipped: show label cost markup if we have it
-            const _lc = o._labelCost || 0;
-            const _lm = o._labelMarkedCost || 0;
+            const _lc = o.label?.cost || 0;
+            const _lm = o.label?.cost || 0; // TODO: apply carrier markup if needed
             const _ldiff = _lm - _lc;
             if (_lc > 0 && _ldiff > 0) {
               return `<td data-col="margin" style="text-align:right"><span style="font-size:12px;font-weight:700;color:#16a34a">+$${_ldiff.toFixed(2)}</span></td>`;
             }
             return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           }
-          const _mpb = state.orderBestRate[o.orderId];
+          const _mpb = o.bestRate;
           if (_mpb?._noDims) return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           if (!_mpb) return `<td data-col="margin" style="text-align:right"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _mRaw    = (_mpb.shipmentCost || 0) + (_mpb.otherCost || 0);
@@ -475,12 +475,12 @@ export function renderOrders(skipRates = false) {
           return `<td data-col="margin" style="text-align:right"><div style="line-height:1.3"><div style="font-size:12px;font-weight:700;color:#16a34a">+$${_mDiff.toFixed(2)}</div><div style="font-size:10px;color:var(--text3)">${_mPct}%</div></div></td>`;
         }
         case 'tracking': {
-          // Use label tracking if available, otherwise use backfilled tracking
-          const trackingNum = o._labelTracking || o._backfilledTracking;
+          // Use label tracking number
+          const trackingNum = o.label?.trackingNumber;
           if (!trackingNum) return `<td data-col="tracking" style="font-size:11px;font-family:monospace"><span style="color:var(--text4)">—</span></td>`;
           
           // Determine carrier code for tracking URL
-          let carrierCode = o._labelCarrier || o._bestRateJson?.carrierCode || o.carrierCode || '';
+          let carrierCode = o.label?.carrierCode || o.bestRate?.carrierCode || o.carrierCode || '';
           
           const trackUrl = getTrackingUrl(carrierCode, trackingNum);
           if (trackUrl) {
@@ -496,13 +496,13 @@ export function renderOrders(skipRates = false) {
         // TESTING COLUMNS (diagnostic)
         // ═══════════════════════════════════════════════
         case 'test_carrierCode': {
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
-          const cc = isShipped ? (o._selectedRateJson?.carrierCode || o._labelCarrier || o.carrierCode || '—') : (o._bestRateJson?.carrierCode || '—');
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
+          const cc = isShipped ? (o.selectedRate?.carrierCode || o.label?.carrierCode || o.carrierCode || '—') : (o.bestRate?.carrierCode || '—');
           return `<td data-col="test_carrierCode" style="font-size:14px;text-align:center;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px">${escHtml(cc)}</td>`;
         }
         case 'test_shippingProviderID': {
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
-          const spid = isShipped ? (o._selectedRateJson?.shippingProviderId || o._labelProvider || '—') : (o._bestRateJson?.shippingProviderId || '—');
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
+          const spid = isShipped ? (o.selectedRate?.shippingProviderId || o.label?.shippingProviderId || '—') : (o.bestRate?.shippingProviderId || '—');
           return `<td data-col="test_shippingProviderID" style="font-size:14px;text-align:center;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px">${escHtml(String(spid))}</td>`;
         }
         case 'test_clientID': {
@@ -510,30 +510,28 @@ export function renderOrders(skipRates = false) {
           return `<td data-col="test_clientID" style="font-size:14px;text-align:center;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px">${escHtml(String(cid))}</td>`;
         }
         case 'test_serviceCode': {
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
-          const sc = isShipped ? (o._selectedRateJson?.serviceCode || o._labelService || o.serviceCode || '—') : (o._bestRateJson?.serviceCode || '—');
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
+          const sc = isShipped ? (o.selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '—') : (o.bestRate?.serviceCode || '—');
           return `<td data-col="test_serviceCode" style="font-size:10px;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(sc)}">${escHtml(sc)}</td>`;
         }
         case 'test_bestRateJson': {
-          const brj = o._bestRateJson;
+          const brj = o.bestRate;
           if (!brj) return `<td data-col="test_bestRateJson" style="font-size:10px;color:var(--text3)">—</td>`;
           const display = `${brj.carrierCode || '?'}|${brj.serviceCode || '?'}|$${((brj.shipmentCost || 0) + (brj.otherCost || 0)).toFixed(2)}`;
           return `<td data-col="test_bestRateJson" style="font-size:9px;font-family:monospace;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(JSON.stringify(brj))}">${escHtml(display)}</td>`;
         }
         case 'test_orderLocal': {
           const parts = [];
-          if (o._rateWeightOz != null) parts.push(`w:${o._rateWeightOz}oz`);
-          if (o._rateDimsL != null) parts.push(`${o._rateDimsL}x${o._rateDimsW}x${o._rateDimsH}`);
-          if (o._trackingNumber) parts.push(`track:✓`);
-          if (o._shippingAccount) parts.push(`acct:✓`);
-          if (o._bestRateJson) parts.push(`best:✓`);
+          if (o.weight?.value > 0) parts.push(`w:${o.weight.value}${o.weight.units?.[0] || 'oz'}`);
+          if (o.label?.trackingNumber) parts.push(`track:✓`);
+          if (o.bestRate) parts.push(`best:✓`);
           const display = parts.length ? parts.join(' ') : '—';
           return `<td data-col="test_orderLocal" style="font-size:9px;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(display)}">${escHtml(display)}</td>`;
         }
         case 'test_shippingAccount': {
-          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o._labelTracking && o._labelCarrier);
+          const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           const acctName = isShipped 
-            ? (o._selectedRateJson?.providerAccountNickname || o._shippingAccount || o._labelCarrier || '—')
+            ? (o.selectedRate?.providerAccountNickname || o.label?.carrierCode || '—')
             : '—';  // Awaiting shipment: account not selected yet
           return `<td data-col="test_shippingAccount" style="font-size:14px;text-align:center;color:var(--text2);background:var(--surface2);padding:4px 6px;border-radius:3px">${escHtml(acctName)}</td>`;
         }
@@ -543,7 +541,7 @@ export function renderOrders(skipRates = false) {
     }).join('');
 
     const _cp = clientPalette(storeName);
-    const _pb = state.orderBestRate[o.orderId];
+    const _pb = o.bestRate;
     const serviceCode = _pb?.serviceCode || o.serviceCode || o.requestedShippingService || '';
     const expedited = getExpedited(serviceCode);
     const expeditedBg = expedited ? 'background:rgba(34,197,94,.08)' : '';
@@ -647,7 +645,7 @@ export function renderActualRateCell(id, o) {
   if (!cell) return;
   
   // Check if marked as externally shipped (shipped outside ShipStation)
-  if (o._externalShipped) {
+  if (o.externalShipped) {
     cell.innerHTML = '<span style="font-size:10.5px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;white-space:nowrap" title="Shipped outside ShipStation">Externally Shipped</span>';
     const row = document.getElementById(`row-${id}`);
     if (row) {
@@ -659,14 +657,14 @@ export function renderActualRateCell(id, o) {
     return;
   }
   
-  // No PrepShip shipment record and no rate data → marketplace/external label
-  if (!o._labelCost && !o._labelTracking && !o._labelProvider && !o._selectedRateJson) {
+  // No label and no selectedRate → marketplace/external label
+  if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
     cell.innerHTML = '<span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span>';
     return;
   }
 
-  const hasLabel = o._labelCost != null;
-  const hasSelectedRate = o._selectedRateJson != null;
+  const hasLabel = o.label?.cost != null;
+  const hasSelectedRate = o.selectedRate != null;
   let cost = 0;
   let cc = '';
   let sc = '';
@@ -674,14 +672,14 @@ export function renderActualRateCell(id, o) {
   let costTitle = 'Actual label cost';
   
   if (hasLabel) {
-    cost = parseFloat(o._labelCost);
-    cc = o._labelCarrier || o.carrierCode || '';
-    sc = o._labelService || o.serviceCode || '';
+    cost = parseFloat(o.label.cost);
+    cc = o.label.carrierCode || o.carrierCode || '';
+    sc = o.label.serviceCode || o.serviceCode || '';
   } else if (hasSelectedRate) {
     // Use selected rate (actual rate used at label creation for externally fulfilled orders)
-    cost = parseFloat(o._selectedRateJson.cost) || 0;
-    cc = o._selectedRateJson.carrierCode || '';
-    sc = o._selectedRateJson.serviceCode || '';
+    cost = parseFloat(o.selectedRate.cost) || 0;
+    cc = o.selectedRate.carrierCode || '';
+    sc = o.selectedRate.serviceCode || '';
     costColor = 'var(--text)';
     costTitle = 'Rate used at label creation (external)';
   }
@@ -689,10 +687,9 @@ export function renderActualRateCell(id, o) {
   const svc = (SERVICE_NAMES[sc] || sc.replace(/_/g, ' ')).substring(0, 20);
 
   // Apply carrier markup using persisted selected carrier account (shippingProviderId)
-  // _labelProvider comes from shipments.providerAccountId (only set for 3rd-party billed labels)
-  // _selectedPid comes from order_local.selected_pid (persisted when Rate Browser selection is made)
-  // For rates without labels, use providerAccountId from selectedRate
-  const pid = o._labelProvider || o._selectedPid || (hasSelectedRate ? o._selectedRateJson.providerAccountId : null);
+  // For labels, use label.shippingProviderId
+  // For selectedRate, use selectedRate.shippingProviderId
+  const pid = o.label?.shippingProviderId || (hasSelectedRate ? o.selectedRate.shippingProviderId : null);
   const markedCost = pid ? applyRbMarkup(pid, cost) : cost;
 
   const costHtml  = cost > 0
@@ -712,7 +709,7 @@ export function renderActualRateCell(id, o) {
         if (svcSpan) svcSpan.textContent = svc;
       }
       // Update account name — fixes race condition where carriersList wasn't loaded at initial render
-      const labelProvider = o._labelProvider || (hasSelectedRate ? o._selectedRateJson.providerAccountId : null);
+      const labelProvider = o.label?.shippingProviderId || (hasSelectedRate ? o.selectedRate.shippingProviderId : null);
       if (labelProvider) {
         const acct = state.carriersList.find(c => c.shippingProviderId === labelProvider);
         if (acct) {
@@ -788,7 +785,7 @@ export async function fetchCheapestRates(orders) {
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
     if (!dims) {
       // Store sentinel so re-renders don't flash the old cached rate
-      state.orderBestRate[o.orderId] = { _noDims: true };
+      // NOTE: This is internal frontend state, not part of API response
       const cell = document.getElementById(`rate-${o.orderId}`);
       if (cell) {
         cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
