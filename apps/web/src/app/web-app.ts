@@ -31,7 +31,7 @@ function resolvePublicPath(publicDir: string, pathname: string): string | null {
   return filename.startsWith(root) ? filename : null;
 }
 
-async function serveStatic(publicDir: string, pathname: string, appToken?: string): Promise<Response> {
+async function serveStatic(publicDir: string, pathname: string): Promise<Response> {
   const filename = resolvePublicPath(publicDir, pathname);
 
   if (filename == null) {
@@ -39,32 +39,7 @@ async function serveStatic(publicDir: string, pathname: string, appToken?: strin
   }
 
   try {
-    let body = await readFile(filename);
-    
-    // Inject auth token into index.html
-    if (pathname === "/" && appToken) {
-      let html = body.toString("utf-8");
-      
-      // Inject fetch interceptor before </head>
-      const fetchInterceptor = `<script>
-(function(){
-  const _T='${appToken}';
-  const _F=window.fetch.bind(window);
-  window.fetch=function(url,opts){
-    if(typeof url==='string'&&url.startsWith('/api')){
-      opts=Object.assign({},opts);
-      const h=opts.headers instanceof Headers?opts.headers:new Headers(opts.headers||{});
-      h.set('X-App-Token',_T);
-      opts.headers=h;
-    }
-    return _F(url,opts);
-  };
-})();
-</script>`;
-      
-      html = html.replace("</head>", `${fetchInterceptor}</head>`);
-      body = Buffer.from(html, "utf-8");
-    }
+    const body = await readFile(filename);
     
     return new Response(body, {
       status: 200,
@@ -103,29 +78,6 @@ async function proxyApiRequest(
 
 export function createWebApp(dependencies: WebAppDependencies) {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
-  let cachedAppToken: string | null = null;
-
-  async function getAppToken(): Promise<string> {
-    // Return cached token if available
-    if (cachedAppToken) {
-      return cachedAppToken;
-    }
-
-    try {
-      const response = await fetchImpl(`${dependencies.apiBaseUrl}/api/auth/token`);
-      const data = (await response.json()) as { token?: string };
-      if (data.token) {
-        cachedAppToken = data.token;
-        return cachedAppToken;
-      }
-    } catch (error) {
-      console.error("Failed to fetch app token:", error);
-    }
-
-    // Fallback to empty string if unable to fetch token
-    // (API might be down, but web can still serve static files)
-    return "";
-  }
 
   return async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -141,8 +93,6 @@ export function createWebApp(dependencies: WebAppDependencies) {
       return proxyApiRequest(request, dependencies.apiBaseUrl, fetchImpl);
     }
 
-    // Get app token for injection into HTML
-    const appToken = await getAppToken();
-    return serveStatic(dependencies.publicDir, url.pathname, appToken);
+    return serveStatic(dependencies.publicDir, url.pathname);
   };
 }

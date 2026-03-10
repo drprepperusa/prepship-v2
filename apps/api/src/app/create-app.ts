@@ -29,7 +29,6 @@ export interface AppDependencies {
   ratesHandler: RatesHttpHandler;
   settingsHandler: SettingsHttpHandler;
   shipmentsHandler: ShipmentsHttpHandler;
-  sessionToken?: string;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -154,10 +153,6 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "GET" && url.pathname === "/health") {
       return jsonResponse(200, { ok: true });
-    }
-
-    if (request.method === "GET" && url.pathname === "/api/auth/token") {
-      return jsonResponse(200, { token: dependencies.sessionToken || "" });
     }
 
     if (request.method === "GET" && url.pathname === "/api/analysis/skus") {
