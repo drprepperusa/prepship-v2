@@ -8,7 +8,14 @@ export interface OrderRecord {
   storeId: number | null;
   customerEmail: string | null;
   shipToName: string | null;
+  shipToCity: string | null;
+  shipToState: string | null;
   shipToPostalCode: string | null;
+  carrierCode: string | null;
+  serviceCode: string | null;
+  weightValue: number | null;
+  orderTotal: number | null;
+  shippingAmount: number | null;
   residential: boolean | null;
   sourceResidential: boolean | null;
   externalShipped: boolean;
@@ -23,5 +30,6 @@ export interface OrderRecord {
   labelRawCost: number | null;
   labelShipDate: string | null;
   raw: string;
+  items: string;
 }
 

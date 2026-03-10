@@ -18,8 +18,20 @@ export interface OrderSummaryDto {
   orderDate: string | null;
   storeId: number | null;
   customerEmail: string | null;
-  shipToName: string | null;
-  shipToPostalCode: string | null;
+  shipTo: {
+    name: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+  } | null;
+  carrierCode: string | null;
+  serviceCode: string | null;
+  weight: {
+    value: number;
+    units: string;
+  } | null;
+  orderTotal: number | null;
+  shippingAmount: number | null;
   residential: boolean | null;
   sourceResidential: boolean | null;
   externalShipped: boolean;

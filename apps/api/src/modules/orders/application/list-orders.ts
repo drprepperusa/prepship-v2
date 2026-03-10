@@ -17,7 +17,26 @@ function parseJson(value: string | null): unknown | null {
 
 function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number]): OrderSummaryDto {
   const rawData = parseJson(record.raw) as any;
-  const items = rawData?.items || [];
+  const itemsStr = record.items || "[]";
+  let items = [];
+  try {
+    items = Array.isArray(itemsStr) ? itemsStr : JSON.parse(itemsStr);
+  } catch {
+    items = [];
+  }
+  
+  const shipTo = (record.shipToName || record.shipToCity || record.shipToState || record.shipToPostalCode)
+    ? {
+        name: record.shipToName || null,
+        city: record.shipToCity || null,
+        state: record.shipToState || null,
+        postalCode: record.shipToPostalCode || null,
+      }
+    : null;
+
+  const weight = record.weightValue != null && record.weightValue > 0
+    ? { value: record.weightValue, units: "ounces" }
+    : null;
   
   return {
     orderId: record.orderId,
@@ -28,8 +47,12 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
     orderDate: record.orderDate,
     storeId: record.storeId,
     customerEmail: record.customerEmail,
-    shipToName: record.shipToName,
-    shipToPostalCode: record.shipToPostalCode,
+    shipTo,
+    carrierCode: record.carrierCode,
+    serviceCode: record.serviceCode,
+    weight,
+    orderTotal: record.orderTotal,
+    shippingAmount: record.shippingAmount,
     residential: record.residential,
     sourceResidential: record.sourceResidential,
     externalShipped: record.externalShipped,

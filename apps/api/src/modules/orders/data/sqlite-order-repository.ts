@@ -109,7 +109,14 @@ export class SqliteOrderRepository implements OrderRepository {
         o.storeId,
         o.customerEmail,
         o.shipToName,
+        o.shipToCity,
+        o.shipToState,
         o.shipToPostalCode,
+        o.carrierCode,
+        o.serviceCode,
+        o.weightValue,
+        o.orderTotal,
+        o.shippingAmount,
         CASE
           WHEN ol.residential IS NULL THEN NULL
           WHEN ol.residential = 1 THEN 1
@@ -131,7 +138,8 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_cost,
         ship.label_raw_cost,
         ship.label_shipDate,
-        o.raw
+        o.raw,
+        COALESCE(o.items, '[]') AS items
       ${fromClause}
       LEFT JOIN clients c ON c.clientId = o.clientId
       ${where}
@@ -161,7 +169,14 @@ export class SqliteOrderRepository implements OrderRepository {
         o.storeId,
         o.customerEmail,
         o.shipToName,
+        o.shipToCity,
+        o.shipToState,
         o.shipToPostalCode,
+        o.carrierCode,
+        o.serviceCode,
+        o.weightValue,
+        o.orderTotal,
+        o.shippingAmount,
         CASE
           WHEN ol.residential IS NULL THEN NULL
           WHEN ol.residential = 1 THEN 1
@@ -192,7 +207,8 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_cost,
         ship.label_raw_cost,
         ship.label_shipDate,
-        o.raw
+        o.raw,
+        COALESCE(o.items, '[]') AS items
       FROM orders o
       LEFT JOIN order_local ol ON ol.orderId = o.orderId
       LEFT JOIN clients c ON c.clientId = o.clientId
@@ -510,7 +526,14 @@ export class SqliteOrderRepository implements OrderRepository {
       storeId: row.storeId == null ? null : Number(row.storeId),
       customerEmail: row.customerEmail == null ? null : String(row.customerEmail),
       shipToName: row.shipToName == null ? null : String(row.shipToName),
+      shipToCity: row.shipToCity == null ? null : String(row.shipToCity),
+      shipToState: row.shipToState == null ? null : String(row.shipToState),
       shipToPostalCode: row.shipToPostalCode == null ? null : String(row.shipToPostalCode),
+      carrierCode: row.carrierCode == null ? null : String(row.carrierCode),
+      serviceCode: row.serviceCode == null ? null : String(row.serviceCode),
+      weightValue: row.weightValue == null ? null : Number(row.weightValue),
+      orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
+      shippingAmount: row.shippingAmount == null ? null : Number(row.shippingAmount),
       residential: row.residential == null ? null : Number(row.residential) === 1,
       sourceResidential: row.source_residential == null ? null : Number(row.source_residential) === 1,
       externalShipped: Number(row.external_shipped ?? 0) === 1,
@@ -525,6 +548,7 @@ export class SqliteOrderRepository implements OrderRepository {
       labelRawCost: row.label_raw_cost == null ? null : Number(row.label_raw_cost),
       labelShipDate: row.label_shipDate == null ? null : String(row.label_shipDate),
       raw: String(row.raw ?? "{}"),
+      items: String(row.items ?? "[]"),
     };
   }
 

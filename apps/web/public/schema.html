@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrepShip V2 Database Schema</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            background: linear-gradient(135deg, #0a1628 0%, #0f1e2e 100%);
+            background-attachment: fixed;
+            color: #e0e0e0;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem;
+            background-image: 
+                linear-gradient(0deg, transparent 24%, rgba(255,255,255,.05) 25%, rgba(255,255,255,.05) 26%, transparent 27%, transparent 74%, rgba(255,255,255,.05) 75%, rgba(255,255,255,.05) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(255,255,255,.05) 25%, rgba(255,255,255,.05) 26%, transparent 27%, transparent 74%, rgba(255,255,255,.05) 75%, rgba(255,255,255,.05) 76%, transparent 77%, transparent);
+            background-size: 50px 50px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(15, 30, 46, 0.8);
+            border: 1px solid rgba(100, 150, 200, 0.2);
+            border-radius: 8px;
+            padding: 2.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            color: #4fa3ff;
+            margin-bottom: 0.5rem;
+            font-size: 2.2rem;
+            text-shadow: 0 0 10px rgba(79, 163, 255, 0.3);
+            border-bottom: 2px solid rgba(79, 163, 255, 0.3);
+            padding-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #a0a0a0;
+            font-size: 0.95rem;
+            margin-bottom: 2rem;
+            font-style: italic;
+        }
+
+        .section {
+            margin: 3rem 0;
+        }
+
+        h2 {
+            color: #6fa8ff;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(111, 168, 255, 0.3);
+        }
+
+        .diagram-container {
+            background: rgba(10, 22, 40, 0.6);
+            border: 1px solid rgba(111, 168, 255, 0.2);
+            border-radius: 6px;
+            padding: 2rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            margin: 0 auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+            background: rgba(10, 22, 40, 0.4);
+            border: 1px solid rgba(111, 168, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: rgba(79, 163, 255, 0.1);
+            border-bottom: 2px solid rgba(111, 168, 255, 0.3);
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            color: #4fa3ff;
+            font-weight: 600;
+            border-right: 1px solid rgba(111, 168, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-right: 1px solid rgba(111, 168, 255, 0.1);
+            color: #d0d0d0;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid rgba(111, 168, 255, 0.1);
+            transition: background-color 0.2s;
+        }
+
+        tbody tr:hover {
+            background: rgba(79, 163, 255, 0.05);
+        }
+
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        .table-name {
+            color: #4fa3ff;
+            font-weight: 600;
+        }
+
+        .pk {
+            background: rgba(100, 200, 100, 0.15);
+            color: #7fff7f;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+        }
+
+        .fk {
+            background: rgba(200, 150, 100, 0.15);
+            color: #ffb366;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+        }
+
+        .nullable {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .legend-item {
+            background: rgba(10, 22, 40, 0.6);
+            border-left: 3px solid rgba(79, 163, 255, 0.3);
+            padding: 1rem;
+            border-radius: 4px;
+        }
+
+        .legend-title {
+            color: #4fa3ff;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .legend-desc {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+
+        .note {
+            background: rgba(100, 150, 200, 0.1);
+            border-left: 3px solid rgba(100, 150, 200, 0.5);
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1.5rem 0;
+            color: #c0d0e0;
+        }
+
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            color: #7fff7f;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗄️ PrepShip V2 Database Schema</h1>
+        <p class="subtitle">Entity-Relationship Diagram & Model Mapping</p>
+
+        <div class="section">
+            <h2>Entity Relationships</h2>
+            <div class="diagram-container">
+                <div class="mermaid">
+erDiagram
+    CLIENTS ||--o{ ORDERS : places
+    CLIENTS ||--o{ INVENTORY_SKUS : manages
+    ORDERS ||--o{ SHIPMENTS : has
+    ORDERS ||--o{ ORDER_LOCAL : extends
+    ORDERS ||--o{ INVENTORY_LEDGER : adjusts
+    INVENTORY_SKUS ||--o{ INVENTORY_LEDGER : tracks
+    INVENTORY_SKUS }o--|| PARENT_SKUS : bundles
+    INVENTORY_SKUS }o--|| PRODUCTS : contains
+    INVENTORY_SKUS }o--|| PACKAGES : ships_in
+    LOCATIONS ||--o{ INVENTORY_SKUS : stores
+
+    CLIENTS {
+        int clientId PK
+        string name
+        json storeIds
+        string accountNumber
+        timestamp createdAt
+    }
+
+    ORDERS {
+        int orderId PK
+        int clientId FK
+        int storeId
+        string status
+        json advancedOptions
+        timestamp createdAt
+    }
+
+    ORDER_LOCAL {
+        int orderId PK "1:1 to Orders"
+        json metadata
+    }
+
+    SHIPMENTS {
+        int shipmentId PK
+        int orderId FK
+        string carrier
+        string trackingNumber
+        timestamp shippedAt
+    }
+
+    INVENTORY_SKUS {
+        int invSkuId PK
+        int clientId FK
+        string sku
+        int quantity
+        int parentSkuId FK
+        int packageId FK
+    }
+
+    INVENTORY_LEDGER {
+        int ledgerId PK
+        int invSkuId FK
+        int orderId FK "nullable"
+        int adjustment
+        string reason
+    }
+
+    PARENT_SKUS {
+        int parentSkuId PK
+        string name
+        json contents
+    }
+
+    PRODUCTS {
+        string sku PK
+        string title
+        json metadata
+    }
+
+    PACKAGES {
+        int packageId PK
+        string name
+        decimal weight
+    }
+
+    LOCATIONS {
+        int locationId PK
+        string name
+        string address
+    }
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Domain Models → Tables Mapping</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Domain Model</th>
+                        <th>Database Table</th>
+                        <th>Key Fields</th>
+                        <th>Relationships</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>ClientRecord</code></td>
+                        <td class="table-name">clients</td>
+                        <td>
+                            <span class="pk">clientId (PK)</span><br>
+                            name, accountNumber, storeIds (JSON)
+                        </td>
+                        <td>← orders.clientId, inventory_skus.clientId</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderRecord</code></td>
+                        <td class="table-name">orders</td>
+                        <td>
+                            <span class="pk">orderId (PK)</span><br>
+                            <span class="fk">clientId (FK)</span>, storeId, status, clientName
+                        </td>
+                        <td>→ clients | ← shipments, order_local, inventory_ledger</td>
+                    </tr>
+                    <tr>
+                        <td><code>ShipmentRecord</code></td>
+                        <td class="table-name">shipments</td>
+                        <td>
+                            <span class="pk">shipmentId (PK)</span><br>
+                            <span class="fk">orderId (FK)</span>, carrier, trackingNumber
+                        </td>
+                        <td>→ orders</td>
+                    </tr>
+                    <tr>
+                        <td><code>InventoryRecord</code></td>
+                        <td class="table-name">inventory_skus</td>
+                        <td>
+                            <span class="pk">invSkuId (PK)</span><br>
+                            <span class="fk">clientId (FK), parentSkuId (FK), packageId (FK)</span><br>
+                            sku, quantity
+                        </td>
+                        <td>→ clients, parent_skus, packages | ← inventory_ledger</td>
+                    </tr>
+                    <tr>
+                        <td><code>InventoryLedger</code></td>
+                        <td class="table-name">inventory_ledger</td>
+                        <td>
+                            <span class="pk">ledgerId (PK)</span><br>
+                            <span class="fk">invSkuId (FK), orderId (FK)</span> <span class="nullable">nullable</span><br>
+                            adjustment, reason
+                        </td>
+                        <td>→ inventory_skus, orders</td>
+                    </tr>
+                    <tr>
+                        <td><code>SKU</code> (Product)</td>
+                        <td class="table-name">products</td>
+                        <td>
+                            <span class="pk">sku (PK)</span><br>
+                            title, metadata (JSON)
+                        </td>
+                        <td>← inventory_skus (sku reference)</td>
+                    </tr>
+                    <tr>
+                        <td><code>ParentSKU</code></td>
+                        <td class="table-name">parent_skus</td>
+                        <td>
+                            <span class="pk">parentSkuId (PK)</span><br>
+                            name, contents (JSON)
+                        </td>
+                        <td>← inventory_skus.parentSkuId</td>
+                    </tr>
+                    <tr>
+                        <td><code>Package</code></td>
+                        <td class="table-name">packages</td>
+                        <td>
+                            <span class="pk">packageId (PK)</span><br>
+                            name, weight (decimal)
+                        </td>
+                        <td>← inventory_skus.packageId</td>
+                    </tr>
+                    <tr>
+                        <td>—</td>
+                        <td class="table-name">order_local</td>
+                        <td>
+                            <span class="pk">orderId (PK/FK)</span> <span class="nullable">1:1 to orders</span><br>
+                            metadata (JSON)
+                        </td>
+                        <td>→ orders (1:1 extension)</td>
+                    </tr>
+                    <tr>
+                        <td>—</td>
+                        <td class="table-name">locations</td>
+                        <td>
+                            <span class="pk">locationId (PK)</span><br>
+                            name, address
+                        </td>
+                        <td>Referenced by inventory_skus</td>
+                    </tr>
+                    <tr>
+                        <td>—</td>
+                        <td class="table-name">sync_meta</td>
+                        <td>
+                            <span class="pk">key (PK)</span><br>
+                            value (JSON), syncedAt
+                        </td>
+                        <td>Metadata store (no FK)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Key Relationships</h2>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-title">Client → Orders</div>
+                    <div class="legend-desc">1:N - Each client has many orders. Enforced via <code>orders.clientId</code> foreign key.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-title">Orders → Shipments</div>
+                    <div class="legend-desc">1:N - Each order may have multiple shipments. Tracked via <code>shipments.orderId</code>.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-title">Order → OrderLocal</div>
+                    <div class="legend-desc">1:1 - Extended metadata stored separately. <code>order_local.orderId</code> is FK+PK.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-title">Inventory → Ledger</div>
+                    <div class="legend-desc">1:N - Ledger tracks all quantity adjustments per SKU. <code>inventory_ledger.invSkuId</code> FK.</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-title">Ledger ↔ Orders</div>
+                    <div class="legend-desc">Optional - Ledger entries may reference an order (nullable <code>inventory_ledger.orderId</code>).</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-title">SKU Bundles</div>
+                    <div class="legend-desc"><code>inventory_skus.parentSkuId</code> creates bundle hierarchies. Self-referential or cross-reference model.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="note">
+                <strong>📌 Data Consistency Rules:</strong><br>
+                • All <code>clientId</code> references must exist in <code>clients</code> table<br>
+                • <code>storeId</code> in orders must match one of the client's <code>storeIds</code> array<br>
+                • <code>inventory_skus</code> are always scoped to a client (multi-tenant isolation)<br>
+                • <code>inventory_ledger.orderId</code> is nullable (stock adjustments may not be tied to orders)<br>
+                • <code>order_local</code> must have matching <code>orderId</code> in <code>orders</code> (enforced via constraints)
+            </div>
+        </div>
+
+        <div class="section" style="text-align: center; color: #a0a0a0; font-size: 0.85rem; margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(111, 168, 255, 0.2);">
+            <p>Generated for PrepShip V2 | SQLite Database | v1 API Parity Target</p>
+        </div>
+    </div>
+</body>
+</html>

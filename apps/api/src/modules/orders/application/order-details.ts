@@ -25,16 +25,42 @@ export class OrderDetailsService {
       return null;
     }
 
+    const itemsStr = record.items || "[]";
+    let items = [];
+    try {
+      items = Array.isArray(itemsStr) ? itemsStr : JSON.parse(itemsStr);
+    } catch {
+      items = [];
+    }
+
+    const shipTo = (record.shipToName || record.shipToCity || record.shipToState || record.shipToPostalCode)
+      ? {
+          name: record.shipToName || null,
+          city: record.shipToCity || null,
+          state: record.shipToState || null,
+          postalCode: record.shipToPostalCode || null,
+        }
+      : null;
+
+    const weight = record.weightValue != null && record.weightValue > 0
+      ? { value: record.weightValue, units: "ounces" }
+      : null;
+
     return {
       orderId: record.orderId,
       clientId: record.clientId,
+      clientName: record.clientName,
       orderNumber: record.orderNumber,
       orderStatus: record.orderStatus,
       orderDate: record.orderDate,
       storeId: record.storeId,
       customerEmail: record.customerEmail,
-      shipToName: record.shipToName,
-      shipToPostalCode: record.shipToPostalCode,
+      shipTo,
+      carrierCode: record.carrierCode,
+      serviceCode: record.serviceCode,
+      weight,
+      orderTotal: record.orderTotal,
+      shippingAmount: record.shippingAmount,
       residential: record.residential,
       sourceResidential: record.sourceResidential,
       externalShipped: record.externalShipped,
@@ -50,6 +76,7 @@ export class OrderDetailsService {
         rawCost: record.labelRawCost,
         shipDate: record.labelShipDate,
       },
+      items,
       raw: parseJson(record.raw),
     };
   }
