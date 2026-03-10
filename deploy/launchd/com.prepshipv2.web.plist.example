@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.prepshipv2.web</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /srv/prepshipv2 &amp;&amp; npm run dev:web</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/srv/prepshipv2</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>WEB_PORT</key>
+    <string>4011</string>
+    <key>API_BASE_URL</key>
+    <string>http://127.0.0.1:4010</string>
+    <key>PREPSHIP_WEB_PUBLIC_DIR</key>
+    <string>/srv/prepshipv2/apps/web/public</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/srv/prepshipv2/logs/web.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/srv/prepshipv2/logs/web.err.log</string>
+</dict>
+</plist>

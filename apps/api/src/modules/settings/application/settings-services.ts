@@ -1,0 +1,41 @@
+import { ALLOWED_SETTINGS, type AllowedSettingKey } from "../../../../../../packages/contracts/src/settings/contracts.ts";
+import type { SettingsRepository } from "./settings-repository.ts";
+
+const ALLOWED = new Set<string>(ALLOWED_SETTINGS);
+
+function assertAllowedKey(key: string): asserts key is AllowedSettingKey {
+  if (!ALLOWED.has(key)) {
+    throw new Error("Unknown setting");
+  }
+}
+
+function parseStoredValue(raw: string | null): unknown {
+  if (raw == null) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+export class SettingsServices {
+  private readonly repository: SettingsRepository;
+
+  constructor(repository: SettingsRepository) {
+    this.repository = repository;
+  }
+
+  get(key: string): unknown {
+    assertAllowedKey(key);
+    return parseStoredValue(this.repository.get(key));
+  }
+
+  set(key: string, value: unknown) {
+    assertAllowedKey(key);
+    const serialized = typeof value === "string" ? value : JSON.stringify(value);
+    this.repository.set(key, serialized);
+    return { ok: true };
+  }
+}
+

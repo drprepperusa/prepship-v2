@@ -1,0 +1,69 @@
+import type {
+  InitCountsDto,
+  InitDataDto,
+  InitStoreDto,
+} from "../../../../../../../packages/contracts/src/init/contracts.ts";
+import type { InitMetadataProvider } from "./init-metadata-provider.ts";
+import type { InitRepository } from "./init-repository.ts";
+
+export class InitServices {
+  private readonly repository: InitRepository;
+  private readonly metadataProvider: InitMetadataProvider;
+  private readonly excludedStoreIds: number[];
+
+  constructor(repository: InitRepository, metadataProvider: InitMetadataProvider, excludedStoreIds: number[]) {
+    this.repository = repository;
+    this.metadataProvider = metadataProvider;
+    this.excludedStoreIds = excludedStoreIds;
+  }
+
+  async getInitData(): Promise<InitDataDto> {
+    const remoteStores = await this.metadataProvider.listStores();
+    return {
+      stores: this.mergeStores(remoteStores),
+      carriers: this.metadataProvider.listCarrierAccounts(),
+      counts: this.repository.getCounts(),
+      markups: this.repository.getRateBrowserMarkups(),
+    };
+  }
+
+  getCounts(): InitCountsDto {
+    return this.repository.getCounts();
+  }
+
+  async getStores(): Promise<InitStoreDto[]> {
+    const remoteStores = await this.metadataProvider.listStores();
+    return this.mergeStores(remoteStores);
+  }
+
+  async getCarriers(): Promise<unknown[]> {
+    return this.metadataProvider.listCarriers();
+  }
+
+  getCarrierAccounts() {
+    return this.metadataProvider.listCarrierAccounts();
+  }
+
+  async refreshCarriers() {
+    const carriers = await this.metadataProvider.refreshCarriers();
+    return {
+      success: true,
+      message: "Carrier cache refreshed from ShipStation",
+      carrierCount: carriers.length,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private mergeStores(remoteStores: InitStoreDto[]): InitStoreDto[] {
+    const filteredRemoteStores = remoteStores.filter((store) => !this.excludedStoreIds.includes(store.storeId));
+    const stores = [...filteredRemoteStores];
+
+    for (const localStore of this.repository.listLocalClientStores()) {
+      if (this.excludedStoreIds.includes(localStore.storeId)) continue;
+      if (stores.some((store) => store.storeId === localStore.storeId)) continue;
+      stores.push(localStore);
+    }
+
+    return stores;
+  }
+}

@@ -1,0 +1,282 @@
+import type { DatabaseSync } from "node:sqlite";
+import type { LabelRepository } from "../application/label-repository.ts";
+import type {
+  ExistingLabelRecord,
+  LabelOrderRecord,
+  LabelShipmentRecord,
+  PersistedShipmentInput,
+  ResolvedPackageDimensions,
+  ReturnLabelRecord,
+  ShippingAccountContext,
+} from "../domain/label.ts";
+
+interface ShippingContextRow {
+  clientId: number | null;
+  ss_api_key: string | null;
+  ss_api_secret: string | null;
+  ss_api_key_v2: string | null;
+  rate_source_client_id: number | null;
+}
+
+interface ShipmentLookupRow {
+  shipmentId: number;
+  orderId: number;
+  orderNumber: string | null;
+  trackingNumber: string | null;
+  labelUrl: string | null;
+  carrierCode: string | null;
+  serviceCode: string | null;
+  shipmentCost: number | null;
+  label_created_at: number | null;
+  voided: number;
+  source: string | null;
+  storeId: number | null;
+}
+
+export class SqliteLabelRepository implements LabelRepository {
+  private readonly db: DatabaseSync;
+  private readonly mainApiKeyV2: string | null;
+
+  constructor(db: DatabaseSync, mainApiKeyV2: string | null) {
+    this.db = db;
+    this.mainApiKeyV2 = mainApiKeyV2;
+  }
+
+  getOrder(orderId: number): LabelOrderRecord | null {
+    const row = this.db.prepare(`
+      SELECT orderId, orderNumber, orderStatus, storeId, clientId, weightValue, shipToName, raw
+      FROM orders
+      WHERE orderId = ?
+      LIMIT 1
+    `).get(orderId) as LabelOrderRecord | undefined;
+    return row ?? null;
+  }
+
+  findActiveLabelForOrder(orderId: number): ExistingLabelRecord | null {
+    const row = this.db.prepare(`
+      SELECT shipmentId, trackingNumber, labelUrl
+      FROM shipments
+      WHERE orderId = ? AND voided = 0
+      ORDER BY COALESCE(label_created_at, updatedAt, shipmentId) DESC
+      LIMIT 1
+    `).get(orderId) as ExistingLabelRecord | undefined;
+    return row ?? null;
+  }
+
+  resolvePackageDimensions(orderId: number): ResolvedPackageDimensions | null {
+    const row = this.db.prepare(`
+      SELECT ol.selected_pid AS packageId, inv.length, inv.width, inv.height
+      FROM order_local ol
+      LEFT JOIN inventory_skus inv ON inv.packageId = ol.selected_pid
+      WHERE ol.orderId = ?
+      LIMIT 1
+    `).get(orderId) as ResolvedPackageDimensions | undefined;
+    return row ?? null;
+  }
+
+  getShippingAccountContext(storeId: number | null): ShippingAccountContext {
+    if (storeId == null) {
+      return { clientId: null, storeId: null, v1ApiKey: null, v1ApiSecret: null, v2ApiKey: this.mainApiKeyV2, rateSourceClientId: null };
+    }
+
+    const client = this.db.prepare(`
+      SELECT clientId, ss_api_key, ss_api_secret, ss_api_key_v2, rate_source_client_id
+      FROM clients
+      WHERE EXISTS (
+        SELECT 1
+        FROM json_each(clients.storeIds)
+        WHERE CAST(json_each.value AS INTEGER) = ?
+      )
+      LIMIT 1
+    `).get(storeId) as ShippingContextRow | undefined;
+
+    if (!client) {
+      return { clientId: null, storeId, v1ApiKey: null, v1ApiSecret: null, v2ApiKey: this.mainApiKeyV2, rateSourceClientId: null };
+    }
+
+    let v2ApiKey = client.ss_api_key_v2 ?? this.mainApiKeyV2;
+    if (client.rate_source_client_id != null) {
+      const source = this.db.prepare(`
+        SELECT ss_api_key_v2
+        FROM clients
+        WHERE clientId = ?
+        LIMIT 1
+      `).get(client.rate_source_client_id) as { ss_api_key_v2: string | null } | undefined;
+      if (source?.ss_api_key_v2) v2ApiKey = source.ss_api_key_v2;
+    }
+
+    return {
+      clientId: client.clientId,
+      storeId,
+      v1ApiKey: client.ss_api_key,
+      v1ApiSecret: client.ss_api_secret,
+      v2ApiKey,
+      rateSourceClientId: client.rate_source_client_id,
+    };
+  }
+
+  saveShipment(input: PersistedShipmentInput): void {
+    this.db.prepare(`
+      INSERT INTO shipments (
+        shipmentId, orderId, orderNumber, carrierCode, serviceCode,
+        trackingNumber, shipDate, labelUrl, shipmentCost, otherCost, voided, updatedAt,
+        weight_oz, dims_l, dims_w, dims_h, createDate, clientId, providerAccountId, source,
+        label_created_at, label_format, selected_rate_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(shipmentId) DO UPDATE SET
+        orderId = excluded.orderId,
+        orderNumber = excluded.orderNumber,
+        carrierCode = excluded.carrierCode,
+        serviceCode = excluded.serviceCode,
+        trackingNumber = excluded.trackingNumber,
+        shipDate = excluded.shipDate,
+        labelUrl = COALESCE(excluded.labelUrl, shipments.labelUrl),
+        shipmentCost = excluded.shipmentCost,
+        otherCost = excluded.otherCost,
+        voided = excluded.voided,
+        updatedAt = excluded.updatedAt,
+        weight_oz = excluded.weight_oz,
+        dims_l = excluded.dims_l,
+        dims_w = excluded.dims_w,
+        dims_h = excluded.dims_h,
+        createDate = COALESCE(excluded.createDate, shipments.createDate),
+        clientId = excluded.clientId,
+        providerAccountId = COALESCE(excluded.providerAccountId, shipments.providerAccountId),
+        source = excluded.source,
+        label_created_at = COALESCE(excluded.label_created_at, shipments.label_created_at),
+        label_format = COALESCE(excluded.label_format, shipments.label_format),
+        selected_rate_json = COALESCE(excluded.selected_rate_json, shipments.selected_rate_json)
+    `).run(
+      input.shipmentId,
+      input.orderId,
+      input.orderNumber,
+      input.carrierCode,
+      input.serviceCode,
+      input.trackingNumber,
+      input.shipDate,
+      input.labelUrl,
+      input.shipmentCost,
+      input.otherCost,
+      input.voided ? 1 : 0,
+      input.updatedAt,
+      input.weightOz,
+      input.dimsLength,
+      input.dimsWidth,
+      input.dimsHeight,
+      input.createDate,
+      input.clientId,
+      input.providerAccountId,
+      input.source,
+      input.labelCreatedAt,
+      input.labelFormat,
+      input.selectedRateJson,
+    );
+  }
+
+  markOrderShipped(orderId: number, updatedAt: number): void {
+    this.db.prepare(`
+      UPDATE orders
+      SET orderStatus = 'shipped', updatedAt = ?
+      WHERE orderId = ?
+    `).run(updatedAt, orderId);
+  }
+
+  markShipmentVoided(shipmentId: number, orderId: number, updatedAt: number): void {
+    this.db.prepare(`
+      UPDATE shipments
+      SET voided = 1, updatedAt = ?
+      WHERE shipmentId = ?
+    `).run(updatedAt, shipmentId);
+
+    this.db.prepare(`
+      UPDATE orders
+      SET orderStatus = 'awaiting_shipment', updatedAt = ?
+      WHERE orderId = ?
+    `).run(updatedAt, orderId);
+  }
+
+  saveReturnLabel(record: ReturnLabelRecord): void {
+    this.db.prepare(`
+      INSERT INTO return_labels (shipmentId, returnShipmentId, returnTrackingNumber, reason, createdAt)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(shipmentId) DO UPDATE SET
+        returnShipmentId = excluded.returnShipmentId,
+        returnTrackingNumber = excluded.returnTrackingNumber,
+        reason = excluded.reason,
+        createdAt = excluded.createdAt
+    `).run(record.shipmentId, record.returnShipmentId, record.returnTrackingNumber, record.reason, record.createdAt);
+  }
+
+  getShipmentForVoidOrReturn(shipmentId: number): LabelShipmentRecord | null {
+    const row = this.db.prepare(`
+      SELECT s.shipmentId, s.orderId, s.orderNumber, s.trackingNumber, s.labelUrl,
+             s.carrierCode, s.serviceCode, s.shipmentCost, s.label_created_at,
+             s.voided, s.source, o.storeId
+      FROM shipments s
+      JOIN orders o ON o.orderId = s.orderId
+      WHERE s.shipmentId = ?
+      LIMIT 1
+    `).get(shipmentId) as ShipmentLookupRow | undefined;
+    return row ? this.mapShipment(row) : null;
+  }
+
+  getLatestShipmentForOrderLookup(orderLookup: number | string): LabelShipmentRecord | null {
+    let row: ShipmentLookupRow | undefined;
+    if (typeof orderLookup === "number") {
+      row = this.db.prepare(`
+        SELECT s.shipmentId, s.orderId, s.orderNumber, s.trackingNumber, s.labelUrl,
+               s.carrierCode, s.serviceCode, s.shipmentCost, s.label_created_at,
+               s.voided, s.source, o.storeId
+        FROM shipments s
+        JOIN orders o ON o.orderId = s.orderId
+        WHERE s.orderId = ? AND s.voided = 0
+        ORDER BY COALESCE(s.label_created_at, s.updatedAt, s.shipmentId) DESC
+        LIMIT 1
+      `).get(orderLookup) as ShipmentLookupRow | undefined;
+    } else {
+      row = this.db.prepare(`
+        SELECT s.shipmentId, s.orderId, s.orderNumber, s.trackingNumber, s.labelUrl,
+               s.carrierCode, s.serviceCode, s.shipmentCost, s.label_created_at,
+               s.voided, s.source, o.storeId
+        FROM shipments s
+        JOIN orders o ON o.orderId = s.orderId
+        WHERE s.orderNumber = ? AND s.voided = 0
+        ORDER BY COALESCE(s.label_created_at, s.updatedAt, s.shipmentId) DESC
+        LIMIT 1
+      `).get(orderLookup) as ShipmentLookupRow | undefined;
+    }
+    return row ? this.mapShipment(row) : null;
+  }
+
+  updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void {
+    this.db.prepare(`UPDATE shipments SET labelUrl = ? WHERE shipmentId = ?`).run(labelUrl, shipmentId);
+  }
+
+  backfillOrderLocalTracking(orderId: number, trackingNumber: string, providerAccountId: number | null, updatedAtSeconds: number): void {
+    this.db.prepare(`
+      INSERT INTO order_local (orderId, tracking_number, shipping_account, updatedAt)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(orderId) DO UPDATE SET
+        tracking_number = CASE WHEN tracking_number IS NULL THEN excluded.tracking_number ELSE tracking_number END,
+        shipping_account = CASE WHEN shipping_account IS NULL THEN excluded.shipping_account ELSE shipping_account END,
+        updatedAt = excluded.updatedAt
+    `).run(orderId, trackingNumber, providerAccountId, updatedAtSeconds);
+  }
+
+  private mapShipment(row: ShipmentLookupRow): LabelShipmentRecord {
+    return {
+      shipmentId: row.shipmentId,
+      orderId: row.orderId,
+      orderNumber: row.orderNumber,
+      trackingNumber: row.trackingNumber,
+      labelUrl: row.labelUrl,
+      carrierCode: row.carrierCode,
+      serviceCode: row.serviceCode,
+      shipmentCost: row.shipmentCost,
+      labelCreatedAt: row.label_created_at,
+      voided: Boolean(row.voided),
+      source: row.source,
+      storeId: row.storeId,
+    };
+  }
+}

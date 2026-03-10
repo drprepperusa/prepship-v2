@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.prepshipv2.api</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /srv/prepshipv2 &amp;&amp; npm run dev:api</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/srv/prepshipv2</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DB_PROVIDER</key>
+    <string>sqlite</string>
+    <key>SQLITE_DB_PATH</key>
+    <string>/srv/prepship/prepship.db</string>
+    <key>PREPSHIP_SECRETS_PATH</key>
+    <string>/srv/prepshipv2/config/secrets.json</string>
+    <key>PREPSHIP_V1_ROOT</key>
+    <string>/srv/prepship</string>
+    <key>API_PORT</key>
+    <string>4010</string>
+    <key>WORKER_SYNC_ENABLED</key>
+    <string>false</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/srv/prepshipv2/logs/api.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/srv/prepshipv2/logs/api.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,37 @@
+import type { SaveProductDefaultsInput } from "../../../../../../packages/contracts/src/products/contracts.ts";
+import type { ProductServices } from "../application/product-services.ts";
+
+export class ProductsHttpHandler {
+  private readonly services: ProductServices;
+
+  constructor(services: ProductServices) {
+    this.services = services;
+  }
+
+  handleBulk(url: URL) {
+    const skus = (url.searchParams.get("skus") ?? "")
+      .split(",")
+      .map((sku) => sku.trim())
+      .filter(Boolean);
+    return this.services.getBulk(skus);
+  }
+
+  handleBySku(sku: string) {
+    return this.services.getBySku(sku);
+  }
+
+  handleSaveDefaults(body: SaveProductDefaultsInput) {
+    return this.services.saveDefaults(body);
+  }
+
+  handleSaveSkuDefaults(sku: string, body: Record<string, unknown>) {
+    return this.services.saveDefaults({
+      sku,
+      weightOz: body.weight != null ? Number(body.weight) : body.weightOz != null ? Number(body.weightOz) : undefined,
+      length: body.length != null ? Number(body.length) : undefined,
+      width: body.width != null ? Number(body.width) : undefined,
+      height: body.height != null ? Number(body.height) : undefined,
+      packageId: body.packageId != null ? String(body.packageId) : null,
+    });
+  }
+}

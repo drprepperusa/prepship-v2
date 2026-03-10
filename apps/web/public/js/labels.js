@@ -1,0 +1,415 @@
+import { state } from './state.js';
+import { showToast } from './utils.js';
+import { applyCarrierMarkup } from './markups.js';
+
+// ═══════════════════════════════════════════════
+//  LABEL CREATION
+// ═══════════════════════════════════════════════
+
+export async function createLabel(testLabel = false) {
+  const o = state.currentPanelOrder;
+  if (!o) return showToast('⚠ No order selected');
+
+  // Gather fields
+  const wtLb    = parseFloat(document.getElementById('p-wtlb')?.value) || 0;
+  const wtOz    = parseFloat(document.getElementById('p-wtoz')?.value) || 0;
+  const totalOz = (wtLb * 16) + wtOz;
+  const pid     = parseInt(document.getElementById('p-shipacct')?.value) || null;
+  const service = document.getElementById('p-service')?.value || '';
+  const pkgVal  = document.getElementById('p-package')?.value || '';
+  const length  = parseFloat(document.getElementById('p-len')?.value) || 0;
+  const width   = parseFloat(document.getElementById('p-wid')?.value) || 0;
+  const height  = parseFloat(document.getElementById('p-hgt')?.value) || 0;
+  // Map signature option to confirmation parameter: 'none' → 'delivery', 'signature' → 'signature', etc.
+  const sigOption = document.getElementById('p-signature')?.value || 'none';
+  const confirm = sigOption === 'none' ? 'delivery' : sigOption;
+  const locId   = parseInt(document.getElementById('p-location')?.value) || null;
+
+  // Validate: package required
+  if (!pkgVal || pkgVal === '') {
+    return showToast('⚠ Select a package before creating a label');
+  }
+
+  // Validate: carrier + service required
+  if (!pid)     return showToast('⚠ Select a carrier account');
+  if (!service) return showToast('⚠ Select a shipping service');
+  if (!totalOz) return showToast('⚠ Enter shipment weight');
+
+  // Determine packageCode and customPackageId
+  const selectedPkg = state.packagesList.find(p => String(p.packageId) === String(pkgVal));
+  let packageCode     = 'package';
+  let customPackageId = null;
+  if (selectedPkg) {
+    if (selectedPkg.source === 'ss_carrier') {
+      packageCode = selectedPkg.packageCode || 'package';
+    } else {
+      packageCode     = 'package';
+      customPackageId = selectedPkg.packageId;
+    }
+  } else if (pkgVal !== '__custom__') {
+    packageCode = pkgVal; // fallback: use as-is
+  }
+
+  // Determine ship-from location
+  const shipFromLoc = locId ? state.locationsList.find(l => l.locationId === locId) : null;
+  const shipFrom = shipFromLoc
+    ? {
+        name:       shipFromLoc.name,
+        company:    shipFromLoc.company    || '',
+        street1:    shipFromLoc.street1    || '',
+        street2:    shipFromLoc.street2    || '',
+        city:       shipFromLoc.city       || '',
+        state:      shipFromLoc.state      || '',
+        postalCode: shipFromLoc.postalCode || '',
+        country:    shipFromLoc.country    || 'US',
+        phone:      shipFromLoc.phone      || '',
+      }
+    : null;
+
+  // Get carrier account code from the carriers list
+  const acct = state.carriersList.find(c => c.shippingProviderId === pid);
+  const carrierCode = acct?.code || '';
+  if (!carrierCode) return showToast('⚠ Could not resolve carrier code — select a valid account');
+
+  const payload = {
+    orderId:     o.orderId,
+    orderNumber: o.orderNumber,
+    carrierCode,
+    serviceCode: service,
+    packageCode,
+    customPackageId,
+    weightOz:    totalOz,
+    length, width, height,
+    confirmation: confirm,
+    testLabel:   !!testLabel,
+    shippingProviderId: pid,
+    shipTo: {
+      name:       o.shipTo?.name       || '',
+      company:    o.shipTo?.company    || '',
+      street1:    o.shipTo?.street1    || '',
+      street2:    o.shipTo?.street2    || '',
+      city:       o.shipTo?.city       || '',
+      state:      o.shipTo?.state      || '',
+      postalCode: o.shipTo?.postalCode || '',
+      country:    o.shipTo?.country    || 'US',
+      phone:      o.shipTo?.phone      || '',
+    },
+    ...(shipFrom ? { shipFrom } : {}),
+  };
+
+  const btn = document.getElementById('createLabelBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Creating…'; }
+
+  try {
+    const r    = await fetch('/api/labels/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+
+    if (!r.ok) {
+      showToast('❌ ' + (data.error || 'Label creation failed'));
+      if (btn) { btn.disabled = false; btn.innerHTML = '🖨️ Create + Print Label <span class="create-label-caret">▾</span>'; }
+      return;
+    }
+
+    const tracking = data.trackingNumber || '';
+    showToast(
+      testLabel
+        ? `🧪 Test label created${tracking ? ': ' + tracking : ''}`
+        : `✅ Label created${tracking ? ': ' + tracking : ''}`
+    );
+
+    // Debug: log what we got from API
+    console.log('[Labels] API Response:', {
+      labelUrl: data.labelUrl || 'MISSING',
+      labelData: data.labelData ? `${data.labelData.slice(0, 50)}...` : 'MISSING',
+      trackingNumber: data.trackingNumber,
+      shipmentId: data.shipmentId,
+    });
+
+    // Open label PDF.
+    // SS v2 returns a URL in `labelUrl` (usually a temporary ShipStation download link).
+    // SS v1 returns base64 PDF in `labelData` (fallback for older API).
+    // Try URL first; fall back to base64 → Blob → object URL.
+    if (data.labelUrl) {
+      console.log('[Labels] Opening PDF URL:', data.labelUrl);
+      // IMPORTANT: Open window BEFORE async operations to preserve user gesture context
+      // (prevents popup blocker from triggering)
+      const pdfWindow = window.open('about:blank', '_blank');
+      if (!pdfWindow || pdfWindow.closed || typeof pdfWindow.closed === 'undefined') {
+        console.warn('[Labels] Popup may have been blocked. Showing manual download option.');
+        showToast(`📄 Popup blocked. PDF: <a href="${data.labelUrl}" target="_blank">Click here to download label</a>`, 5000);
+      } else {
+        // Window opened successfully; now navigate to the PDF URL
+        pdfWindow.location.href = data.labelUrl;
+      }
+    } else if (data.labelData) {
+      // Decode base64 PDF and open as a Blob URL
+      try {
+        const binary = atob(data.labelData);
+        const bytes  = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob   = new Blob([bytes], { type: 'application/pdf' });
+        const objUrl = URL.createObjectURL(blob);
+        // Open window BEFORE setting location to preserve user gesture
+        const pdfWindow = window.open('about:blank', '_blank');
+        if (!pdfWindow || pdfWindow.closed || typeof pdfWindow.closed === 'undefined') {
+          console.warn('[Labels] Popup may have been blocked.');
+          showToast(`📄 Popup blocked. <a href="${objUrl}" target="_blank">Click here to download</a>`, 5000);
+          URL.revokeObjectURL(objUrl);
+        } else {
+          pdfWindow.location.href = objUrl;
+          // Clean up object URL after the browser has loaded it
+          setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
+        }
+      } catch (pdfErr) {
+        console.warn('[Labels] Could not decode PDF:', pdfErr.message);
+        showToast('⚠ Label created but could not open PDF — check ShipStation dashboard');
+      }
+    } else {
+      console.error('[Labels] No labelUrl or labelData returned from server', data);
+      showToast('⚠ Label created but no PDF returned — check ShipStation dashboard');
+    }
+
+    // Re-render panel to show shipped state
+    if (!testLabel) {
+      // Clear shipped orders cache so the fresh order appears in shipped view
+      if (typeof window.clearShippedOrdersCache === 'function') {
+        window.clearShippedOrdersCache();
+      }
+      if (typeof window.fetchOrders === 'function') {
+        await window.fetchOrders(state.currentPage, true);
+      }
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🖨️ Create + Print Label <span class="create-label-caret">▾</span>';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  MARK SHIPPED EXTERNALLY
+// ═══════════════════════════════════════════════
+
+let _extShipMenu = null;
+
+export function showExtShipMenu(e, orderId) {
+  e.stopPropagation();
+  // Remove any existing menu
+  if (_extShipMenu) { _extShipMenu.remove(); _extShipMenu = null; }
+
+  const sources = ['Amazon', 'Walmart', 'eBay', 'Etsy', 'Other'];
+  const menu = document.createElement('div');
+  menu.style.cssText = 'position:fixed;z-index:8000;background:var(--surface);border:1px solid var(--border2);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:150px;overflow:hidden;font-size:12.5px';
+  menu.innerHTML = `
+    <div style="padding:6px 12px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:1px solid var(--border)">Shipped via…</div>
+    ${sources.map(s => `<div onclick="markShippedExternal(${orderId},'${s}')" style="padding:8px 14px;cursor:pointer;color:var(--text)" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">${s}</div>`).join('')}`;
+
+  // Position near the button
+  const rect = e.target.getBoundingClientRect();
+  menu.style.top  = (rect.bottom + 4) + 'px';
+  menu.style.left = rect.left + 'px';
+  document.body.appendChild(menu);
+  _extShipMenu = menu;
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function _close() {
+      if (_extShipMenu) { _extShipMenu.remove(); _extShipMenu = null; }
+      document.removeEventListener('click', _close);
+    });
+  }, 0);
+}
+
+export async function markShippedExternal(orderId, source) {
+  if (_extShipMenu) { _extShipMenu.remove(); _extShipMenu = null; }
+  try {
+    const res = await fetch(`/api/orders/${orderId}/shipped-external`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ flag: 1, source }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    // Animate row out
+    const row = document.getElementById(`row-${orderId}`);
+    if (row) {
+      row.style.transition = 'opacity .3s, transform .3s';
+      row.style.opacity    = '0';
+      row.style.transform  = 'translateX(20px)';
+      setTimeout(() => row.remove(), 320);
+    }
+    showToast(`✅ Marked shipped via ${source}`);
+  } catch (err) {
+    showToast(`❌ Error: ${err.message}`);
+  }
+}
+
+export async function toggleResidential(orderId) {
+  const o = state.allOrders.find(x => x.orderId === orderId);
+  if (!o) return;
+  // Cycle: auto → manual-residential → manual-commercial → auto
+  let next;
+  if (o._residential === null || o._residential == null) next = 1;
+  else if (o._residential === 1 || o._residential === true) next = 0;
+  else next = null;
+  try {
+    await fetch(`/api/orders/${orderId}/residential`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ residential: next }),
+    });
+    // Clear cached rates for this order so they re-fetch with the new flag
+    Object.keys(state.rateCache).forEach(k => delete state.rateCache[k]);
+    if (typeof window.fetchOrders === 'function') await window.fetchOrders();
+    if (typeof window.openPanel  === 'function') window.openPanel(orderId);
+  } catch (err) {
+    showToast(`❌ Error: ${err.message}`);
+  }
+}
+
+/**
+ * Void a label and request refund from carrier.
+ * ShipStation initiates automatic refund (2-7 days).
+ */
+export async function voidLabel() {
+  const o = state.currentPanelOrder;
+  if (!o) return showToast('⚠ No order selected');
+  
+  // Find the shipment record
+  const shipmentId = o._labelShipmentId || o.shipmentId;
+  if (!shipmentId) return showToast('⚠ No label found to void');
+
+  // Confirm action
+  if (!confirm(`Void label for order ${o.orderNumber}?\n\nRefund will be requested from the carrier (${o._labelCarrier || 'Unknown'}).\n\nRefund timeline: 2-7 business days.`)) {
+    return;
+  }
+
+  showToast('⏳ Voiding label...');
+
+  try {
+    const res = await fetch(`/api/labels/${shipmentId}/void`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({}),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return showToast(`❌ Void failed: ${data.error || 'Unknown error'}`);
+    }
+
+    showToast(`✓ Label voided!\n💰 Refund initiated (${data.refundEstimate})\nOrder reset to "Awaiting Shipment" — you can create a new label.`);
+
+    // Refresh panel to show new state
+    if (typeof window.fetchOrders === 'function') await window.fetchOrders();
+    if (typeof window.openPanel === 'function') window.openPanel(o.orderId);
+
+  } catch (err) {
+    showToast(`❌ Error: ${err.message}`);
+  }
+}
+
+// Expose to window for inline HTML calls
+export async function generateReturnLabel() {
+  const o = state.currentPanelOrder;
+  if (!o) return showToast('⚠ No order selected');
+  
+  const shipmentId = o._labelShipmentId;
+  if (!shipmentId) return showToast('⚠ No shipment found for this order');
+
+  const btn = document.querySelector('[onclick="generateReturnLabel()"]');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating…'; }
+
+  try {
+    const r = await fetch(`/api/labels/${shipmentId}/return`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'Customer Return' }),
+    });
+
+    if (!r.ok) {
+      const data = await r.json();
+      showToast('❌ ' + (data.error || 'Return label generation failed'));
+      if (btn) { btn.disabled = false; btn.innerHTML = '↩️ Return Label'; }
+      return;
+    }
+
+    const data = await r.json();
+    showToast(`✅ Return label generated: ${data.returnTrackingNumber}`);
+    
+    // Re-render panel to show return label info
+    if (typeof window.fetchOrders === 'function') {
+      await window.fetchOrders(state.currentPage || 1);
+      window.openPanel(o);
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = '↩️ Return Label'; }
+  }
+}
+
+/**
+ * Retrieve and print (download) a label for an order that has already been shipped.
+ * Fetches the cached label URL or requests a fresh one from ShipStation.
+ * 
+ * IMPORTANT: Opens window BEFORE fetch to preserve user gesture context
+ * (prevents popup blocker from triggering).
+ */
+export async function reprintLabel(orderId) {
+  console.log('[reprintLabel] called with orderId:', orderId);
+  if (!orderId) return showToast('⚠ No order ID');
+  
+  // Open window IMMEDIATELY to preserve user gesture context (prevents popup blocker)
+  const pdfWindow = window.open('about:blank', '_blank');
+  if (!pdfWindow || pdfWindow.closed || typeof pdfWindow.closed === 'undefined') {
+    console.warn('[reprintLabel] Popup was blocked immediately');
+    showToast('❌ Popup blocker prevented opening new tab. Allow popups for this site.');
+    return;
+  }
+  
+  try {
+    console.log('[reprintLabel] fetching label from /api/labels/' + orderId + '/retrieve');
+    const r = await fetch(`/api/labels/${orderId}/retrieve`);
+    console.log('[reprintLabel] fetch response status:', r.status, r.ok);
+    if (!r.ok) {
+      const data = await r.json();
+      pdfWindow.close();
+      showToast('❌ ' + (data.error || 'Could not retrieve label'));
+      return;
+    }
+    
+    const data = await r.json();
+    console.log('[reprintLabel] got data:', data);
+    
+    if (!data.labelUrl) {
+      console.log('[reprintLabel] no labelUrl in response');
+      pdfWindow.close();
+      showToast('❌ No label URL available');
+      return;
+    }
+    
+    // Navigate to PDF URL in already-open window
+    console.log('[reprintLabel] navigating to PDF:', data.labelUrl);
+    pdfWindow.location.href = data.labelUrl;
+    showToast(`📄 Label opened for ${data.trackingNumber || 'printing'}`);
+  } catch (e) {
+    console.error('[reprintLabel] error:', e);
+    pdfWindow.close();
+    showToast('❌ ' + e.message);
+  }
+}
+
+window.createLabel           = createLabel;
+window.generateReturnLabel   = generateReturnLabel;
+window.showExtShipMenu     = showExtShipMenu;
+window.markShippedExternal = markShippedExternal;
+window.toggleResidential   = toggleResidential;
+window.voidLabel           = voidLabel;
+window.reprintLabel        = reprintLabel;

@@ -1,0 +1,6 @@
+{
+  "name": "@prepshipv2/worker",
+  "private": true,
+  "type": "module"
+}
+

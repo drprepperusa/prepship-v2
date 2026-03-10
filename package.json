@@ -1,0 +1,16 @@
+{
+  "name": "prepshipv2",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "node --experimental-strip-types apps/api/src/main.ts",
+    "dev:web": "node --experimental-strip-types apps/web/src/main.ts",
+    "dev:worker": "node --experimental-strip-types apps/worker/src/main.ts",
+    "test": "node --experimental-strip-types --test apps/api/test/*.test.ts apps/web/test/*.test.ts"
+  }
+}
