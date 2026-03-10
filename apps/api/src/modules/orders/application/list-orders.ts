@@ -54,15 +54,13 @@ export class ListOrdersService {
 
   execute(query: ListOrdersQuery): ListOrdersResponse {
     const result = this.repository.list(query);
+    const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
 
     return {
       orders: result.orders.map(toOrderDto),
-      meta: {
-        page: query.page,
-        pageSize: query.pageSize,
-        total: result.total,
-        pages: Math.max(1, Math.ceil(result.total / query.pageSize)),
-      },
+      page: query.page,
+      pages,
+      total: result.total,
     };
   }
 }

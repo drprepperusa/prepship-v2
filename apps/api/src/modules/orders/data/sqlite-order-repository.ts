@@ -121,7 +121,7 @@ export class SqliteOrderRepository implements OrderRepository {
         END AS source_residential,
         COALESCE(ol.external_shipped, 0) AS external_shipped,
         ol.best_rate_json,
-        COALESCE(ship.selected_rate_json, ol.selected_rate_json) AS selected_rate_json,
+        ship.selected_rate_json,
         ship.label_shipmentId,
         ship.label_tracking,
         ship.label_carrier,
@@ -171,7 +171,7 @@ export class SqliteOrderRepository implements OrderRepository {
         END AS source_residential,
         COALESCE(ol.external_shipped, 0) AS external_shipped,
         ol.best_rate_json,
-        COALESCE(ship.selected_rate_json, ol.selected_rate_json, CASE
+        COALESCE(ship.selected_rate_json, CASE
           WHEN ship.label_shipmentId IS NOT NULL THEN json_object(
             'cost', ship.label_raw_cost,
             'shippingProviderId', ship.label_provider,

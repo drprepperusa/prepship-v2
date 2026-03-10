@@ -34,8 +34,10 @@ export class InventoryServices {
   list(query: ListInventoryQuery): InventoryItemDto[] {
     return this.repository.list(query).map((record) => {
       const baseUnits = record.currentStock * (record.baseUnitQty || 1);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { unitsPerPack, ...rest } = record;
       return {
-        ...record,
+        ...rest,
         packageLength: record.packageLength,
         packageWidth: record.packageWidth,
         packageHeight: record.packageHeight,

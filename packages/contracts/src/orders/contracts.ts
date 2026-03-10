@@ -39,7 +39,9 @@ export interface OrderSummaryDto {
 
 export interface ListOrdersResponse {
   orders: OrderSummaryDto[];
-  meta: PageMeta;
+  page: number;
+  pages: number;
+  total: number;
 }
 
 export interface GetOrderIdsQuery {
