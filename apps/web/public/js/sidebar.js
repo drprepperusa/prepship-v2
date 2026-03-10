@@ -15,6 +15,7 @@ export async function loadCounts() {
 }
 
 export function buildSidebarCounts({ byStatus, byStatusStore }) {
+  console.log('buildSidebarCounts called. storeMap keys:', Object.keys(state.storeMap), 'storeMap:', state.storeMap);
   state.sidebarCounts = {};
   (byStatus || []).forEach(row => {
     state.sidebarCounts[row.orderStatus] = { total: row.cnt, stores: [] };
@@ -23,6 +24,9 @@ export function buildSidebarCounts({ byStatus, byStatusStore }) {
     const status = row.orderStatus;
     if (!state.sidebarCounts[status]) state.sidebarCounts[status] = { total: 0, stores: [] };
     const name = state.storeMap[row.storeId] || `Store ${row.storeId}`;
+    if (!state.storeMap[row.storeId]) {
+      console.warn(`⚠️ storeId ${row.storeId} not found in storeMap, using fallback "Store ${row.storeId}"`);
+    }
     state.sidebarCounts[status].stores.push({ storeId: row.storeId, name, cnt: row.cnt });
   });
   // Note: per-section sort removed — renderSidebarSections uses global totals for consistent ordering

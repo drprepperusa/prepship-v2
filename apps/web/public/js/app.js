@@ -235,14 +235,16 @@ document.addEventListener('click', e => {
 
   try {
     const initData = await fetchValidatedJson('/api/init-data', undefined, parseInitDataDto);
+    console.log('✅ initData received. Keys:', Object.keys(initData), 'stores count:', initData.stores?.length);
 
     // Apply stores
     if (Array.isArray(initData.stores)) {
+      console.log('✅ initData.stores is array, populating storeMap from', initData.stores.length, 'stores');
       initData.stores.forEach(s => state.storeMap[s.storeId] = s.storeName);
       localStorage.setItem('prepship_store_map', JSON.stringify(state.storeMap));
-      console.log('✅ storeMap populated:', state.storeMap);
+      console.log('✅ storeMap populated. Keys:', Object.keys(state.storeMap), 'storeMap:', state.storeMap);
     } else {
-      console.warn('⚠️ WARNING: stores not returned in init-data:', initData.stores);
+      console.warn('⚠️ WARNING: stores not returned in init-data. initData.stores:', initData.stores, 'typeof:', typeof initData.stores);
     }
 
     // Apply clients
