@@ -240,6 +240,9 @@ document.addEventListener('click', e => {
     if (Array.isArray(initData.stores)) {
       initData.stores.forEach(s => state.storeMap[s.storeId] = s.storeName);
       localStorage.setItem('prepship_store_map', JSON.stringify(state.storeMap));
+      console.log('✅ storeMap populated:', state.storeMap);
+    } else {
+      console.warn('⚠️ WARNING: stores not returned in init-data:', initData.stores);
     }
 
     // Apply clients
