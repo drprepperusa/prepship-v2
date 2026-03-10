@@ -38,6 +38,7 @@ export class InventoryServices {
       const { unitsPerPack, ...rest } = record;
       return {
         ...rest,
+        active: Boolean(record.active), // Convert SQLite 0/1 to boolean
         packageLength: record.packageLength,
         packageWidth: record.packageWidth,
         packageHeight: record.packageHeight,
@@ -128,7 +129,18 @@ export class InventoryServices {
     if (!result) {
       throw new Error("Parent SKU not found");
     }
-    return result;
+    // Convert SQLite 0/1 to boolean for active field in children
+    return {
+      ...result,
+      children: result.children.map((child) => ({
+        ...child,
+        active: Boolean(child.active),
+      })),
+      lowStockChildren: result.lowStockChildren.map((child) => ({
+        ...child,
+        active: Boolean(child.active),
+      })),
+    };
   }
 
   createParentSku(input: SaveParentSkuInput) {
