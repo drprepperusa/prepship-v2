@@ -724,16 +724,11 @@ export async function fetchCheapestRates(orders) {
 
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
     if (!dims) {
-      // Store sentinel so re-renders don't flash the old cached rate
-      // NOTE: This is internal frontend state, not part of API response
+      // Missing dims: only update rate cell, not custcarrier
+      // custcarrier should remain stable and never flash during rate fetching
       const cell = document.getElementById(`rate-${o.orderId}`);
       if (cell) {
         cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
-        const row = cell.closest('tr');
-        if (row) {
-          const acctTd = row.querySelector('[data-col="custcarrier"]');
-          if (acctTd) acctTd.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
-        }
       }
       return;
     }
