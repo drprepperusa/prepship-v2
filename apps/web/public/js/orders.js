@@ -590,11 +590,8 @@ export function renderRateCell(id, best, spid) {
     spid = ord?.advancedOptions?.billToMyOtherAccount;
   }
 
-  const row = document.getElementById(`row-${id}`);
-
   if (best) {
     const cc  = best.carrierCode || '';
-    const sc  = best.serviceCode || '';
     const rawCost    = (best.shipmentCost || 0) + (best.otherCost || 0);
     const markedCost = applyCarrierMarkup(best);
     
@@ -610,33 +607,8 @@ export function renderRateCell(id, best, spid) {
           ${rateDisplay}
         </div>
       </div>`;
-
-    if (row) {
-      const svcLabel   = SERVICE_NAMES[sc] || sc.replace(/_/g, ' ');
-      const carrierTd  = row.querySelector('[data-col="carrier"]');
-      if (carrierTd) {
-        carrierTd.innerHTML = `<div style="display:flex;align-items:center;gap:6px;line-height:1.3">
-          ${carrierLogo(cc, 18)}
-          <span style="font-size:10px;color:var(--text2)">${escHtml((svcLabel + '').substring(0, 26))}</span>
-        </div>`;
-      }
-      const acctTd = row.querySelector('[data-col="custcarrier"]');
-      if (acctTd) {
-        const acctName = formatCarrierDisplay(best);
-        acctTd.innerHTML = `<div style="line-height:1.4">
-          <div style="font-size:12px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div>
-          <div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((svcLabel + '').substring(0, 22))}</div>
-        </div>`;
-      }
-    }
   } else {
     cell.innerHTML = '<span style="color:var(--text3);font-size:11px">N/A</span>';
-    if (row) {
-      const carrierTd = row.querySelector('[data-col="carrier"]');
-      if (carrierTd) carrierTd.innerHTML = '<span style="color:var(--text4);font-size:11px">—</span>';
-      const acctTd = row.querySelector('[data-col="custcarrier"]');
-      if (acctTd) acctTd.innerHTML = '<span style="color:var(--text4);font-size:11px">—</span>';
-    }
   }
 }
 
@@ -647,13 +619,6 @@ export function renderActualRateCell(id, o) {
   // Check if marked as externally shipped (shipped outside ShipStation)
   if (o.externalShipped) {
     cell.innerHTML = '<span style="font-size:10.5px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;white-space:nowrap" title="Shipped outside ShipStation">Externally Shipped</span>';
-    const row = document.getElementById(`row-${id}`);
-    if (row) {
-      const carrierTd = row.querySelector('[data-col="carrier"]');
-      if (carrierTd) carrierTd.innerHTML = '<span style="font-size:10px;color:var(--text2)">Externally Shipped</span>';
-      const acctTd = row.querySelector('[data-col="custcarrier"]');
-      if (acctTd) acctTd.innerHTML = '<div style="line-height:1.4"><div style="font-size:12px;font-weight:600;color:var(--text2)">Externally Shipped</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$0.00</div></div>';
-    }
     return;
   }
   
@@ -667,24 +632,19 @@ export function renderActualRateCell(id, o) {
   const hasSelectedRate = o.selectedRate != null;
   let cost = 0;
   let cc = '';
-  let sc = '';
   let costColor = 'var(--text)';
   let costTitle = 'Actual label cost';
   
   if (hasLabel) {
     cost = parseFloat(o.label.cost);
     cc = o.label.carrierCode || o.carrierCode || '';
-    sc = o.label.serviceCode || o.serviceCode || '';
   } else if (hasSelectedRate) {
     // Use selected rate (actual rate used at label creation for externally fulfilled orders)
     cost = parseFloat(o.selectedRate.cost) || 0;
     cc = o.selectedRate.carrierCode || '';
-    sc = o.selectedRate.serviceCode || '';
     costColor = 'var(--text)';
     costTitle = 'Rate used at label creation (external)';
   }
-  
-  const svc = (SERVICE_NAMES[sc] || sc.replace(/_/g, ' ')).substring(0, 20);
 
   // Apply carrier markup using persisted selected carrier account (shippingProviderId)
   // For labels, use label.shippingProviderId
@@ -699,26 +659,6 @@ export function renderActualRateCell(id, o) {
     ${carrierLogo(cc, 18)}
     ${costHtml}
   </div>`;
-  const row = document.getElementById(`row-${id}`);
-  if (row) {
-    const acctTd = row.querySelector('[data-col="custcarrier"]');
-    if (acctTd) {
-      // Update service sub-line
-      if (svc) {
-        const svcSpan = acctTd.querySelector('.svc-label');
-        if (svcSpan) svcSpan.textContent = svc;
-      }
-      // Update account name — fixes race condition where carriersList wasn't loaded at initial render
-      const labelProvider = o.label?.shippingProviderId || (hasSelectedRate ? o.selectedRate.shippingProviderId : null);
-      if (labelProvider) {
-        const acct = state.carriersList.find(c => c.shippingProviderId === labelProvider);
-        if (acct) {
-          const nameDiv = acctTd.querySelector('div > div:first-child');
-          if (nameDiv) nameDiv.textContent = acct._label || acct.nickname || acct.accountNumber || acct.name || nameDiv.textContent;
-        }
-      }
-    }
-  }
 }
 
 // ═══════════════════════════════════════════════
