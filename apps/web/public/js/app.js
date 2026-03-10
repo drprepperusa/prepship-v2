@@ -268,6 +268,7 @@ document.addEventListener('click', e => {
       } catch {}
     }
 
+    console.log('✅ init-data validation successful, skipping fallback path');
     // Apply carriers
     if (Array.isArray(initData.carriers) && initData.carriers.length) {
       state.carriersList = initData.carriers.filter(c => c.code !== 'voucher-generic');
@@ -290,8 +291,11 @@ document.addEventListener('click', e => {
       loadCarrierAccounts();
     }
   } catch (e) {
-    console.warn('[Init] init-data failed, falling back:', e.message);
-    await Promise.all([loadRbMarkups(), loadStores(), loadCounts()]);
+    console.warn('[Init] init-data failed, falling back:', e.message, e);
+    // IMPORTANT: loadCounts() needs storeMap to be populated first, so we must
+    // await loadStores() before calling loadCounts()
+    await Promise.all([loadRbMarkups(), loadStores()]);  // populate storeMap first
+    await loadCounts();  // then load counts (which calls buildSidebarCounts with storeMap ready)
     // Fallback to fetch clients explicitly if init-data failed
     try {
       const clientsRes = await fetchValidatedJson('/api/clients', undefined, parseClientDtoList);
