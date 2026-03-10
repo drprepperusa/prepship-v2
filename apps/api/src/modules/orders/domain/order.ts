@@ -1,6 +1,7 @@
 export interface OrderRecord {
   orderId: number;
   clientId: number | null;
+  clientName: string | null;
   orderNumber: string | null;
   orderStatus: string;
   orderDate: string | null;

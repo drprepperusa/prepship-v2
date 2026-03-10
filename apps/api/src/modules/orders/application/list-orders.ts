@@ -22,6 +22,7 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
   return {
     orderId: record.orderId,
     clientId: record.clientId,
+    clientName: record.clientName,
     orderNumber: record.orderNumber,
     orderStatus: record.orderStatus,
     orderDate: record.orderDate,

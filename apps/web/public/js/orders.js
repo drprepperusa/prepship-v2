@@ -298,10 +298,7 @@ export function renderOrders(skipRates = false) {
     const shiptoStr  = [city, stateStr, zip].filter(Boolean).join(', ');
     const skuCode    = item.sku || '';
     const skuHtml    = skuCode ? `<span class="sku-link">${escHtml(skuCode)}</span>` : '—';
-    const clientName = state.clientMap?.[o.clientId] || o.clientName || 'Untagged';
-    if (!state.clientMap?.[o.clientId] && o.orderId === 268540369) {
-      console.log('🔍 Order', o.orderId, 'clientId:', o.clientId, 'state.clientMap:', state.clientMap, 'result:', clientName);
-    }
+    const clientName = o.clientName || 'Untagged';
     const clientCol  = clientBadge(clientName);
     const totalQty   = items.reduce((s, i) => s + i.quantity, 0);
     const weightHtml = o.weight?.value > 0

@@ -236,16 +236,6 @@ document.addEventListener('click', e => {
       localStorage.setItem('prepship_store_map', JSON.stringify(state.storeMap));
     }
 
-    // Apply clients
-    if (Array.isArray(initData.clients)) {
-      state.clientMap = {};
-      initData.clients.forEach(c => state.clientMap[c.clientId] = c.name);
-      localStorage.setItem('prepship_client_map', JSON.stringify(state.clientMap));
-      console.log('✅ clientMap populated:', state.clientMap);
-    } else {
-      console.warn('⚠️ initData.clients missing or not array:', initData.clients);
-    }
-
     // Apply counts
     if (initData.counts) buildSidebarCounts(initData.counts);
     renderSidebarSections();

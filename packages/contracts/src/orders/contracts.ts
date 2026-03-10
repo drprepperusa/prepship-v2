@@ -12,6 +12,7 @@ export interface ListOrdersQuery {
 export interface OrderSummaryDto {
   orderId: number;
   clientId: number | null;
+  clientName: string | null;
   orderNumber: string | null;
   orderStatus: string;
   orderDate: string | null;

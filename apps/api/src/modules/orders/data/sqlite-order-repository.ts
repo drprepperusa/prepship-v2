@@ -102,6 +102,7 @@ export class SqliteOrderRepository implements OrderRepository {
       SELECT
         o.orderId,
         o.clientId,
+        COALESCE(c.name, NULL) AS clientName,
         o.orderNumber,
         o.orderStatus,
         o.orderDate,
@@ -132,6 +133,7 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_shipDate,
         o.raw
       ${fromClause}
+      LEFT JOIN clients c ON c.clientId = o.clientId
       ${where}
       ORDER BY o.orderDate DESC
       LIMIT ? OFFSET ?
@@ -148,6 +150,7 @@ export class SqliteOrderRepository implements OrderRepository {
       SELECT
         o.orderId,
         o.clientId,
+        COALESCE(c.name, NULL) AS clientName,
         o.orderNumber,
         CASE
           WHEN json_extract(o.raw, '$.externallyFulfilled') = 1 THEN 'shipped'
@@ -192,6 +195,7 @@ export class SqliteOrderRepository implements OrderRepository {
         o.raw
       FROM orders o
       LEFT JOIN order_local ol ON ol.orderId = o.orderId
+      LEFT JOIN clients c ON c.clientId = o.clientId
       LEFT JOIN (
         WITH latest_ship AS (
           SELECT orderId, MAX(shipmentId) AS shipmentId
@@ -499,6 +503,7 @@ export class SqliteOrderRepository implements OrderRepository {
     return {
       orderId: Number(row.orderId),
       clientId: row.clientId == null ? null : Number(row.clientId),
+      clientName: row.clientName == null ? null : String(row.clientName),
       orderNumber: row.orderNumber == null ? null : String(row.orderNumber),
       orderStatus: String(row.orderStatus),
       orderDate: row.orderDate == null ? null : String(row.orderDate),
