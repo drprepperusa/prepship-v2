@@ -293,7 +293,8 @@ export function renderOrders(skipRates = false) {
     const shiptoStr  = [city, stateStr, zip].filter(Boolean).join(', ');
     const skuCode    = item.sku || '';
     const skuHtml    = skuCode ? `<span class="sku-link">${escHtml(skuCode)}</span>` : '—';
-    const clientCol  = clientBadge(storeName);
+    const clientName = state.clientMap?.[o.clientId] || o.clientName || 'Untagged';
+    const clientCol  = clientBadge(clientName);
     const totalQty   = items.reduce((s, i) => s + i.quantity, 0);
     const weightHtml = o.weight?.value > 0
       ? `<span style="font-size:12px;color:var(--text2)">${fmtWeight(o.weight.value)}</span>`

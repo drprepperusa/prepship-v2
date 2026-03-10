@@ -5,15 +5,23 @@ import type {
 } from "../../../../../../../packages/contracts/src/init/contracts.ts";
 import type { InitMetadataProvider } from "./init-metadata-provider.ts";
 import type { InitRepository } from "./init-repository.ts";
+import type { ClientServices } from "../../../modules/clients/application/client-services.ts";
 
 export class InitServices {
   private readonly repository: InitRepository;
   private readonly metadataProvider: InitMetadataProvider;
+  private readonly clientServices: ClientServices;
   private readonly excludedStoreIds: number[];
 
-  constructor(repository: InitRepository, metadataProvider: InitMetadataProvider, excludedStoreIds: number[]) {
+  constructor(
+    repository: InitRepository,
+    metadataProvider: InitMetadataProvider,
+    clientServices: ClientServices,
+    excludedStoreIds: number[]
+  ) {
     this.repository = repository;
     this.metadataProvider = metadataProvider;
+    this.clientServices = clientServices;
     this.excludedStoreIds = excludedStoreIds;
   }
 
@@ -24,6 +32,7 @@ export class InitServices {
       carriers: this.metadataProvider.listCarrierAccounts(),
       counts: this.repository.getCounts(),
       markups: this.repository.getRateBrowserMarkups(),
+      clients: await this.clientServices.list(),
     };
   }
 

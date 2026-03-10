@@ -9,6 +9,7 @@ export const state = {
   totalOrders: 0,
   totalPages: 0,
   storeMap: {},
+  clientMap: {},
   sidebarCounts: {},
   rateCache: {},
   currentPanelOrder: null,

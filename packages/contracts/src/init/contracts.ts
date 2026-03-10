@@ -44,9 +44,23 @@ export interface InitCountsDto {
   byStatusStore: OrdersByStatusStoreDto[];
 }
 
+export interface ClientDto {
+  clientId: number;
+  name: string;
+  storeIds: number[];
+  contactName: string;
+  email: string;
+  phone: string;
+  active: boolean;
+  hasOwnAccount: boolean;
+  rateSourceClientId: number | null;
+  rateSourceName: string;
+}
+
 export interface InitDataDto {
   stores: InitStoreDto[];
   carriers: CarrierAccountDto[];
   counts: InitCountsDto;
   markups: Record<string, unknown>;
+  clients: ClientDto[];
 }
