@@ -62,7 +62,7 @@ function applyPollingUpdates(freshData) {
   if (!freshData || !freshData.orders) return;
 
   const freshMap = new Map(freshData.orders.map(o => [o.orderId, o]));
-  const oldMap = new Map((state.orders || []).map(o => [o.orderId, o]));
+  const oldMap = new Map((state.allOrders || []).map(o => [o.orderId, o]));
   
   let hasChanges = false;
   let changedCount = 0;

@@ -236,6 +236,13 @@ document.addEventListener('click', e => {
       localStorage.setItem('prepship_store_map', JSON.stringify(state.storeMap));
     }
 
+    // Apply clients
+    if (Array.isArray(initData.clients)) {
+      state.clientMap = {};
+      initData.clients.forEach(c => state.clientMap[c.clientId] = c.name);
+      console.log('✅ clientMap populated:', state.clientMap);
+    }
+
     // Apply counts
     if (initData.counts) buildSidebarCounts(initData.counts);
     renderSidebarSections();
