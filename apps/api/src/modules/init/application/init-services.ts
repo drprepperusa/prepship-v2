@@ -26,7 +26,14 @@ export class InitServices {
   }
 
   async getInitData(): Promise<InitDataDto> {
-    const remoteStores = await this.metadataProvider.listStores();
+    let remoteStores: InitStoreDto[] = [];
+    try {
+      remoteStores = await this.metadataProvider.listStores();
+    } catch (err) {
+      console.warn(`Failed to fetch remote stores from ShipStation, using local stores only:`, err);
+      // Continue with empty remoteStores - mergeStores will use local stores as fallback
+    }
+
     return {
       stores: this.mergeStores(remoteStores),
       carriers: this.metadataProvider.listCarrierAccounts(),
