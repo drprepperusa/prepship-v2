@@ -607,29 +607,49 @@ export async function fetchPanelRate(o) {
 
   // CRITICAL: If no weight/dims entered but order has a cached bestRate, display it immediately
   // User can modify weight/dims later to recalculate
+  console.log(`[fetchPanelRate] Order ${o.orderId}: totalOz=${totalOz}, hasDims=${hasDims}, hasBestRate=${!!o.bestRate}`);
   if ((!totalOz || !hasDims) && o.bestRate) {
-    const best = o.bestRate;
-    const carrier = formatCarrierDisplay(best);
-    const svc = SERVICE_NAMES[best.serviceCode] || best.serviceName || '';
-    const rawCost = (best.shipmentCost || 0) + (best.otherCost || 0);
-    const selPid = parseInt(document.getElementById('p-shipacct')?.value) || null;
-    const markupCost = selPid ? applyRbMarkup(selPid, rawCost) : applyCarrierMarkup(best);
-    el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-      ${priceDisplay(rawCost, markupCost)}
-      <span style="font-size:10.5px;color:var(--text3)">${carrier} · ${trunc(svc,22)}</span>
-    </div>`;
-    if (lb) lb.textContent = 'Scout Review';
-    // Auto-populate panel with order's weight if available
-    if (o.weight?.value && !totalOz) {
-      const wt = o.weight.value;
-      const lb_val = Math.floor(wt / 16);
-      const oz_val = Math.round(wt % 16);
-      const lbEl = document.getElementById('p-wtlb');
-      const ozEl = document.getElementById('p-wtoz');
-      if (lbEl) lbEl.value = lb_val;
-      if (ozEl) ozEl.value = oz_val;
+    try {
+      console.log(`[fetchPanelRate] Displaying cached bestRate for order ${o.orderId}`, { best: o.bestRate });
+      const best = o.bestRate;
+      
+      console.log(`[fetchPanelRate] formatCarrierDisplay exists: ${typeof formatCarrierDisplay}, SERVICE_NAMES exists: ${typeof SERVICE_NAMES}`);
+      const carrier = formatCarrierDisplay(best);
+      console.log(`[fetchPanelRate] carrier resolved to: ${carrier}`);
+      
+      const svc = SERVICE_NAMES[best.serviceCode] || best.serviceName || '';
+      console.log(`[fetchPanelRate] svc: ${svc} (looked up ${best.serviceCode})`);
+      
+      const rawCost = (best.shipmentCost || 0) + (best.otherCost || 0);
+      const selPid = parseInt(document.getElementById('p-shipacct')?.value) || null;
+      const markupCost = selPid ? applyRbMarkup(selPid, rawCost) : applyCarrierMarkup(best);
+      console.log(`[fetchPanelRate] Costs: raw=${rawCost}, markup=${markupCost}`);
+      
+      const html = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${priceDisplay(rawCost, markupCost)}
+        <span style="font-size:10.5px;color:var(--text3)">${carrier} · ${trunc(svc,22)}</span>
+      </div>`;
+      console.log(`[fetchPanelRate] Setting HTML: ${html}`);
+      el.innerHTML = html;
+      
+      if (lb) lb.textContent = 'Scout Review';
+      // Auto-populate panel with order's weight if available
+      if (o.weight?.value && !totalOz) {
+        const wt = o.weight.value;
+        const lb_val = Math.floor(wt / 16);
+        const oz_val = Math.round(wt % 16);
+        const lbEl = document.getElementById('p-wtlb');
+        const ozEl = document.getElementById('p-wtoz');
+        if (lbEl) lbEl.value = lb_val;
+        if (ozEl) ozEl.value = oz_val;
+        console.log(`[fetchPanelRate] Auto-populated weight: ${lb_val} lb ${oz_val} oz`);
+      }
+      console.log(`[fetchPanelRate] ✅ Cached rate displayed successfully`);
+      return;
+    } catch (err) {
+      console.error(`[fetchPanelRate] ERROR displaying cached bestRate:`, err.message, err.stack);
+      el.textContent = 'Error displaying rate';
     }
-    return;
   }
 
   el.textContent = '…';
