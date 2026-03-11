@@ -96,10 +96,13 @@ export async function fetchOrders(page = 1, skipRatesHint = false) {
     if (state.currentStoreId) params.set('storeId', state.currentStoreId);
     // Server-side date filter
     const range = getDateRange();
+    console.log('[fetchOrders] Date range from getDateRange():', range);
     if (range?.start) {
       const startStr = range.start.toISOString();
       params.set('dateStart', startStr);
       console.log(`[Orders] Date filter: ${startStr.slice(0,10)} → ${range.end.toISOString().slice(0,10)}`);
+    } else {
+      console.log('[fetchOrders] No range.start, skipping date filters');
     }
     if (range?.end)   params.set('dateEnd',   range.end.toISOString());
 
@@ -179,7 +182,11 @@ export function onDateFilterChange() {
 
 function getDateRange() {
   const val = document.getElementById('dateFilter')?.value;
-  if (!val) return null;
+  console.log('[getDateRange] dateFilter element:', document.getElementById('dateFilter'), 'value:', val);
+  if (!val) {
+    console.log('[getDateRange] No date filter value, returning null');
+    return null;
+  }
   
   if (val === 'custom') {
     const f = document.getElementById('dateFrom')?.value;
@@ -187,7 +194,9 @@ function getDateRange() {
     return getDateRangePreset('custom', { start: f, end: t });
   }
   
-  return getDateRangePreset(val);
+  const result = getDateRangePreset(val);
+  console.log('[getDateRange] Preset:', val, 'Result:', result);
+  return result;
 }
 
 export function filterOrders() {
