@@ -19,6 +19,7 @@ export interface OrderRecord {
   residential: boolean | null;
   sourceResidential: boolean | null;
   externalShipped: boolean;
+  externallyFulfilledVerified: boolean;
   bestRateJson: string | null;
   selectedRateJson: string | null;
   labelShipmentId: number | null;

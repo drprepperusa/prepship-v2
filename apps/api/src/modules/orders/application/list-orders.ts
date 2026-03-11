@@ -17,6 +17,17 @@ function parseJson(value: string | null): unknown | null {
 
 function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number]): OrderSummaryDto {
   const rawData = parseJson(record.raw) as any;
+  
+  // Enrich raw data with database-level externallyFulfilled flag
+  // This ensures the frontend can check isExternallyFulfilledOrder(order)
+  if (record.externallyFulfilledVerified) {
+    if (!rawData) {
+      // Create minimal raw object if it doesn't exist
+      rawData = {};
+    }
+    rawData.externallyFulfilled = true;
+  }
+  
   const itemsStr = record.items || "[]";
   let items = [];
   try {

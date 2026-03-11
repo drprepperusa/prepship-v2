@@ -130,6 +130,7 @@ export class SqliteOrderRepository implements OrderRepository {
           ELSE 0
         END AS source_residential,
         COALESCE(ol.external_shipped, 0) AS external_shipped,
+        COALESCE(o.externally_fulfilled_verified, 0) AS externally_fulfilled_verified,
         ol.best_rate_json,
         ship.selected_rate_json,
         ship.label_shipmentId,
@@ -190,6 +191,7 @@ export class SqliteOrderRepository implements OrderRepository {
           ELSE 0
         END AS source_residential,
         COALESCE(ol.external_shipped, 0) AS external_shipped,
+        COALESCE(o.externally_fulfilled_verified, 0) AS externally_fulfilled_verified,
         ol.best_rate_json,
         COALESCE(ship.selected_rate_json, CASE
           WHEN ship.label_shipmentId IS NOT NULL THEN json_object(
@@ -600,6 +602,7 @@ export class SqliteOrderRepository implements OrderRepository {
       residential: row.residential == null ? null : Number(row.residential) === 1,
       sourceResidential: row.source_residential == null ? null : Number(row.source_residential) === 1,
       externalShipped: Number(row.external_shipped ?? 0) === 1,
+      externallyFulfilledVerified: Number(row.externally_fulfilled_verified ?? 0) === 1,
       bestRateJson: row.best_rate_json == null ? null : String(row.best_rate_json),
       selectedRateJson: row.selected_rate_json == null ? null : String(row.selected_rate_json),
       labelShipmentId: row.labelShipmentId == null ? null : Number(row.labelShipmentId),
