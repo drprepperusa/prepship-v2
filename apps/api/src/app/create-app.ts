@@ -404,7 +404,9 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "POST" && url.pathname === "/api/rates/cached/bulk") {
       try {
-        return jsonResponse(200, dependencies.ratesHandler.handleCachedBulk(await readJson()));
+        const text = await request.text();
+        const body = text ? JSON.parse(text) : [];
+        return jsonResponse(200, dependencies.ratesHandler.handleCachedBulk(body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = isInputError(error, ["Expected array"]) ? 400 : 500;
