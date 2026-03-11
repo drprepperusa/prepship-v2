@@ -96,7 +96,11 @@ export async function fetchOrders(page = 1, skipRatesHint = false) {
     if (state.currentStoreId) params.set('storeId', state.currentStoreId);
     // Server-side date filter
     const range = getDateRange();
-    if (range?.start) params.set('dateStart', range.start.toISOString());
+    if (range?.start) {
+      const startStr = range.start.toISOString();
+      params.set('dateStart', startStr);
+      console.log(`[Orders] Date filter: ${startStr.slice(0,10)} → ${range.end.toISOString().slice(0,10)}`);
+    }
     if (range?.end)   params.set('dateEnd',   range.end.toISOString());
 
     let data = null;
