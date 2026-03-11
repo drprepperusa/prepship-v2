@@ -46,7 +46,7 @@ export class OrderDetailsService {
       ? { value: record.weightValue, units: "ounces" }
       : null;
 
-    const rawData = parseJson(record.raw) as any;
+    let rawData = parseJson(record.raw) as any;
     
     // Enrich raw data with database-level externallyFulfilled flag
     // This ensures the frontend can check isExternallyFulfilledOrder(order)
