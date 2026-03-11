@@ -14,7 +14,7 @@ import type { BulkUpdateInventoryDimensionsInput, ParentSkuDetailDto, ParentSkuD
 import type { ExistingLabelRecord, LabelOrderRecord, LabelShipmentRecord, PersistedShipmentInput, ResolvedPackageDimensions, ReturnLabelRecord, ShippingAccountContext } from "../../modules/labels/domain/label.ts";
 import type { LabelRepository } from "../../modules/labels/application/label-repository.ts";
 import type { SaveLocationInput } from "../../../../../../packages/contracts/src/locations/contracts.ts";
-import type { GetOrderIdsQuery, GetOrderPicklistQuery, ListOrdersQuery, OrderFullDto, OrderPicklistItemDto, OrdersDailyStatsDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
+import type { GetOrderIdsQuery, GetOrderPicklistQuery, ListOrdersQuery, OrderExportQuery, OrderExportRow, OrderFullDto, OrderPicklistItemDto, OrdersDailyStatsDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { AutoCreatePackageInput, PackageAdjustmentInput, SavePackageInput } from "../../../../../../packages/contracts/src/packages/contracts.ts";
 import type { SaveProductDefaultsInput } from "../../../../../../packages/contracts/src/products/contracts.ts";
 import type { RateDimsDto, RateDto } from "../../../../../../packages/contracts/src/rates/contracts.ts";
@@ -925,6 +925,11 @@ class MemoryOrderRepository implements OrderRepository {
       needToShip: this.entries.filter((entry) => entry.record.orderStatus === "awaiting_shipment").length,
       upcomingOrders: 0,
     };
+  }
+
+  exportOrders(_query: OrderExportQuery): OrderExportRow[] {
+    // Memory store: return empty — only used in tests that don't exercise export
+    return [];
   }
 
   private filterOrders(query: Partial<ListOrdersQuery>): MemoryOrderEntry[] {

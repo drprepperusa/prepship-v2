@@ -119,6 +119,38 @@ export interface OrdersDailyStatsDto {
   upcomingOrders: number;
 }
 
+// ---------- Order CSV export ----------
+
+export interface OrderExportQuery {
+  orderStatus: string;
+  pageSize: number;
+}
+
+export interface OrderExportRow {
+  orderId: number;
+  clientId: number | null;
+  storeId: number | null;
+  raw: string | null;
+  external_shipped: number;
+  best_rate_json: string | null;
+  label_shipmentId: number | null;
+  label_cost: number | null;
+  label_raw_cost: number | null;
+  label_carrier: string | null;
+  label_service: string | null;
+  label_tracking: string | null;
+  label_shipDate: string | null;
+  label_created_at: string | null;
+  selected_rate_json: string | null;
+}
+
+export function parseOrderExportQuery(url: URL): OrderExportQuery {
+  const orderStatus = url.searchParams.get("orderStatus") ?? "shipped";
+  const pageSizeRaw = url.searchParams.get("pageSize");
+  const pageSize = pageSizeRaw ? Math.min(5000, Math.max(1, Number.parseInt(pageSizeRaw, 10))) : 5000;
+  return { orderStatus, pageSize };
+}
+
 export function parseListOrdersQuery(url: URL): ListOrdersQuery {
   const page = Math.max(1, parseOptionalIntegerParam(url.searchParams.get("page"), "page") ?? 1);
   const pageSize = Math.min(500, Math.max(1, parseOptionalIntegerParam(url.searchParams.get("pageSize"), "pageSize") ?? 50));

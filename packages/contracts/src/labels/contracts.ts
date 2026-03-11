@@ -77,3 +77,34 @@ export interface RetrieveLabelResponseDto {
   service: string;
   cost: number;
 }
+
+// ---------- Batch label creation ----------
+
+export interface CreateBatchLabelRequestDto {
+  orderIds: number[];
+  carrierCode?: string;
+  serviceCode: string;
+  packageCode?: string;
+  confirmation?: string;
+  testLabel?: boolean;
+  shippingProviderId: number;
+}
+
+export interface BatchLabelResultItem {
+  orderId: number;
+  success: boolean;
+  shipmentId?: number;
+  trackingNumber?: string | null;
+  cost?: number;
+  error?: string;
+}
+
+export interface CreateBatchLabelResponseDto {
+  created: BatchLabelResultItem[];
+  failed: BatchLabelResultItem[];
+  summary: {
+    total: number;
+    created: number;
+    failed: number;
+  };
+}

@@ -41,6 +41,7 @@ import { ShipmentsHttpHandler } from "../modules/shipments/api/shipments-handler
 import { ShipmentServices } from "../modules/shipments/application/shipment-services.ts";
 import { ListOrdersService } from "../modules/orders/application/list-orders.ts";
 import { OrderDetailsService } from "../modules/orders/application/order-details.ts";
+import { OrderExportService } from "../modules/orders/application/order-export.ts";
 import { GetOrderIdsService } from "../modules/orders/application/get-order-ids.ts";
 import { OrderPicklistService } from "../modules/orders/application/order-picklist.ts";
 import { OrderFullService } from "../modules/orders/application/order-full.ts";
@@ -99,6 +100,7 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const orderFullService = new OrderFullService(dataStore.orderRepository);
   const updateOrderOverridesService = new UpdateOrderOverridesService(dataStore.orderRepository);
   const orderDailyStatsService = new OrderDailyStatsService(dataStore.orderRepository);
+  const orderExportService = new OrderExportService(dataStore.orderRepository);
   const ordersHandler = new OrdersHttpHandler(
     listOrdersService,
     orderDetailsService,
@@ -107,6 +109,7 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
     orderFullService,
     updateOrderOverridesService,
     orderDailyStatsService,
+    orderExportService,
   );
 
   return {

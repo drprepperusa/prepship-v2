@@ -1,4 +1,7 @@
 import type {
+  BatchLabelResultItem,
+  CreateBatchLabelRequestDto,
+  CreateBatchLabelResponseDto,
   CreateLabelRequestDto,
   CreateLabelResponseDto,
   RetrieveLabelResponseDto,
@@ -277,6 +280,45 @@ export class LabelServices {
       voided: created.voided,
       orderStatus: body.testLabel ? order.orderStatus : "shipped",
       apiVersion: "v2",
+    };
+  }
+
+  async createBatch(body: CreateBatchLabelRequestDto): Promise<CreateBatchLabelResponseDto> {
+    const created: BatchLabelResultItem[] = [];
+    const failed: BatchLabelResultItem[] = [];
+
+    for (const orderId of body.orderIds) {
+      try {
+        const result = await this.create({
+          orderId,
+          serviceCode: body.serviceCode,
+          carrierCode: body.carrierCode,
+          packageCode: body.packageCode,
+          confirmation: body.confirmation,
+          testLabel: body.testLabel,
+          shippingProviderId: body.shippingProviderId,
+        });
+        created.push({
+          orderId,
+          success: true,
+          shipmentId: result.shipmentId,
+          trackingNumber: result.trackingNumber,
+          cost: result.cost,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        failed.push({ orderId, success: false, error: message });
+      }
+    }
+
+    return {
+      created,
+      failed,
+      summary: {
+        total: body.orderIds.length,
+        created: created.length,
+        failed: failed.length,
+      },
     };
   }
 

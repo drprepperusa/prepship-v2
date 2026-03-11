@@ -873,6 +873,22 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/api/orders/export") {
+      try {
+        const result = dependencies.ordersHandler.handleExport(url);
+        return new Response(result.body, {
+          status: 200,
+          headers: {
+            "content-type": result.contentType,
+            "content-disposition": `attachment; filename="${result.filename}"`,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
     const fullOrderMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/full$/);
     if (request.method === "GET" && fullOrderMatch) {
       const payload = dependencies.ordersHandler.handleGetFull(Number.parseInt(fullOrderMatch[1] ?? "0", 10));
@@ -1034,8 +1050,36 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
-    if (request.method === "POST" && url.pathname === "/api/manifests/generate") {
-      return jsonResponse(409, { error: "manifest generation is not migrated yet in V2" });
+    if (request.method === "GET" && url.pathname === "/api/manifests/generate") {
+      try {
+        const startDate = url.searchParams.get("startDate") ?? "";
+        const endDate = url.searchParams.get("endDate") ?? "";
+        const carrierId = url.searchParams.get("carrierId") ?? null;
+        const clientIdRaw = url.searchParams.get("clientId");
+        const clientId = clientIdRaw ? Number.parseInt(clientIdRaw, 10) : null;
+        const manifest = dependencies.manifestsHandler.handleGenerate({ startDate, endDate, carrierId, clientId });
+        return new Response(manifest.body, {
+          status: 200,
+          headers: {
+            "content-type": manifest.contentType,
+            "content-disposition": `attachment; filename="${manifest.filename}"`,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["startDate and endDate required (YYYY-MM-DD format)"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/labels/create-batch") {
+      try {
+        return jsonResponse(200, await dependencies.labelsHandler.handleCreateBatch(await readJson()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["orderIds must be a non-empty array", "serviceCode is required", "shippingProviderId is required"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
     }
 
     if (request.method === "POST" && url.pathname === "/api/labels/create") {

@@ -1,8 +1,9 @@
-import { parseGetOrderIdsQuery, parseListOrdersQuery, parseOrderPicklistQuery } from "../../../../../../packages/contracts/src/orders/contracts.ts";
+import { parseGetOrderIdsQuery, parseListOrdersQuery, parseOrderExportQuery, parseOrderPicklistQuery } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import { InputValidationError } from "../../../../../../packages/contracts/src/common/input-validation.ts";
 import type { OrderFullService } from "../application/order-full.ts";
 import type { OrderDetailsService } from "../application/order-details.ts";
 import type { OrderDailyStatsService } from "../application/order-daily-stats.ts";
+import type { OrderExportService } from "../application/order-export.ts";
 import type { GetOrderIdsService } from "../application/get-order-ids.ts";
 import type { ListOrdersService } from "../application/list-orders.ts";
 import type { OrderPicklistService } from "../application/order-picklist.ts";
@@ -16,6 +17,7 @@ export class OrdersHttpHandler {
   private readonly orderFullService: OrderFullService;
   private readonly updateOrderOverridesService: UpdateOrderOverridesService;
   private readonly orderDailyStatsService: OrderDailyStatsService;
+  private readonly orderExportService: OrderExportService;
 
   constructor(
     listOrdersService: ListOrdersService,
@@ -25,6 +27,7 @@ export class OrdersHttpHandler {
     orderFullService: OrderFullService,
     updateOrderOverridesService: UpdateOrderOverridesService,
     orderDailyStatsService: OrderDailyStatsService,
+    orderExportService: OrderExportService,
   ) {
     this.listOrdersService = listOrdersService;
     this.orderDetailsService = orderDetailsService;
@@ -33,6 +36,7 @@ export class OrdersHttpHandler {
     this.orderFullService = orderFullService;
     this.updateOrderOverridesService = updateOrderOverridesService;
     this.orderDailyStatsService = orderDailyStatsService;
+    this.orderExportService = orderExportService;
   }
 
   handleList(requestUrl: URL) {
@@ -60,6 +64,11 @@ export class OrdersHttpHandler {
 
   handleDailyStats() {
     return this.orderDailyStatsService.execute();
+  }
+
+  handleExport(requestUrl: URL) {
+    const query = parseOrderExportQuery(requestUrl);
+    return this.orderExportService.execute(query);
   }
 
   handleSetExternalShipped(orderId: number, payload: { flag?: number | boolean }) {

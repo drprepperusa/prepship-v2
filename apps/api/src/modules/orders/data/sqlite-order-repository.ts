@@ -3,6 +3,8 @@ import type {
   GetOrderIdsQuery,
   GetOrderPicklistQuery,
   ListOrdersQuery,
+  OrderExportQuery,
+  OrderExportRow,
   OrderFullDto,
   OrdersDailyStatsDto,
   OrderPicklistItemDto,
@@ -513,6 +515,67 @@ export class SqliteOrderRepository implements OrderRepository {
       needToShip: Number(needToShip.cnt ?? 0),
       upcomingOrders: Number(upcomingOrders.cnt ?? 0),
     };
+  }
+
+  exportOrders(query: OrderExportQuery): OrderExportRow[] {
+    const clauses: string[] = ["o.raw IS NOT NULL"];
+    const params: Array<string | number> = [];
+
+    if (this.excludedStoreIds.length > 0) {
+      clauses.push(`o.storeId NOT IN (${this.excludedStoreIds.map(() => "?").join(", ")})`);
+      params.push(...this.excludedStoreIds);
+    }
+
+    const { orderStatus } = query;
+    if (orderStatus === "awaiting_shipment") {
+      clauses.push("COALESCE(ol.external_shipped, 0) = 0");
+      clauses.push("COALESCE(json_extract(o.raw, '$.externallyFulfilled'), 0) != 1");
+      clauses.push("ship.label_cost IS NULL");
+    } else {
+      // default to shipped view
+      clauses.push("(o.orderStatus = 'shipped' OR (o.orderStatus = 'awaiting_shipment' AND ship.label_cost IS NOT NULL))");
+    }
+
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const shipmentJoin = `
+      LEFT JOIN (
+        WITH latest_ship AS (
+          SELECT orderId, MAX(shipmentId) AS shipmentId
+          FROM shipments WHERE voided = 0 GROUP BY orderId
+        )
+        SELECT s.orderId,
+               s.shipmentId          AS label_shipmentId,
+               s.shipmentCost + COALESCE(s.otherCost, 0) AS label_cost,
+               s.shipmentCost        AS label_raw_cost,
+               s.carrierCode         AS label_carrier,
+               s.serviceCode         AS label_service,
+               s.trackingNumber      AS label_tracking,
+               s.shipDate            AS label_shipDate,
+               s.providerAccountId   AS label_provider,
+               s.label_created_at    AS label_created_at,
+               s.selected_rate_json
+        FROM latest_ship ls
+        JOIN shipments s ON s.shipmentId = ls.shipmentId
+      ) ship ON ship.orderId = o.orderId
+    `;
+
+    const stmt = this.db.prepare(`
+      SELECT o.orderId, o.clientId, o.storeId, o.raw,
+             COALESCE(ol.external_shipped, 0) AS external_shipped,
+             ol.best_rate_json,
+             ship.label_shipmentId, ship.label_cost, ship.label_raw_cost,
+             ship.label_carrier, ship.label_service,
+             ship.label_tracking, ship.label_shipDate, ship.label_created_at,
+             ship.selected_rate_json
+      FROM orders o
+      LEFT JOIN order_local ol ON ol.orderId = o.orderId
+      ${shipmentJoin}
+      ${where}
+      ORDER BY o.orderDate DESC
+      LIMIT ?
+    `);
+
+    return stmt.all(...params, query.pageSize) as OrderExportRow[];
   }
 
   private mapRow(row: Record<string, unknown>): OrderRecord {
