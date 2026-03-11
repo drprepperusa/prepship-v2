@@ -595,8 +595,6 @@ export async function fetchPanelRate(o) {
   const el = document.getElementById('panel-rate-val');
   const lb = document.getElementById('panel-scout-label');
   if (!el) return;
-  el.textContent = '…';
-  if (lb) lb.textContent = 'Loading…';
 
   const wtLb  = parseFloat(document.getElementById('p-wtlb')?.value) || 0;
   const wtOz  = parseFloat(document.getElementById('p-wtoz')?.value) || 0;
@@ -606,6 +604,36 @@ export async function fetchPanelRate(o) {
   const hgt   = parseFloat(document.getElementById('p-hgt')?.value) || 0;
   const zip   = (o.shipTo?.postalCode||'').slice(0,5);
   const hasDims = len > 0 && wid > 0 && hgt > 0;
+
+  // CRITICAL: If no weight/dims entered but order has a cached bestRate, display it immediately
+  // User can modify weight/dims later to recalculate
+  if ((!totalOz || !hasDims) && o.bestRate) {
+    const best = o.bestRate;
+    const carrier = formatCarrierDisplay(best);
+    const svc = SERVICE_NAMES[best.serviceCode] || best.serviceName || '';
+    const rawCost = (best.shipmentCost || 0) + (best.otherCost || 0);
+    const selPid = parseInt(document.getElementById('p-shipacct')?.value) || null;
+    const markupCost = selPid ? applyRbMarkup(selPid, rawCost) : applyCarrierMarkup(best);
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      ${priceDisplay(rawCost, markupCost)}
+      <span style="font-size:10.5px;color:var(--text3)">${carrier} · ${trunc(svc,22)}</span>
+    </div>`;
+    if (lb) lb.textContent = 'Scout Review';
+    // Auto-populate panel with order's weight if available
+    if (o.weight?.value && !totalOz) {
+      const wt = o.weight.value;
+      const lb_val = Math.floor(wt / 16);
+      const oz_val = Math.round(wt % 16);
+      const lbEl = document.getElementById('p-wtlb');
+      const ozEl = document.getElementById('p-wtoz');
+      if (lbEl) lbEl.value = lb_val;
+      if (ozEl) ozEl.value = oz_val;
+    }
+    return;
+  }
+
+  el.textContent = '…';
+  if (lb) lb.textContent = 'Loading…';
 
   if (!zip)      { if(el) el.textContent='No ZIP';    if(lb) lb.textContent='Scout Review'; return; }
   if (!totalOz)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add weight</span>`; if(lb) lb.textContent='Scout Review'; return; }
