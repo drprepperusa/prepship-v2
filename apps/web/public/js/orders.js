@@ -8,7 +8,7 @@ import { loadCounts } from './sidebar.js';
 import { getTrackingUrl, getExpedited } from './carriers.js';
 import { fetchValidatedJson } from './api-client.js';
 import { parseBulkCachedRatesResponse, parseListOrdersResponse, parseLiveRatesResponse, parseOrderIdsResponse, parseOrderPicklistResponse, parseProductBulkMap } from './api-contracts.js';
-import { getOrderBillingProviderId, getOrderDimensions, getOrderRequestedService, getOrderStoreId } from './order-data.js';
+import { getOrderBillingProviderId, getOrderDimensions, getOrderRequestedService, getOrderStoreId, isExternallyFulfilledOrder } from './order-data.js';
 
 // Fire-and-forget: persist best rate to DB so page reloads skip re-fetching
 function saveBestRate(orderId, best, dimsStr) {
@@ -388,7 +388,11 @@ export function renderOrders(skipRates = false) {
           // Check if order is shipped: either status=shipped OR has a label
           const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
-            // Check if marked as externally shipped first
+            // Check if marked as externally fulfilled (highest priority) - takes precedence over any rate data
+            if (isExternallyFulfilledOrder(o)) {
+              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
+            }
+            // Check if marked as externally shipped
             if (o.externalShipped) {
               return `<td data-col="custcarrier" data-acct-name="Externally Shipped" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">Externally Shipped</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$0.00</div></div></td>`;
             }
