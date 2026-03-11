@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { escHtml, fmtDate, fmtWeight, ageHours, ageStr, showToast } from './utils.js';
+import { escHtml, fmtDate, fmtWeight, ageHours, ageStr, showToast, getDateRangePreset } from './utils.js';
 import { COLS, CARRIER_NAMES, SERVICE_NAMES, carrierLogo, clientPalette, clientBadge, fmtCarrier, formatCarrierDisplay, isBlockedRate } from './constants.js';
 import { applyCarrierMarkup, applyRbMarkup, priceDisplay, pickBestRate, isResidential, isOrionRate, formatOrionRateDisplay } from './markups.js';
 import { getStoreName, getShipAcct } from './stores.js';
@@ -176,21 +176,14 @@ export function onDateFilterChange() {
 function getDateRange() {
   const val = document.getElementById('dateFilter')?.value;
   if (!val) return null;
-  const now  = new Date();
-  const y    = now.getFullYear(), m = now.getMonth();
-  if (val === 'this-month')  return { start: new Date(y, m, 1),                  end: now };
-  if (val === 'last-month')  return { start: new Date(y, m - 1, 1),              end: new Date(y, m, 0, 23, 59, 59) };
-  if (val === 'last-30')     return { start: new Date(now - 30 * 86400000),       end: now };
-  if (val === 'last-90')     return { start: new Date(now - 90 * 86400000),       end: now };
+  
   if (val === 'custom') {
     const f = document.getElementById('dateFrom')?.value;
     const t = document.getElementById('dateTo')?.value;
-    return {
-      start: f ? new Date(f + 'T00:00:00') : null,
-      end:   t ? new Date(t + 'T23:59:59') : null,
-    };
+    return getDateRangePreset('custom', { start: f, end: t });
   }
-  return null;
+  
+  return getDateRangePreset(val);
 }
 
 export function filterOrders() {

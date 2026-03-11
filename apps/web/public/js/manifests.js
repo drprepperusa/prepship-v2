@@ -1,4 +1,4 @@
-import { showToast } from './utils.js';
+import { showToast, getDateRangePreset } from './utils.js';
 import { parseErrorResponse } from './api-client.js';
 
 // ═══════════════════════════════════════════════
@@ -10,11 +10,9 @@ export function openManifestModal() {
   if (!modal) return;
 
   // Set default date range: last 30 days
-  const today = new Date();
-  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-  const toStr = today.toISOString().split('T')[0];
-  const fromStr = thirtyDaysAgo.toISOString().split('T')[0];
+  const range = getDateRangePreset('last-30');
+  const fromStr = range.start.toISOString().split('T')[0];
+  const toStr = range.end.toISOString().split('T')[0];
 
   document.getElementById('manifest-from').value = fromStr;
   document.getElementById('manifest-to').value = toStr;

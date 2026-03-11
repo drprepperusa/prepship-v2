@@ -80,3 +80,50 @@ export function showToast(msg, ms = 2800) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), ms);
 }
+
+/**
+ * Get date range for a given preset
+ * @param {string} preset - Preset key: 'last-7', 'last-30', 'last-90', 'this-month', 'last-month', 'custom'
+ * @param {Object} custom - Custom range (start/end date strings YYYY-MM-DD) if preset is 'custom'
+ * @returns {Object} { start: Date, end: Date }
+ */
+export function getDateRangePreset(preset, custom = {}) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Start of today
+
+  switch (preset) {
+    case 'last-7': {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 7);
+      return { start, end: now };
+    }
+    case 'last-30':
+    case 'last30': {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 30);
+      return { start, end: now };
+    }
+    case 'last-90':
+    case 'last90': {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 90);
+      return { start, end: now };
+    }
+    case 'this-month': {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { start, end: now };
+    }
+    case 'last-month': {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59); // Last second of last month
+      return { start, end };
+    }
+    case 'custom': {
+      const start = custom.start ? new Date(custom.start + 'T00:00:00') : null;
+      const end = custom.end ? new Date(custom.end + 'T23:59:59') : null;
+      return { start, end };
+    }
+    default:
+      return null;
+  }
+}

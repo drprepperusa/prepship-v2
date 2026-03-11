@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { escHtml, fmtWeight, showToast } from './utils.js';
+import { escHtml, fmtWeight, showToast, getDateRangePreset } from './utils.js';
 import { getStoreName } from './stores.js';
 import { fetchValidatedJson } from './api-client.js';
 import {
@@ -69,6 +69,15 @@ export async function loadInventoryView() {
     const isFilter = id !== 'inv-recv-client';
     el.innerHTML = (isFilter ? '<option value="">All Clients</option>' : '<option value="">Select Client…</option>') + opts;
   });
+
+  // Set default date range for history tab: last 30 days
+  const range = getDateRangePreset('last-30');
+  const fromStr = range.start.toISOString().split('T')[0];
+  const toStr = range.end.toISOString().split('T')[0];
+  const fromEl = document.getElementById('inv-hist-from');
+  const toEl = document.getElementById('inv-hist-to');
+  if (fromEl && !fromEl.value) fromEl.value = fromStr;
+  if (toEl && !toEl.value) toEl.value = toStr;
 
   try {
     const alerts = await fetchValidatedJson('/api/inventory/alerts', undefined, parseInventoryAlertList);
