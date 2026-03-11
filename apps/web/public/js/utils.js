@@ -83,39 +83,43 @@ export function showToast(msg, ms = 2800) {
 
 /**
  * Get date range for a given preset
+ * IMPORTANT: All calculations use milliseconds directly to avoid timezone issues.
+ * All returned dates are in LOCAL time for ISO string serialization.
+ * 
  * @param {string} preset - Preset key: 'last-7', 'last-30', 'last-90', 'this-month', 'last-month', 'custom'
  * @param {Object} custom - Custom range (start/end date strings YYYY-MM-DD) if preset is 'custom'
  * @returns {Object} { start: Date, end: Date }
  */
 export function getDateRangePreset(preset, custom = {}) {
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Start of today
+  
+  // Create "today at midnight" in local time (not UTC)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const ms_per_day = 24 * 60 * 60 * 1000;
 
   switch (preset) {
     case 'last-7': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 7);
+      const start = new Date(today.getTime() - (7 * ms_per_day));
       return { start, end: now };
     }
     case 'last-30':
     case 'last30': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 30);
+      const start = new Date(today.getTime() - (30 * ms_per_day));
       return { start, end: now };
     }
     case 'last-90':
     case 'last90': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 90);
+      const start = new Date(today.getTime() - (90 * ms_per_day));
       return { start, end: now };
     }
     case 'this-month': {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
       return { start, end: now };
     }
     case 'last-month': {
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59); // Last second of last month
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      // End of last month: first day of current month minus 1ms = 23:59:59 of last day
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       return { start, end };
     }
     case 'custom': {
