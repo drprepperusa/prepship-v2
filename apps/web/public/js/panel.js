@@ -605,59 +605,40 @@ export async function fetchPanelRate(o) {
   const zip   = (o.shipTo?.postalCode||'').slice(0,5);
   const hasDims = len > 0 && wid > 0 && hgt > 0;
 
-  // CRITICAL: If no weight/dims entered but order has a cached bestRate, display it immediately
-  // User can modify weight/dims later to recalculate
+  // HARD STOP: Missing weight or dimensions
   console.log(`[fetchPanelRate] Order ${o.orderId}: totalOz=${totalOz}, hasDims=${hasDims}, hasBestRate=${!!o.bestRate}`);
-  if ((!totalOz || !hasDims) && o.bestRate) {
+  if (!zip)      { if(el) el.textContent='No ZIP';    if(lb) lb.textContent='Scout Review'; return; }
+  if (!totalOz)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add weight</span>`; if(lb) lb.textContent='Scout Review'; return; }
+  if (!hasDims)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add dims</span>`;   if(lb) lb.textContent='Scout Review'; return; }
+
+  // We have weight AND dims. Display cached bestRate if available, otherwise fetch new rates
+  if (o.bestRate) {
     try {
       console.log(`[fetchPanelRate] Displaying cached bestRate for order ${o.orderId}`, { best: o.bestRate });
       const best = o.bestRate;
       
-      console.log(`[fetchPanelRate] formatCarrierDisplay exists: ${typeof formatCarrierDisplay}, SERVICE_NAMES exists: ${typeof SERVICE_NAMES}`);
       const carrier = formatCarrierDisplay(best);
-      console.log(`[fetchPanelRate] carrier resolved to: ${carrier}`);
-      
       const svc = SERVICE_NAMES[best.serviceCode] || best.serviceName || '';
-      console.log(`[fetchPanelRate] svc: ${svc} (looked up ${best.serviceCode})`);
-      
       const rawCost = (best.shipmentCost || 0) + (best.otherCost || 0);
       const selPid = parseInt(document.getElementById('p-shipacct')?.value) || null;
       const markupCost = selPid ? applyRbMarkup(selPid, rawCost) : applyCarrierMarkup(best);
-      console.log(`[fetchPanelRate] Costs: raw=${rawCost}, markup=${markupCost}`);
       
       const html = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         ${priceDisplay(rawCost, markupCost)}
         <span style="font-size:10.5px;color:var(--text3)">${carrier} · ${trunc(svc,22)}</span>
       </div>`;
-      console.log(`[fetchPanelRate] Setting HTML: ${html}`);
       el.innerHTML = html;
-      
       if (lb) lb.textContent = 'Scout Review';
-      // Auto-populate panel with order's weight if available
-      if (o.weight?.value && !totalOz) {
-        const wt = o.weight.value;
-        const lb_val = Math.floor(wt / 16);
-        const oz_val = Math.round(wt % 16);
-        const lbEl = document.getElementById('p-wtlb');
-        const ozEl = document.getElementById('p-wtoz');
-        if (lbEl) lbEl.value = lb_val;
-        if (ozEl) ozEl.value = oz_val;
-        console.log(`[fetchPanelRate] Auto-populated weight: ${lb_val} lb ${oz_val} oz`);
-      }
-      console.log(`[fetchPanelRate] ✅ Cached rate displayed successfully`);
+      console.log(`[fetchPanelRate] ✅ Cached rate displayed`);
       return;
     } catch (err) {
       console.error(`[fetchPanelRate] ERROR displaying cached bestRate:`, err.message, err.stack);
-      el.textContent = 'Error displaying rate';
+      // Fall through to fetch new rates
     }
   }
 
   el.textContent = '…';
   if (lb) lb.textContent = 'Loading…';
-
-  if (!zip)      { if(el) el.textContent='No ZIP';    if(lb) lb.textContent='Scout Review'; return; }
-  if (!totalOz)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add weight</span>`; if(lb) lb.textContent='Scout Review'; return; }
-  if (!hasDims)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add dims</span>`;   if(lb) lb.textContent='Scout Review'; return; }
 
   // Check SQLite rate cache before making a live ShipStation call
   let rates;
