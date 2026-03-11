@@ -1282,3 +1282,33 @@ function showTrackingModal(url, tracking, carrierCode) {
   document.addEventListener('keydown', onKey);
 }
 window.showTrackingModal = showTrackingModal;
+
+// ═══════════════════════════════════════════════
+//  CSV EXPORT
+// ═══════════════════════════════════════════════
+
+function exportOrders() {
+  const btn = document.getElementById('exportBtn');
+  const originalText = btn.textContent;
+  
+  try {
+    btn.disabled = true;
+    btn.textContent = '⏳ Exporting…';
+    
+    const orderStatus = state.currentStatus || 'awaiting_shipment';
+    const url = `/api/orders/export?orderStatus=${encodeURIComponent(orderStatus)}&pageSize=5000`;
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.click();
+    
+    showToast(`✅ Exporting ${orderStatus} orders…`, 2000);
+  } catch (error) {
+    console.error('Export failed:', error);
+    showToast('❌ Export failed', 3000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+window.exportOrders = exportOrders;
