@@ -380,6 +380,11 @@ export function buildPanelHTML(o) {
         <div class="ship-rate-row">
           <span style="font-size:11.5px;color:var(--text2);font-weight:500;width:90px;flex-shrink:0">Rate</span>
           ${isShipped ? (() => {
+            // CHECK FOR EXTERNAL FULFILLMENT FIRST - if externally fulfilled, show badge regardless of other data
+            if (isExternallyFulfilledOrder(o)) {
+              return '<span style="font-size:11px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">📦 Ext. label — purchased externally</span>';
+            }
+            
             const hasLabel = o.label?.cost != null;
             let cost = 0;
             let cc = '';
@@ -417,12 +422,8 @@ export function buildPanelHTML(o) {
               sc = SERVICE_NAMES[o.serviceCode] || (o.serviceCode || '').replace(/_/g,' ');
             }
             
-            // If still no rate data at all, check if it's actually externally fulfilled
+            // If still no rate data at all
             if (!hasLabel && !o.selectedRate && !cost) {
-              // Only show "Ext. Label" if ShipStation marks it as externally fulfilled (Amazon FBA, eBay external, etc.)
-              if (isExternallyFulfilledOrder(o)) {
-                return '<span style="font-size:11px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">📦 Ext. label — purchased externally</span>';
-              }
               // If NOT externally fulfilled but still no rate data, something's wrong (shouldn't happen)
               return '<span style="font-size:11px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:3px 8px" title="Order marked shipped but no shipment/rate data found. Check ShipStation.">⚠️ No shipment data</span>';
             }
