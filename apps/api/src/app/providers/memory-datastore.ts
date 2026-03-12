@@ -1212,9 +1212,14 @@ class MemoryRateRepository implements RateRepository {
 
   listCarriersForClient(clientId: number | null): CarrierAccountDto[] {
     const carriers = this.seed?.carriers ?? CARRIER_ACCOUNTS_V2;
+    const carrierGroupClientId = clientId != null &&
+      carriers.some((carrier) => carrier.clientId === clientId)
+      ? clientId
+      : null;
+
     return carriers.filter((carrier) =>
       !BLOCKED_CARRIER_IDS.has(carrier.shippingProviderId) &&
-      (carrier.clientId === null || carrier.clientId === clientId),
+      carrier.clientId === carrierGroupClientId,
     ).map(clone);
   }
 

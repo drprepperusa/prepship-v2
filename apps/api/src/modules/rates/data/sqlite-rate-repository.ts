@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { CarrierAccountDto } from "../../../../../../../packages/contracts/src/init/contracts.ts";
 import type { RateDimsDto, RateDto } from "../../../../../../../packages/contracts/src/rates/contracts.ts";
@@ -12,6 +13,10 @@ interface CachedRateRow {
   rates: string;
   best_rate: string | null;
   weight_version: number | null;
+}
+
+interface CarrierCacheRow {
+  carriers: string;
 }
 
 interface SyncMetaRow {
@@ -86,9 +91,24 @@ export class SqliteRateRepository implements RateRepository {
   }
 
   listCarriersForClient(clientId: number | null): CarrierAccountDto[] {
+    const rateSourceConfig = this.getRateSourceConfig(clientId);
+    const sourceClientId = rateSourceConfig.sourceClientId;
+    const carrierGroupClientId = sourceClientId != null &&
+      CARRIER_ACCOUNTS_V2.some((carrier) => carrier.clientId === sourceClientId)
+      ? sourceClientId
+      : null;
+    const discoveredCarriers = this.listDiscoveredCarriersForApiKey(
+      rateSourceConfig.apiKeyV2,
+      carrierGroupClientId,
+    );
+
+    if (discoveredCarriers.length > 0) {
+      return discoveredCarriers;
+    }
+
     return CARRIER_ACCOUNTS_V2.filter((carrier) =>
       !BLOCKED_CARRIER_IDS.has(carrier.shippingProviderId) &&
-      (carrier.clientId === null || carrier.clientId === clientId),
+      carrier.clientId === carrierGroupClientId,
     );
   }
 
@@ -232,6 +252,52 @@ export class SqliteRateRepository implements RateRepository {
     void storeId;
     for (const orderId of orderIds) {
       stmt.run(orderId, refUsps, refUps, weightOz, dims?.length ?? null, dims?.width ?? null, dims?.height ?? null, now);
+    }
+  }
+
+  private listDiscoveredCarriersForApiKey(apiKeyV2: string | null, carrierGroupClientId: number | null): CarrierAccountDto[] {
+    if (!apiKeyV2) {
+      return [];
+    }
+
+    const discoveredProviderIds = this.readDiscoveredProviderIds(apiKeyV2);
+    if (discoveredProviderIds.size === 0) {
+      return [];
+    }
+
+    return CARRIER_ACCOUNTS_V2.filter((carrier) =>
+      carrier.clientId === carrierGroupClientId &&
+      !BLOCKED_CARRIER_IDS.has(carrier.shippingProviderId) &&
+      discoveredProviderIds.has(carrier.shippingProviderId),
+    );
+  }
+
+  private readDiscoveredProviderIds(apiKeyV2: string): Set<number> {
+    try {
+      const apiKeyHash = createHash("sha256").update(apiKeyV2).digest("hex");
+      const row = this.db.prepare(`
+        SELECT carriers
+        FROM carrier_cache
+        WHERE apiKeyHash = ?
+        LIMIT 1
+      `).get(apiKeyHash) as CarrierCacheRow | undefined;
+
+      if (!row?.carriers) {
+        return new Set();
+      }
+
+      const carriers = JSON.parse(row.carriers) as Array<Record<string, unknown>>;
+      return new Set(
+        carriers
+          .filter((carrier) => String(carrier.carrierCode ?? carrier.code ?? "") !== "unknown")
+          .map((carrier) => Number(
+            carrier.shippingProviderId ??
+            String(carrier.carrierId ?? carrier.carrier_id ?? "").replace(/^se-/, "")
+          ))
+          .filter(Number.isFinite),
+      );
+    } catch {
+      return new Set();
     }
   }
 }
