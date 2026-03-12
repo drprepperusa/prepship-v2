@@ -1,5 +1,6 @@
 import type { OrderSummaryDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { OrderRepository } from "./order-repository.ts";
+import type { RateServices } from "../../rates/application/rate-services.ts";
 
 function parseJson(value: string | null): unknown | null {
   if (!value) return null;
@@ -13,9 +14,11 @@ function parseJson(value: string | null): unknown | null {
 
 export class OrderDetailsService {
   private readonly repository: OrderRepository;
+  private readonly rateServices: RateServices | null;
 
-  constructor(repository: OrderRepository) {
+  constructor(repository: OrderRepository, rateServices?: RateServices) {
     this.repository = repository;
+    this.rateServices = rateServices ?? null;
   }
 
   execute(orderId: number): OrderSummaryDto | null {
@@ -58,6 +61,21 @@ export class OrderDetailsService {
       rawData.externallyFulfilled = true;
     }
 
+    // If bestRate is missing from database, try to calculate from cached rates
+    let bestRate = parseJson(record.bestRateJson);
+    if (!bestRate && this.rateServices && weight && record.shipToPostalCode) {
+      const cached = this.rateServices.getCached({
+        wt: weight.value,
+        zip: record.shipToPostalCode,
+        dims: null,
+        storeId: record.storeId,
+        residential: record.residential ?? false,
+      });
+      if (cached.cached && cached.best) {
+        bestRate = cached.best;
+      }
+    }
+
     return {
       orderId: record.orderId,
       clientId: record.clientId,
@@ -76,7 +94,7 @@ export class OrderDetailsService {
       residential: record.residential,
       sourceResidential: record.sourceResidential,
       externalShipped: record.externalShipped,
-      bestRate: parseJson(record.bestRateJson),
+      bestRate,
       selectedRate: parseJson(record.selectedRateJson),
       label: {
         shipmentId: record.labelShipmentId,

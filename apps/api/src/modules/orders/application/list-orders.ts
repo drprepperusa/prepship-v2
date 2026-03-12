@@ -4,6 +4,7 @@ import type {
   OrderSummaryDto,
 } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { OrderRepository } from "./order-repository.ts";
+import type { RateServices } from "../../rates/application/rate-services.ts";
 
 function parseJson(value: string | null): unknown | null {
   if (!value) return null;
@@ -15,7 +16,10 @@ function parseJson(value: string | null): unknown | null {
   }
 }
 
-function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number]): OrderSummaryDto {
+function toOrderDto(
+  record: ReturnType<OrderRepository["list"]>["orders"][number],
+  rateServices: RateServices | null,
+): OrderSummaryDto {
   let rawData = parseJson(record.raw) as any;
   
   // Enrich raw data with database-level externallyFulfilled flag
@@ -49,6 +53,21 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
     ? { value: record.weightValue, units: "ounces" }
     : null;
   
+  // If bestRate is missing from database, try to calculate from cached rates
+  let bestRate = parseJson(record.bestRateJson);
+  if (!bestRate && rateServices && weight && record.shipToPostalCode) {
+    const cached = rateServices.getCached({
+      wt: weight.value,
+      zip: record.shipToPostalCode,
+      dims: null,
+      storeId: record.storeId,
+      residential: record.residential ?? false,
+    });
+    if (cached.cached && cached.best) {
+      bestRate = cached.best;
+    }
+  }
+  
   return {
     orderId: record.orderId,
     clientId: record.clientId,
@@ -67,7 +86,7 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
     residential: record.residential,
     sourceResidential: record.sourceResidential,
     externalShipped: record.externalShipped,
-    bestRate: parseJson(record.bestRateJson),
+    bestRate,
     selectedRate: parseJson(record.selectedRateJson),
     label: {
       shipmentId: record.labelShipmentId,
@@ -86,9 +105,11 @@ function toOrderDto(record: ReturnType<OrderRepository["list"]>["orders"][number
 
 export class ListOrdersService {
   private readonly repository: OrderRepository;
+  private readonly rateServices: RateServices | null;
 
-  constructor(repository: OrderRepository) {
+  constructor(repository: OrderRepository, rateServices?: RateServices) {
     this.repository = repository;
+    this.rateServices = rateServices ?? null;
   }
 
   execute(query: ListOrdersQuery): ListOrdersResponse {
@@ -96,7 +117,7 @@ export class ListOrdersService {
     const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
 
     return {
-      orders: result.orders.map(toOrderDto),
+      orders: result.orders.map((record) => toOrderDto(record, this.rateServices)),
       page: query.page,
       pages,
       total: result.total,
