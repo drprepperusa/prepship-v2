@@ -3,10 +3,20 @@ import { createServer, type Server } from "node:http";
 export function startHttpServer(handler: (request: Request) => Promise<Response>, port: number): Promise<Server> {
   const server = createServer(async (req, res) => {
     const origin = `http://${req.headers.host ?? `127.0.0.1:${port}`}`;
-    const request = new Request(new URL(req.url ?? "/", origin), {
-      method: req.method,
+    const method = req.method ?? 'GET';
+    const hasBody = method !== 'GET' && method !== 'HEAD' && method !== 'DELETE';
+    
+    const requestInit: RequestInit & { duplex?: string } = {
+      method,
       headers: req.headers as HeadersInit,
-    });
+    };
+    
+    if (hasBody) {
+      requestInit.body = req;
+      requestInit.duplex = 'half';
+    }
+    
+    const request = new Request(new URL(req.url ?? "/", origin), requestInit);
 
     const response = await handler(request);
     res.statusCode = response.status;
