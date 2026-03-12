@@ -210,7 +210,17 @@ class FakeShippingGateway implements ShippingGateway {
       serviceCode: "ups_ground",
       shipDate: "2026-03-09",
       providerAccountId: 596001,
-      selectedRate: { serviceCode: "ups_ground", cost: 8.75, providerAccountId: 596001 },
+      selectedRate: {
+        providerAccountId: 596001,
+        providerAccountNickname: "ORION",
+        shippingProviderId: 596001,
+        carrierCode: "ups",
+        serviceCode: "ups_ground",
+        serviceName: "UPS Ground",
+        cost: 8.75,
+        shipmentCost: 8.75,
+        otherCost: 0,
+      },
     };
   }
 

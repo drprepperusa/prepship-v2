@@ -3,6 +3,7 @@ import type {
   GetOrderIdsQuery,
   GetOrderPicklistQuery,
   ListOrdersQuery,
+  OrderBestRateDto,
   OrderExportQuery,
   OrderExportRow,
   OrderFullDto,
@@ -421,7 +422,7 @@ export class SqliteOrderRepository implements OrderRepository {
     `).run(orderId, selectedPid, now, selectedPid, now);
   }
 
-  updateBestRate(orderId: number, bestRate: unknown, bestRateDims: string | null): void {
+  updateBestRate(orderId: number, bestRate: OrderBestRateDto, bestRateDims: string | null): void {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO order_local (orderId, best_rate_json, best_rate_at, best_rate_dims, updatedAt)

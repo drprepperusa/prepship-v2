@@ -9,6 +9,7 @@ import type {
   ReturnLabelResponseDto,
   VoidLabelResponseDto,
 } from "../../../../../../../packages/contracts/src/labels/contracts.ts";
+import type { OrderSelectedRateDto } from "../../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { TransitionalSecrets } from "../../../../../../../packages/shared/src/config/secrets-adapter.ts";
 import type { LabelRepository } from "./label-repository.ts";
 import type {
@@ -213,13 +214,16 @@ export class LabelServices {
     const finalVoided = enriched?.voided ?? created.voided;
     const finalShipDate = enriched?.shipDate ?? created.shipDate ?? new Date().toISOString().slice(0, 10);
     const providerNickname = CARRIER_ACCOUNTS_V2.find((carrier) => carrier.shippingProviderId === created.providerAccountId)?.nickname ?? null;
-    const selectedRate = created.selectedRate ?? {
+    const selectedRate: OrderSelectedRateDto = created.selectedRate ?? {
       providerAccountId: created.providerAccountId,
       providerAccountNickname: providerNickname,
+      shippingProviderId: created.providerAccountId,
+      carrierCode: created.carrierCode,
       serviceName: created.serviceCode,
       serviceCode: created.serviceCode,
-      carrierCode: created.carrierCode,
       cost: created.cost,
+      shipmentCost: created.cost,
+      otherCost: 0,
     };
 
     if (!body.testLabel && finalTracking) {

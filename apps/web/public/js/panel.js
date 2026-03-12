@@ -16,9 +16,13 @@ import {
 } from './api-contracts.js';
 import {
   getOrderBillingProviderId,
+  getOrderConfirmation,
   getOrderCustomerUsername,
   getOrderDimensions,
   getOrderRequestedService,
+  getOrderSelectedRate,
+  getSelectedRateProviderId,
+  getSelectedRateCost,
   getOrderShipTo,
   getOrderStoreId,
   getOrderWarehouseId,
@@ -100,6 +104,11 @@ export async function openPanel(id) {
 
   // Build panel HTML
   document.getElementById('panelInner').innerHTML = buildPanelHTML(o);
+  const confirmEl = document.getElementById('p-confirm');
+  if (confirmEl) {
+    const rawConfirmation = getOrderConfirmation(o);
+    confirmEl.value = rawConfirmation && rawConfirmation !== 'none' ? rawConfirmation : 'delivery';
+  }
 
   // Shipped/cancelled: make all shipping fields read-only
   if (o.orderStatus !== 'awaiting_shipment') {
@@ -191,6 +200,8 @@ export function buildPanelHTML(o) {
   const dimensions = getOrderDimensions(o);
   const shipTo = getOrderShipTo(o);
   const requestedService = getOrderRequestedService(o);
+  const rawConfirmation = getOrderConfirmation(o);
+  const confirmation = rawConfirmation && rawConfirmation !== 'none' ? rawConfirmation : 'delivery';
   const wt        = o.weight?.value || 0;
   const wtLb      = Math.floor(wt / 16);
   const wtOz      = (wt % 16).toFixed(0);
@@ -351,11 +362,11 @@ export function buildPanelHTML(o) {
           <span class="ship-field-label">Confirmation</span>
           <div class="ship-field-value">
             <select class="ship-select" id="p-confirm">
-              <option value="none">None</option>
-              <option value="delivery">Delivery</option>
-              <option value="signature">Signature</option>
-              <option value="adult_signature">Adult Signature</option>
-              <option value="direct_signature">Direct Signature</option>
+              <option value="none"${confirmation === 'none' ? ' selected' : ''}>None</option>
+              <option value="delivery"${confirmation === 'delivery' ? ' selected' : ''}>Delivery</option>
+              <option value="signature"${confirmation === 'signature' ? ' selected' : ''}>Signature</option>
+              <option value="adult_signature"${confirmation === 'adult_signature' ? ' selected' : ''}>Adult Signature</option>
+              <option value="direct_signature"${confirmation === 'direct_signature' ? ' selected' : ''}>Direct Signature</option>
             </select>
           </div>
         </div>
@@ -410,10 +421,11 @@ export function buildPanelHTML(o) {
             } 
             // Priority 2: Use the persisted selected rate (actual rate used at label creation)
             else if (o.selectedRate) {
-              cost = parseFloat(o.selectedRate.cost || 0);
-              cc = o.selectedRate.providerAccountNickname || CARRIER_NAMES[o.selectedRate.carrierCode] || o.selectedRate.carrierCode || '';
-              sc = o.selectedRate.serviceName || o.selectedRate.serviceCode || '';
-              shippingProviderId = o.selectedRate.shippingProviderId;
+              const selectedRate = getOrderSelectedRate(o);
+              cost = getSelectedRateCost(o) || 0;
+              cc = selectedRate?.providerAccountNickname || CARRIER_NAMES[selectedRate?.carrierCode] || selectedRate?.carrierCode || '';
+              sc = selectedRate?.serviceName || selectedRate?.serviceCode || '';
+              shippingProviderId = getSelectedRateProviderId(o);
             }
             // Priority 3: Fallback to order shipping amount
             else {

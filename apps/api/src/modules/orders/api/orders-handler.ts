@@ -8,6 +8,7 @@ import type { GetOrderIdsService } from "../application/get-order-ids.ts";
 import type { ListOrdersService } from "../application/list-orders.ts";
 import type { OrderPicklistService } from "../application/order-picklist.ts";
 import type { UpdateOrderOverridesService } from "../application/update-order-overrides.ts";
+import { assertPersistedOrderBestRateDto } from "../application/order-rate-dto.ts";
 
 export class OrdersHttpHandler {
   private readonly listOrdersService: ListOrdersService;
@@ -113,7 +114,7 @@ export class OrdersHttpHandler {
     }
     return this.updateOrderOverridesService.setBestRate({
       orderId,
-      bestRate: payload.best,
+      bestRate: assertPersistedOrderBestRateDto(payload.best, "best"),
       bestRateDims: payload.dims ?? null,
     });
   }

@@ -151,11 +151,15 @@ export class ShipstationShippingGateway implements ShippingGateway {
       shipDate: payload.ship_date ? String(payload.ship_date) : new Date().toISOString().slice(0, 10),
       providerAccountId: Number.isFinite(providerAccountId) ? providerAccountId : null,
       selectedRate: {
-        providerAccountId,
+        providerAccountId: Number.isFinite(providerAccountId) ? providerAccountId : null,
+        providerAccountNickname: null,
+        shippingProviderId: Number.isFinite(providerAccountId) ? providerAccountId : null,
         serviceName: payload.service_code ? String(payload.service_code) : input.serviceCode,
         serviceCode: payload.service_code ? String(payload.service_code) : input.serviceCode,
         carrierCode: payload.carrier_code ? String(payload.carrier_code) : null,
         cost: Number((payload.shipment_cost as Record<string, unknown> | undefined)?.amount ?? 0),
+        shipmentCost: Number((payload.shipment_cost as Record<string, unknown> | undefined)?.amount ?? 0),
+        otherCost: 0,
       },
     };
   }

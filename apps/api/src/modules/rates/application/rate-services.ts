@@ -25,7 +25,7 @@ function normalizeRateResponse(rates: RateDto[]): RateDto[] {
     shippingProviderId: rate.shippingProviderId ?? null,
     carrierNickname: rate.carrierNickname ?? null,
     guaranteed: Boolean(rate.guaranteed),
-    zone: rate.zone ?? null,
+    zone: rate.zone == null ? null : String(rate.zone),
     sourceClientId: rate.sourceClientId ?? null,
     deliveryDays: rate.deliveryDays ?? null,
     estimatedDelivery: rate.estimatedDelivery ?? null,

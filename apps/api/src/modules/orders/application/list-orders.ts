@@ -5,8 +5,13 @@ import type {
 } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { OrderRepository } from "./order-repository.ts";
 import type { RateServices } from "../../rates/application/rate-services.ts";
+import {
+  normalizeOrderBestRateDto,
+  normalizeOrderSelectedRateDto,
+  parseOrderRateJson,
+} from "./order-rate-dto.ts";
 
-function parseJson(value: string | null): unknown | null {
+function parseRawJson(value: string | null): unknown | null {
   if (!value) return null;
 
   try {
@@ -20,7 +25,7 @@ function toOrderDto(
   record: ReturnType<OrderRepository["list"]>["orders"][number],
   rateServices: RateServices | null,
 ): OrderSummaryDto {
-  let rawData = parseJson(record.raw) as any;
+  let rawData = parseRawJson(record.raw) as any;
   
   // Enrich raw data with database-level externallyFulfilled flag
   // This ensures the frontend can check isExternallyFulfilledOrder(order)
@@ -54,7 +59,7 @@ function toOrderDto(
     : null;
   
   // If bestRate is missing from database, try to calculate from cached rates
-  let bestRate = parseJson(record.bestRateJson);
+  let bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
   if (!bestRate && rateServices && weight && record.shipToPostalCode) {
     const cached = rateServices.getCached({
       wt: weight.value,
@@ -64,7 +69,7 @@ function toOrderDto(
       residential: record.residential ?? false,
     });
     if (cached.cached && cached.best) {
-      bestRate = cached.best;
+      bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
     }
   }
   
@@ -87,7 +92,19 @@ function toOrderDto(
     sourceResidential: record.sourceResidential,
     externalShipped: record.externalShipped,
     bestRate,
-    selectedRate: parseJson(record.selectedRateJson),
+    selectedRate: normalizeOrderSelectedRateDto(
+      parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`),
+      {
+        providerAccountId: record.labelProvider,
+        carrierCode: record.labelCarrier,
+        serviceCode: record.labelService,
+        shipmentCost: record.labelRawCost,
+        otherCost: record.labelCost != null && record.labelRawCost != null
+          ? record.labelCost - record.labelRawCost
+          : null,
+      },
+      `order ${record.orderId} selectedRate`,
+    ),
     label: {
       shipmentId: record.labelShipmentId,
       trackingNumber: record.labelTracking,

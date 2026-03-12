@@ -1,6 +1,7 @@
 import type {
   GetOrderIdsQuery,
   GetOrderPicklistQuery,
+  OrderBestRateDto,
   OrderExportQuery,
   OrderExportRow,
   OrderFullDto,
@@ -24,7 +25,7 @@ export interface OrderRepository {
   updateExternalShipped(orderId: number, externalShipped: boolean): void;
   updateResidential(orderId: number, residential: boolean | null): void;
   updateSelectedPid(orderId: number, selectedPid: number | null): void;
-  updateBestRate(orderId: number, bestRate: unknown, bestRateDims: string | null): void;
+  updateBestRate(orderId: number, bestRate: OrderBestRateDto, bestRateDims: string | null): void;
   getDailyStats(): OrdersDailyStatsDto;
   exportOrders(query: OrderExportQuery): OrderExportRow[];
 }

@@ -2,8 +2,20 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
+function asFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 export function getOrderRaw(order) {
   return asObject(order?.raw) || asObject(order) || {};
+}
+
+export function getOrderBestRate(order) {
+  return asObject(order?.bestRate);
+}
+
+export function getOrderSelectedRate(order) {
+  return asObject(order?.selectedRate);
 }
 
 export function getOrderAdvancedOptions(order) {
@@ -21,6 +33,43 @@ export function getOrderDimensions(order) {
 export function getOrderRequestedService(order) {
   const requested = getOrderRaw(order).requestedShippingService;
   return typeof requested === 'string' && requested ? requested : (order?.serviceCode || null);
+}
+
+export function getOrderNormalizedServiceCode(order) {
+  const serviceCode = order?.serviceCode;
+  if (typeof serviceCode === 'string' && serviceCode) return serviceCode;
+
+  const rawServiceCode = getOrderRaw(order).serviceCode;
+  return typeof rawServiceCode === 'string' && rawServiceCode ? rawServiceCode : null;
+}
+
+export function getSelectedRateProviderId(order) {
+  const selectedRate = getOrderSelectedRate(order);
+  if (!selectedRate) return null;
+
+  const providerAccountId = selectedRate.providerAccountId;
+  if (typeof providerAccountId === 'number') return providerAccountId;
+
+  const shippingProviderId = selectedRate.shippingProviderId;
+  return typeof shippingProviderId === 'number' ? shippingProviderId : null;
+}
+
+export function getSelectedRateCost(order) {
+  const selectedRate = getOrderSelectedRate(order);
+  if (!selectedRate) return null;
+
+  return asFiniteNumber(selectedRate.cost)
+    ?? asFiniteNumber(selectedRate.shipmentCost);
+}
+
+export function getSelectedRateTotal(order) {
+  const selectedRate = getOrderSelectedRate(order);
+  if (!selectedRate) return null;
+
+  const shipmentCost = asFiniteNumber(selectedRate.shipmentCost);
+  const otherCost = asFiniteNumber(selectedRate.otherCost) ?? 0;
+  if (shipmentCost != null) return shipmentCost + otherCost;
+  return asFiniteNumber(selectedRate.cost);
 }
 
 export function getOrderPackageCode(order) {

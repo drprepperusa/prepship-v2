@@ -305,6 +305,134 @@ test("parseListOrdersResponse accepts the current top-level page/pages/total sha
   assert.deepEqual((dto.orders[0]?.raw as Record<string, unknown>).advancedOptions, { billToMyOtherAccount: 596001 });
 });
 
+test("parseListOrdersResponse validates nested bestRate and selectedRate payloads", () => {
+  const dto = parseListOrdersResponse({
+    orders: [{
+      orderId: 101,
+      clientId: 1,
+      clientName: "Main Client",
+      orderNumber: "A-101",
+      orderStatus: "shipped",
+      orderDate: "2026-03-10T10:00:00Z",
+      storeId: 4001,
+      customerEmail: "alice@example.com",
+      shipTo: null,
+      carrierCode: "ups",
+      serviceCode: "ups_ground",
+      weight: { value: 12, units: "ounces" },
+      orderTotal: 18.5,
+      shippingAmount: 0,
+      residential: true,
+      sourceResidential: true,
+      externalShipped: false,
+      bestRate: {
+        serviceCode: "ups_ground",
+        serviceName: "UPS Ground",
+        packageType: null,
+        shipmentCost: 8.25,
+        otherCost: 0.5,
+        rateDetails: [],
+        carrierCode: "ups",
+        shippingProviderId: 596001,
+        carrierNickname: "ORION",
+        guaranteed: false,
+        zone: "5",
+        sourceClientId: 1,
+        deliveryDays: 3,
+        estimatedDelivery: "2026-03-13",
+      },
+      selectedRate: {
+        providerAccountId: 596001,
+        providerAccountNickname: "ORION",
+        shippingProviderId: 596001,
+        carrierCode: "ups",
+        serviceCode: "ups_ground",
+        serviceName: "UPS Ground",
+        cost: 8.25,
+        shipmentCost: 8.25,
+        otherCost: 0.5,
+      },
+      label: {
+        shipmentId: 1,
+        trackingNumber: "1Z999",
+        carrierCode: "ups",
+        serviceCode: "ups_ground",
+        shippingProviderId: 596001,
+        cost: 8.75,
+        rawCost: 8.25,
+        shipDate: "2026-03-10",
+      },
+      items: [],
+      raw: {},
+    }],
+    page: 1,
+    pages: 1,
+    total: 1,
+  });
+
+  assert.equal(dto.orders[0]?.bestRate?.shipmentCost, 8.25);
+  assert.equal(dto.orders[0]?.selectedRate?.providerAccountId, 596001);
+  assert.equal(dto.orders[0]?.selectedRate?.otherCost, 0.5);
+});
+
+test("parseListOrdersResponse rejects malformed nested selectedRate payloads", () => {
+  assert.throws(
+    () => parseListOrdersResponse({
+      orders: [{
+        orderId: 101,
+        clientId: 1,
+        clientName: "Main Client",
+        orderNumber: "A-101",
+        orderStatus: "shipped",
+        orderDate: "2026-03-10T10:00:00Z",
+        storeId: 4001,
+        customerEmail: "alice@example.com",
+        shipTo: null,
+        carrierCode: "ups",
+        serviceCode: "ups_ground",
+        weight: null,
+        orderTotal: 18.5,
+        shippingAmount: 0,
+        residential: true,
+        sourceResidential: true,
+        externalShipped: false,
+        bestRate: null,
+        selectedRate: {
+          providerAccountId: "596001",
+          providerAccountNickname: "ORION",
+          shippingProviderId: 596001,
+          carrierCode: "ups",
+          serviceCode: "ups_ground",
+          serviceName: "UPS Ground",
+          cost: 8.25,
+          shipmentCost: 8.25,
+          otherCost: 0,
+        },
+        label: {
+          shipmentId: null,
+          trackingNumber: null,
+          carrierCode: null,
+          serviceCode: null,
+          shippingProviderId: null,
+          cost: null,
+          rawCost: null,
+          shipDate: null,
+        },
+        items: [],
+        raw: {},
+      }],
+      page: 1,
+      pages: 1,
+      total: 1,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiContractError);
+      assert.match(error.message, /ListOrdersResponse\.orders\[0\]\.selectedRate\.providerAccountId/);
+      return true;
+    },
+  );
+});
+
 test("parseListOrdersResponse rejects the old meta-shaped payload", () => {
   assert.throws(
     () => parseListOrdersResponse({

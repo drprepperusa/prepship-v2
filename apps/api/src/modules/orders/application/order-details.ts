@@ -1,16 +1,11 @@
 import type { OrderSummaryDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { OrderRepository } from "./order-repository.ts";
 import type { RateServices } from "../../rates/application/rate-services.ts";
-
-function parseJson(value: string | null): unknown | null {
-  if (!value) return null;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
+import {
+  normalizeOrderBestRateDto,
+  normalizeOrderSelectedRateDto,
+  parseOrderRateJson,
+} from "./order-rate-dto.ts";
 
 export class OrderDetailsService {
   private readonly repository: OrderRepository;
@@ -49,7 +44,12 @@ export class OrderDetailsService {
       ? { value: record.weightValue, units: "ounces" }
       : null;
 
-    let rawData = parseJson(record.raw) as any;
+    let rawData: any = null;
+    try {
+      rawData = record.raw ? JSON.parse(record.raw) as any : null;
+    } catch {
+      rawData = null;
+    }
     
     // Enrich raw data with database-level externallyFulfilled flag
     // This ensures the frontend can check isExternallyFulfilledOrder(order)
@@ -62,7 +62,7 @@ export class OrderDetailsService {
     }
 
     // If bestRate is missing from database, try to calculate from cached rates
-    let bestRate = parseJson(record.bestRateJson);
+    let bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
     if (!bestRate && this.rateServices && weight && record.shipToPostalCode) {
       const cached = this.rateServices.getCached({
         wt: weight.value,
@@ -72,7 +72,7 @@ export class OrderDetailsService {
         residential: record.residential ?? false,
       });
       if (cached.cached && cached.best) {
-        bestRate = cached.best;
+        bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
       }
     }
 
@@ -95,7 +95,19 @@ export class OrderDetailsService {
       sourceResidential: record.sourceResidential,
       externalShipped: record.externalShipped,
       bestRate,
-      selectedRate: parseJson(record.selectedRateJson),
+      selectedRate: normalizeOrderSelectedRateDto(
+        parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`),
+        {
+          providerAccountId: record.labelProvider,
+          carrierCode: record.labelCarrier,
+          serviceCode: record.labelService,
+          shipmentCost: record.labelRawCost,
+          otherCost: record.labelCost != null && record.labelRawCost != null
+            ? record.labelCost - record.labelRawCost
+            : null,
+        },
+        `order ${record.orderId} selectedRate`,
+      ),
       label: {
         shipmentId: record.labelShipmentId,
         trackingNumber: record.labelTracking,
@@ -111,4 +123,3 @@ export class OrderDetailsService {
     };
   }
 }
-

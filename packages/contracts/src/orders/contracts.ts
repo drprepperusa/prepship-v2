@@ -1,5 +1,6 @@
 import { type PageMeta } from "../common/pagination.ts";
 import { parseOptionalIntegerParam } from "../common/input-validation.ts";
+import type { RateDto } from "../rates/contracts.ts";
 
 export interface ListOrdersQuery {
   page: number;
@@ -36,8 +37,8 @@ export interface OrderSummaryDto {
   residential: boolean | null;
   sourceResidential: boolean | null;
   externalShipped: boolean;
-  bestRate: unknown | null;
-  selectedRate: unknown | null;
+  bestRate: OrderBestRateDto | null;
+  selectedRate: OrderSelectedRateDto | null;
   label: {
     shipmentId: number | null;
     trackingNumber: string | null;
@@ -50,6 +51,26 @@ export interface OrderSummaryDto {
   };
   items: unknown[];
   raw: unknown;
+}
+
+export type OrderBestRateDto = Omit<RateDto,
+  "serviceCode" | "serviceName" | "carrierCode"
+> & {
+  serviceCode: string | null;
+  serviceName: string | null;
+  carrierCode: string | null;
+};
+
+export interface OrderSelectedRateDto {
+  providerAccountId: number | null;
+  providerAccountNickname: string | null;
+  shippingProviderId: number | null;
+  carrierCode: string | null;
+  serviceCode: string | null;
+  serviceName: string | null;
+  cost: number | null;
+  shipmentCost: number | null;
+  otherCost: number | null;
 }
 
 export interface ListOrdersResponse {
@@ -97,7 +118,7 @@ export interface OrderOverrideInput {
   externalShipped?: boolean;
   residential?: boolean | null;
   selectedPid?: number | null;
-  bestRate?: unknown;
+  bestRate?: OrderBestRateDto | null;
   bestRateDims?: string | null;
 }
 

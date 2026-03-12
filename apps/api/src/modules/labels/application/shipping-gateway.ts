@@ -1,4 +1,5 @@
 import type { AddressRecord } from "../domain/label.ts";
+import type { OrderSelectedRateDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 
 export interface ShipstationV1Credentials {
   apiKey: string;
@@ -30,7 +31,7 @@ export interface CreatedExternalLabel {
   serviceCode: string | null;
   shipDate: string | null;
   providerAccountId: number | null;
-  selectedRate: Record<string, unknown> | null;
+  selectedRate: OrderSelectedRateDto | null;
 }
 
 export interface ShipstationShipmentDetails {

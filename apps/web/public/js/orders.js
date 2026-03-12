@@ -8,7 +8,20 @@ import { loadCounts } from './sidebar.js';
 import { getTrackingUrl, getExpedited } from './carriers.js';
 import { fetchValidatedJson } from './api-client.js';
 import { parseBulkCachedRatesResponse, parseListOrdersResponse, parseLiveRatesResponse, parseOrderIdsResponse, parseOrderPicklistResponse, parseProductBulkMap } from './api-contracts.js';
-import { getOrderBillingProviderId, getOrderDimensions, getOrderRequestedService, getOrderStoreId, isExternallyFulfilledOrder } from './order-data.js';
+import {
+  getOrderBillingProviderId,
+  getOrderDimensions,
+  getOrderNormalizedServiceCode,
+  getOrderRequestedService,
+  getOrderStoreId,
+  getOrderSelectedRate,
+  getSelectedRateCost,
+  getSelectedRateProviderId,
+  getSelectedRateTotal,
+  isExternallyFulfilledOrder,
+} from './order-data.js';
+import { buildShippedOrdersCacheKey } from './orders-cache.js';
+import { buildOrdersQueryParams } from './orders-sync.js';
 
 // Fire-and-forget: persist best rate to DB so page reloads skip re-fetching
 function saveBestRate(orderId, best, dimsStr) {
@@ -24,12 +37,6 @@ function saveBestRate(orderId, best, dimsStr) {
 //  FETCH ORDERS
 // ═══════════════════════════════════════════════
 
-// localStorage cache: shipped orders are static, so we cache them client-side
-// to avoid redundant DB queries. Cache key includes storeId to isolate per-client.
-function getShippedOrdersCacheKey(storeId, page) {
-  return `prepship_shipped_${storeId || 'all'}_p${page || 1}`;
-}
-
 function getServerBuildVersion() {
   const scriptEl = document.querySelector('script[src*="/js/app.js"]');
   if (!scriptEl) return null;
@@ -38,9 +45,9 @@ function getServerBuildVersion() {
   return match ? match[1] : null;
 }
 
-function getShippedOrdersFromCache(storeId, page) {
+function getShippedOrdersFromCache(storeId, page, range) {
   try {
-    const key = getShippedOrdersCacheKey(storeId, page);
+    const key = buildShippedOrdersCacheKey(storeId, page, range);
     const cached = localStorage.getItem(key);
     if (!cached) return null;
     const { ts, data, buildVer } = JSON.parse(cached);
@@ -59,9 +66,9 @@ function getShippedOrdersFromCache(storeId, page) {
   }
 }
 
-function setShippedOrdersInCache(storeId, data, page) {
+function setShippedOrdersInCache(storeId, data, page, range) {
   try {
-    const key = getShippedOrdersCacheKey(storeId, page);
+    const key = buildShippedOrdersCacheKey(storeId, page, range);
     const buildVer = getServerBuildVersion();
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data, buildVer }));
   } catch {
@@ -74,8 +81,8 @@ function setShippedOrdersInCache(storeId, data, page) {
 window.clearShippedOrdersCache = function(storeId = null) {
   try {
     if (storeId) {
-      const key = getShippedOrdersCacheKey(storeId);
-      localStorage.removeItem(key);
+      const keys = Object.keys(localStorage).filter(k => k.startsWith(`prepship_shipped_${storeId}_`));
+      keys.forEach(k => localStorage.removeItem(k));
     } else {
       // Clear all shipped order caches
       const keys = Object.keys(localStorage).filter(k => k.startsWith('prepship_shipped_'));
@@ -91,50 +98,8 @@ export async function fetchOrders(page = 1, skipRatesHint = false) {
   state.preSkuSortSnapshot = null;
   setLoading(true);
   try {
-    const params = new URLSearchParams({ pageSize: 50, page });
-    if (state.currentStatus)  params.set('orderStatus', state.currentStatus);
-    if (state.currentStoreId) params.set('storeId', state.currentStoreId);
-    // Server-side date filter
-    const range = getDateRange();
-    console.log('[fetchOrders] Date range from getDateRange():', range);
-    if (range?.start) {
-      const startStr = range.start.toISOString();
-      params.set('dateStart', startStr);
-      console.log(`[Orders] Date filter: ${startStr.slice(0,10)} → ${range.end.toISOString().slice(0,10)}`);
-    } else {
-      console.log('[fetchOrders] No range.start, skipping date filters');
-    }
-    if (range?.end)   params.set('dateEnd',   range.end.toISOString());
-
-    let data = null;
-    
-    // ─── OPTIMIZATION: Use cached shipped orders to avoid DB query ───
-    // Shipped orders are immutable, so cached results are safe.
-    // Only fetch from server if: (a) not shipped, or (b) cache miss.
-    if (state.currentStatus === 'shipped') {
-      const cached = getShippedOrdersFromCache(state.currentStoreId, page);
-      if (cached) {
-        data = parseListOrdersResponse(cached);
-      } else {
-        data = await fetchValidatedJson('/api/orders?' + params, undefined, parseListOrdersResponse);
-        setShippedOrdersInCache(state.currentStoreId, data, page);
-      }
-    } else {
-      // Non-shipped orders: always fetch fresh (awaiting_shipment, cancelled, etc.)
-      data = await fetchValidatedJson('/api/orders?' + params, undefined, parseListOrdersResponse);
-    }
-
-    state.allOrders   = data.orders || [];
-    if (state.currentPanelOrder && !state.allOrders.find(o => o.orderId === state.currentPanelOrder.orderId)) {
-      if (typeof window.closePanel === 'function') window.closePanel();
-    }
-    state.totalOrders = data.total || 0;
-    state.totalPages  = data.pages || 1;
-    state.currentPage = page;
-
-    populateSkuFilter();
-    filterOrders();
-    updatePagination();
+    const data = await loadOrdersData(page);
+    applyOrdersData(data, page, skipRatesHint);
   } catch (e) {
     setLoading(false, '⚠️ Error: ' + e.message);
   }
@@ -197,6 +162,69 @@ function getDateRange() {
   const result = getDateRangePreset(val);
   console.log('[getDateRange] Preset:', val, 'Result:', result);
   return result;
+}
+
+export function buildCurrentOrdersQueryParams(page = 1) {
+  const range = getDateRange();
+  console.log('[fetchOrders] Date range from getDateRange():', range);
+  if (range?.start) {
+    const startStr = range.start.toISOString();
+    const endStr = range?.end?.toISOString?.() ?? '';
+    console.log(`[Orders] Date filter: ${startStr.slice(0,10)} → ${endStr.slice(0,10)}`);
+  } else {
+    console.log('[fetchOrders] No range.start, skipping date filters');
+  }
+  return {
+    params: buildOrdersQueryParams({
+      page,
+      pageSize: 50,
+      orderStatus: state.currentStatus,
+      storeId: state.currentStoreId,
+      range,
+    }),
+    range,
+  };
+}
+
+export async function loadOrdersData(page = 1, options = {}) {
+  const { bypassShippedCache = false, requestInit } = options;
+  const { params, range } = buildCurrentOrdersQueryParams(page);
+
+  if (state.currentStatus === 'shipped' && !bypassShippedCache) {
+    const cached = getShippedOrdersFromCache(state.currentStoreId, page, range);
+    if (cached) {
+      return parseListOrdersResponse(cached);
+    }
+  }
+
+  const data = await fetchValidatedJson('/api/orders?' + params, requestInit, parseListOrdersResponse);
+
+  if (state.currentStatus === 'shipped') {
+    setShippedOrdersInCache(state.currentStoreId, data, page, range);
+  }
+
+  return data;
+}
+
+export function applyOrdersData(data, page = 1, skipRatesHint = false) {
+  state.allOrders = data.orders || [];
+  state.totalOrders = data.total || 0;
+  state.totalPages = data.pages || 1;
+  state.currentPage = page;
+
+  if (state.currentPanelOrder) {
+    const updatedPanelOrder = state.allOrders.find((order) => order.orderId === state.currentPanelOrder.orderId) || null;
+    if (!updatedPanelOrder) {
+      if (typeof window.closePanel === 'function') window.closePanel();
+    } else {
+      state.currentPanelOrder = updatedPanelOrder;
+    }
+  }
+
+  populateSkuFilter();
+  state._fetchSkipRates = skipRatesHint;
+  filterOrders();
+  updatePagination();
 }
 
 export function filterOrders() {
@@ -324,7 +352,7 @@ export function renderOrders(skipRates = false) {
         case 'select':    return `<td data-col="select"><input type="checkbox" ${chk} onclick="event.stopPropagation();toggleCheckbox(${o.orderId},this.checked)" tabindex="-1"></td>`;
         case 'date': {
           const _pb = o.bestRate;
-          const serviceCode = _pb?.serviceCode || getOrderRequestedService(o) || '';
+          const serviceCode = _pb?.serviceCode || getOrderNormalizedServiceCode(o) || getOrderRequestedService(o) || '';
           const expedited = getExpedited(serviceCode);
           const expeditedHtml = expedited
             ? `<div style="font-size:9.5px;font-weight:700;color:${expedited === '1-day' ? '#dc2626' : '#d97706'};margin-bottom:2px">${expedited === '1-day' ? '🔴 1-day' : '🟠 2-day'}</div>`
@@ -398,9 +426,11 @@ export function renderOrders(skipRates = false) {
             }
             // Check for selectedRate (actual rate used at label creation)
             if (o.selectedRate) {
-              let acctName = o.selectedRate.providerAccountNickname || 'External';
-              const _cost = parseFloat(o.selectedRate.cost || 0);
-              return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$${_cost.toFixed(2)}</div></div></td>`;
+              const selectedRate = getOrderSelectedRate(o);
+              let acctName = selectedRate?.providerAccountNickname || 'External';
+              const serviceCode = selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '';
+              const serviceLabel = SERVICE_NAMES[serviceCode] || serviceCode.replace(/_/g, ' ');
+              return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
             }
             // No rate data available → eBay/Amazon/Walmart generated the label externally
             if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
@@ -418,7 +448,9 @@ export function renderOrders(skipRates = false) {
               const effectiveCode = o.label?.carrierCode || o.carrierCode;
               if (effectiveCode) acctName = CARRIER_NAMES[effectiveCode] || effectiveCode.replace(/_/g, ' ').toUpperCase();
             }
-            return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label"></div></div></td>`;
+            const serviceCode = o.label?.serviceCode || o.serviceCode || '';
+            const serviceLabel = SERVICE_NAMES[serviceCode] || serviceCode.replace(/_/g, ' ');
+            return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
           }
           const _pb   = o.bestRate;
           if (_pb?._noDims) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
@@ -439,11 +471,13 @@ export function renderOrders(skipRates = false) {
           }
           // For shipped orders with selected rate (actual rate from label creation), show that
           if (o.selectedRate) {
-            const _srj = o.selectedRate;
-            const _bcc = _srj.carrierCode || '';
-            const _rawCost = parseFloat(_srj.cost || 0);
-            const _markedCost = applyCarrierMarkup(_srj);
-            return `<td data-col="bestrate" id="rate-${o.orderId}"><div style="display:flex;align-items:center;gap:6px">${carrierLogo(_bcc, 18)}<div>${priceDisplay(_rawCost, _markedCost, { mainSize:'12px' })}</div></div></td>`;
+            const selectedRate = getOrderSelectedRate(o);
+            const _bcc = selectedRate?.carrierCode || '';
+            const _cost = getSelectedRateCost(o) || 0;
+            const _baseCost = getSelectedRateTotal(o) || _cost;
+            const _pid = getSelectedRateProviderId(o);
+            const _markedCost = _pid ? applyRbMarkup(_pid, _baseCost) : _baseCost;
+            return `<td data-col="bestrate" id="rate-${o.orderId}"><div style="display:flex;align-items:center;gap:6px">${carrierLogo(_bcc, 18)}<div>${priceDisplay(_baseCost, _markedCost, { mainSize:'12px' })}</div></div></td>`;
           }
           // For shipped orders with no rate data
           if (o.orderStatus !== 'awaiting_shipment') return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="color:var(--text3);font-size:11px">—</span></td>`;
@@ -548,7 +582,7 @@ export function renderOrders(skipRates = false) {
 
     const _cp = clientPalette(storeName);
     const _pb = o.bestRate;
-    const serviceCode = _pb?.serviceCode || getOrderRequestedService(o) || '';
+    const serviceCode = _pb?.serviceCode || getOrderNormalizedServiceCode(o) || getOrderRequestedService(o) || '';
     const expedited = getExpedited(serviceCode);
     const expeditedBg = expedited ? 'background:rgba(34,197,94,.08)' : '';
     return groupHeader + `<tr id="row-${o.orderId}" class="order-row${rowCls}" style="border-left:3px solid ${_cp.border};${expeditedBg}" onclick="toggleRowSelect(${o.orderId})" ondblclick="event.stopPropagation();window.open('https://ship.shipstation.com/orders/${o.orderId}','_blank')" onmouseenter="setKbRow(${idx})">${cells}</tr>`;
@@ -638,24 +672,28 @@ export function renderActualRateCell(id, o) {
   const hasSelectedRate = o.selectedRate != null;
   let cost = 0;
   let cc = '';
+  let sc = '';
   let costColor = 'var(--text)';
   let costTitle = 'Actual label cost';
   
   if (hasLabel) {
     cost = parseFloat(o.label.cost);
     cc = o.label.carrierCode || o.carrierCode || '';
+    sc = o.label.serviceCode || o.serviceCode || '';
   } else if (hasSelectedRate) {
     // Use selected rate (actual rate used at label creation for externally fulfilled orders)
-    cost = parseFloat(o.selectedRate.cost) || 0;
-    cc = o.selectedRate.carrierCode || '';
+    const selectedRate = getOrderSelectedRate(o);
+    cost = getSelectedRateCost(o) || 0;
+    cc = selectedRate?.carrierCode || '';
+    sc = selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '';
     costColor = 'var(--text)';
     costTitle = 'Rate used at label creation (external)';
   }
 
-  // Apply carrier markup using persisted selected carrier account (shippingProviderId)
+  // Apply carrier markup using persisted selected carrier account
   // For labels, use label.shippingProviderId
-  // For selectedRate, use selectedRate.shippingProviderId
-  const pid = o.label?.shippingProviderId || (hasSelectedRate ? o.selectedRate.shippingProviderId : null);
+  // For selectedRate, prefer providerAccountId from the persisted selected-rate payload
+  const pid = o.label?.shippingProviderId || (hasSelectedRate ? getSelectedRateProviderId(o) : null);
   const markedCost = pid ? applyRbMarkup(pid, cost) : cost;
 
   const costHtml  = cost > 0
@@ -665,6 +703,16 @@ export function renderActualRateCell(id, o) {
     ${carrierLogo(cc, 18)}
     ${costHtml}
   </div>`;
+
+  const serviceLabel = SERVICE_NAMES[sc] || sc.replace(/_/g, ' ');
+  const row = document.getElementById(`row-${id}`);
+  if (row) {
+    const acctTd = row.querySelector('[data-col="custcarrier"]');
+    if (acctTd) {
+      const svcSpan = acctTd.querySelector('.svc-label');
+      if (svcSpan) svcSpan.textContent = (serviceLabel + '').substring(0, 22);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -1149,6 +1197,7 @@ export function copyOrderNum(num) {
 // Expose to window for inline HTML calls
 window.renderOrders   = renderOrders;
 window.fetchOrders         = fetchOrders;
+window.getDateRange        = getDateRange;
 window.fetchCheapestRates  = fetchCheapestRates;
 window.renderRateCell      = renderRateCell;
 

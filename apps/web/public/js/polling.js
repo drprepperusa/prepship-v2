@@ -3,9 +3,8 @@
 // ═══════════════════════════════════════════════
 
 import { state } from './state.js';
-import { renderOrders } from './orders.js';
-import { fetchValidatedJson } from './api-client.js';
-import { parseListOrdersResponse } from './api-contracts.js';
+import { applyOrdersData, loadOrdersData } from './orders.js';
+import { didOrdersResponseChange } from './orders-sync.js';
 
 const POLL_INTERVAL_MS = 2000; // 2 seconds — faster rate updates during initial load
 let pollingActive = false;
@@ -15,84 +14,33 @@ let lastPollTime = 0;
 // Fetch fresh orders with current filters
 async function fetchFreshOrders() {
   try {
-    const params = new URLSearchParams({ pageSize: 50, page: state.currentPage || 1 });
-    if (state.currentStatus)  params.set('orderStatus', state.currentStatus);
-    if (state.currentStoreId) params.set('storeId', state.currentStoreId);
-    
-    // Include date range if set
-    const range = window.getDateRange?.();
-    if (range?.start) params.set('dateStart', range.start.toISOString());
-    if (range?.end)   params.set('dateEnd',   range.end.toISOString());
-
-    return await fetchValidatedJson(`/api/orders?${params.toString()}`, {
+    return await loadOrdersData(state.currentPage || 1, {
+      bypassShippedCache: true,
+      requestInit: {
       headers: { 'X-App-Token': window.APP_TOKEN || '' },
-    }, parseListOrdersResponse);
+      },
+    });
   } catch (e) {
     console.warn('[Polling] fetch error:', e.message);
     return null;
   }
 }
 
-// Detect if an order changed (comparing key fields)
-function orderChanged(oldOrder, newOrder) {
-  if (!oldOrder || !newOrder) return true;
-  
-  // Fields that matter for UI updates (V2 API structure)
-  const keys = [
-    'orderStatus', 'orderNumber', 'orderTotal', 'shippingAmount',
-    'carrierCode', 'serviceCode',
-    'label.trackingNumber', 'label.carrierCode', 'label.cost',
-    'externalShipped', 'selectedRate'
-  ];
-  
-  // Simple field comparison
-  const simpleFields = ['orderStatus', 'orderNumber', 'orderTotal', 'shippingAmount', 'carrierCode', 'serviceCode', 'externalShipped'];
-  if (simpleFields.some(k => oldOrder[k] !== newOrder[k])) return true;
-  
-  // Nested field comparison (label, selectedRate)
-  if ((oldOrder.label?.trackingNumber || null) !== (newOrder.label?.trackingNumber || null)) return true;
-  if ((oldOrder.label?.carrierCode || null) !== (newOrder.label?.carrierCode || null)) return true;
-  if ((oldOrder.selectedRate?.cost || null) !== (newOrder.selectedRate?.cost || null)) return true;
-  
-  return false;
-}
-
 // Update orders state and re-render rows that changed
 function applyPollingUpdates(freshData) {
   if (!freshData || !freshData.orders) return;
 
-  const freshMap = new Map(freshData.orders.map(o => [o.orderId, o]));
-  const oldMap = new Map((state.allOrders || []).map(o => [o.orderId, o]));
-  
-  let hasChanges = false;
-  let changedCount = 0;
+  const previousData = {
+    orders: state.allOrders,
+    total: state.totalOrders,
+    pages: state.totalPages,
+    page: state.currentPage,
+  };
 
-  // Track new/updated orders
-  freshData.orders.forEach(freshOrder => {
-    const oldOrder = oldMap.get(freshOrder.orderId);
-    if (!oldOrder) {
-      hasChanges = true;
-      changedCount++;
-    } else if (orderChanged(oldOrder, freshOrder)) {
-      hasChanges = true;
-      changedCount++;
-    }
-  });
+  if (!didOrdersResponseChange(previousData, freshData)) return;
 
-  if (!hasChanges) return; // No changes detected
-  
-  // Update state
-  state.allOrders = freshData.orders;
-  state.totalOrders = freshData.total || 0;
-  state.totalPages = freshData.pages || 1;
-
-  // Re-apply current filters/sorts to maintain sort order
-  window.filterOrders?.();
-  
-  // Re-render (maintains checkboxes and panel state via class names in DOM)
-  renderOrders(true); // skipRates=true to avoid re-fetching rates on every update
-  
-  console.log(`[Polling] Updated ${changedCount} orders at ${new Date().toLocaleTimeString()}`);
+  applyOrdersData(freshData, state.currentPage || 1, true);
+  console.log(`[Polling] Updated orders at ${new Date().toLocaleTimeString()}`);
 }
 
 // Main polling loop

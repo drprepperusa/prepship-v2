@@ -1134,6 +1134,41 @@ function parseRateDtoWithPath(value, path) {
   };
 }
 
+function parseOrderBestRateDtoWithPath(value, path) {
+  const dto = expectObject(value, path);
+  return {
+    serviceCode: expectNullableString(dto.serviceCode, `${path}.serviceCode`),
+    serviceName: expectNullableString(dto.serviceName, `${path}.serviceName`),
+    packageType: expectNullableString(dto.packageType, `${path}.packageType`),
+    shipmentCost: expectNumber(dto.shipmentCost, `${path}.shipmentCost`),
+    otherCost: expectNumber(dto.otherCost, `${path}.otherCost`),
+    rateDetails: expectArray(dto.rateDetails, `${path}.rateDetails`),
+    carrierCode: expectNullableString(dto.carrierCode, `${path}.carrierCode`),
+    shippingProviderId: expectNullableNumber(dto.shippingProviderId, `${path}.shippingProviderId`),
+    carrierNickname: expectNullableString(dto.carrierNickname, `${path}.carrierNickname`),
+    guaranteed: expectBoolean(dto.guaranteed, `${path}.guaranteed`),
+    zone: expectNullableString(dto.zone, `${path}.zone`),
+    sourceClientId: expectNullableNumber(dto.sourceClientId, `${path}.sourceClientId`),
+    deliveryDays: expectNullableNumber(dto.deliveryDays, `${path}.deliveryDays`),
+    estimatedDelivery: expectNullableString(dto.estimatedDelivery, `${path}.estimatedDelivery`),
+  };
+}
+
+function parseOrderSelectedRateDtoWithPath(value, path) {
+  const dto = expectObject(value, path);
+  return {
+    providerAccountId: expectNullableNumber(dto.providerAccountId, `${path}.providerAccountId`),
+    providerAccountNickname: expectNullableString(dto.providerAccountNickname, `${path}.providerAccountNickname`),
+    shippingProviderId: expectNullableNumber(dto.shippingProviderId, `${path}.shippingProviderId`),
+    carrierCode: expectNullableString(dto.carrierCode, `${path}.carrierCode`),
+    serviceCode: expectNullableString(dto.serviceCode, `${path}.serviceCode`),
+    serviceName: expectNullableString(dto.serviceName, `${path}.serviceName`),
+    cost: expectNullableNumber(dto.cost, `${path}.cost`),
+    shipmentCost: expectNullableNumber(dto.shipmentCost, `${path}.shipmentCost`),
+    otherCost: expectNullableNumber(dto.otherCost, `${path}.otherCost`),
+  };
+}
+
 /**
  * @param {unknown} value
  * @returns {RateDto[]}
@@ -1386,8 +1421,8 @@ export function parseListOrdersResponse(value) {
       residential: order.residential ?? null,
       sourceResidential: order.sourceResidential ?? null,
       externalShipped: order.externalShipped,
-      bestRate: order.bestRate ?? null,
-      selectedRate: order.selectedRate ?? null,
+      bestRate: order.bestRate === null ? null : parseOrderBestRateDtoWithPath(order.bestRate, `${path}.bestRate`),
+      selectedRate: order.selectedRate === null ? null : parseOrderSelectedRateDtoWithPath(order.selectedRate, `${path}.selectedRate`),
       label: {
         shipmentId: label.shipmentId ?? null,
         trackingNumber: label.trackingNumber ?? null,

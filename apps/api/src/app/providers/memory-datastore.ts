@@ -14,7 +14,7 @@ import type { BulkUpdateInventoryDimensionsInput, ParentSkuDetailDto, ParentSkuD
 import type { ExistingLabelRecord, LabelOrderRecord, LabelShipmentRecord, PersistedShipmentInput, ResolvedPackageDimensions, ReturnLabelRecord, ShippingAccountContext } from "../../modules/labels/domain/label.ts";
 import type { LabelRepository } from "../../modules/labels/application/label-repository.ts";
 import type { SaveLocationInput } from "../../../../../../packages/contracts/src/locations/contracts.ts";
-import type { GetOrderIdsQuery, GetOrderPicklistQuery, ListOrdersQuery, OrderExportQuery, OrderExportRow, OrderFullDto, OrderPicklistItemDto, OrdersDailyStatsDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
+import type { GetOrderIdsQuery, GetOrderPicklistQuery, ListOrdersQuery, OrderBestRateDto, OrderExportQuery, OrderExportRow, OrderFullDto, OrderPicklistItemDto, OrdersDailyStatsDto } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { AutoCreatePackageInput, PackageAdjustmentInput, SavePackageInput } from "../../../../../../packages/contracts/src/packages/contracts.ts";
 import type { SaveProductDefaultsInput } from "../../../../../../packages/contracts/src/products/contracts.ts";
 import type { RateDimsDto, RateDto } from "../../../../../../packages/contracts/src/rates/contracts.ts";
@@ -904,11 +904,12 @@ class MemoryOrderRepository implements OrderRepository {
     const entry = this.entries.find((item) => item.record.orderId === orderId);
     if (!entry) return;
     const selectedRate = entry.record.selectedRateJson ? JSON.parse(entry.record.selectedRateJson) as Record<string, unknown> : {};
+    selectedRate.providerAccountId = selectedPid;
     selectedRate.shippingProviderId = selectedPid;
     entry.record.selectedRateJson = JSON.stringify(selectedRate);
   }
 
-  updateBestRate(orderId: number, bestRate: unknown): void {
+  updateBestRate(orderId: number, bestRate: OrderBestRateDto): void {
     const entry = this.entries.find((item) => item.record.orderId === orderId);
     if (entry) entry.record.bestRateJson = JSON.stringify(bestRate);
   }

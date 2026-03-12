@@ -35,6 +35,7 @@ function seedDatabase(filename: string): void {
       weightValue REAL,
       orderTotal REAL,
       shippingAmount REAL,
+      externally_fulfilled_verified INTEGER DEFAULT 0,
       items TEXT,
       raw TEXT
     );
@@ -70,6 +71,19 @@ function seedDatabase(filename: string): void {
       clientId INTEGER PRIMARY KEY,
       name TEXT,
       storeIds TEXT
+    );
+
+    CREATE TABLE rate_cache (
+      cache_key TEXT PRIMARY KEY,
+      rates TEXT,
+      best_rate TEXT,
+      fetched_at INTEGER,
+      weight_version INTEGER
+    );
+
+    CREATE TABLE sync_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
     );
 
     CREATE TABLE locations (
@@ -209,12 +223,29 @@ test("GET /api/orders returns paginated orders", async () => {
 
   const response = await app(new Request("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
   assert.equal(response.status, 200);
-  const payload = await response.json() as { orders: Array<{ orderId: number }>; page: number; pages: number; total: number };
+  const payload = await response.json() as {
+    orders: Array<{
+      orderId: number;
+      bestRate: {
+        shipmentCost: number;
+        otherCost: number;
+        carrierCode: string | null;
+        serviceCode: string | null;
+      } | null;
+    }>;
+    page: number;
+    pages: number;
+    total: number;
+  };
 
   assert.equal(payload.page, 1);
   assert.equal(payload.pages, 1);
   assert.equal(payload.total, 3);
   assert.deepEqual(payload.orders.map((order) => order.orderId), [101, 102, 103]);
+  assert.equal(payload.orders[0]?.bestRate?.shipmentCost, 5.55);
+  assert.equal(payload.orders[0]?.bestRate?.otherCost, 0);
+  assert.equal(payload.orders[0]?.bestRate?.carrierCode, null);
+  assert.equal(payload.orders[0]?.bestRate?.serviceCode, null);
 });
 
 test("GET /api/orders?orderStatus=shipped preserves shipped semantics", async () => {
@@ -259,13 +290,27 @@ test("GET /api/orders/:id returns enriched order details and shipped override", 
     orderId: number;
     orderStatus: string;
     label: { trackingNumber: string | null };
-    selectedRate: { shippingProviderId: number } | null;
+    selectedRate: {
+      providerAccountId: number | null;
+      shippingProviderId: number | null;
+      serviceCode: string | null;
+      carrierCode: string | null;
+      cost: number | null;
+      shipmentCost: number | null;
+      otherCost: number | null;
+    } | null;
   };
 
   assert.equal(payload.orderId, 102);
   assert.equal(payload.orderStatus, "shipped");
   assert.equal(payload.label.trackingNumber, "1Z999");
+  assert.equal(payload.selectedRate?.providerAccountId, 596001);
   assert.equal(payload.selectedRate?.shippingProviderId, 596001);
+  assert.equal(payload.selectedRate?.serviceCode, "ups_ground");
+  assert.equal(payload.selectedRate?.carrierCode, "ups");
+  assert.equal(payload.selectedRate?.cost, 7.25);
+  assert.equal(payload.selectedRate?.shipmentCost, 7.25);
+  assert.equal(payload.selectedRate?.otherCost, 0.75);
 });
 
 test("GET /api/orders/ids matches V1 SKU and qty semantics", async () => {
@@ -398,7 +443,25 @@ test("POST order override endpoints update order_local and shipment source", asy
   const bestRateResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/best-rate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ best: { cost: 9.99 }, dims: "12x9x5" }),
+    body: JSON.stringify({
+      best: {
+        serviceCode: "ups_ground",
+        serviceName: "UPS Ground",
+        packageType: null,
+        shipmentCost: 9.99,
+        otherCost: 0,
+        rateDetails: [],
+        carrierCode: "ups",
+        shippingProviderId: 596001,
+        carrierNickname: "ORION",
+        guaranteed: false,
+        zone: "5",
+        sourceClientId: 1,
+        deliveryDays: 3,
+        estimatedDelivery: "2026-03-12",
+      },
+      dims: "12x9x5",
+    }),
   }));
   assert.equal(bestRateResponse.status, 200);
 
@@ -418,8 +481,34 @@ test("POST order override endpoints update order_local and shipment source", asy
   assert.equal(payload.local?.residential, 0);
   assert.equal(payload.local?.selected_pid, 596001);
   assert.equal(payload.local?.best_rate_dims, "12x9x5");
-  assert.deepEqual(JSON.parse(payload.local?.best_rate_json ?? "{}"), { cost: 9.99 });
+  assert.equal(JSON.parse(payload.local?.best_rate_json ?? "{}").carrierCode, "ups");
   assert.equal(payload.shipments[0]?.source, "external");
+});
+
+test("POST /api/orders/:id/best-rate rejects malformed rate snapshots", async () => {
+  const dir = createTempDir();
+  const dbPath = join(dir, "prepship.db");
+  seedDatabase(dbPath);
+
+  const { app } = bootstrapApi({
+    SQLITE_DB_PATH: dbPath,
+    API_PORT: "4010",
+  });
+
+  const response = await app(new Request("http://127.0.0.1:4010/api/orders/102/best-rate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      best: {
+        serviceCode: "ups_ground",
+        shipmentCost: 9.99,
+        otherCost: 0,
+      },
+    }),
+  }));
+
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /best\.carrierCode is required/);
 });
 
 test("GET /api/orders/daily-stats returns the operator summary window", async () => {

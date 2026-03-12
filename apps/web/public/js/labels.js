@@ -28,9 +28,9 @@ export async function createLabel(testLabel = false) {
   const length  = parseFloat(document.getElementById('p-len')?.value) || 0;
   const width   = parseFloat(document.getElementById('p-wid')?.value) || 0;
   const height  = parseFloat(document.getElementById('p-hgt')?.value) || 0;
-  // Map signature option to confirmation parameter: 'none' → 'delivery', 'signature' → 'signature', etc.
-  const sigOption = document.getElementById('p-signature')?.value || 'none';
-  const confirm = sigOption === 'none' ? 'delivery' : sigOption;
+  // Delivery confirmation is the panel default; explicit "None" downgrades to delivery for parity.
+  const confirmationOption = document.getElementById('p-confirm')?.value || 'delivery';
+  const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
   const locId   = parseInt(document.getElementById('p-location')?.value) || null;
 
   // Validate: package required
