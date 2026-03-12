@@ -78,17 +78,32 @@ async function fetchRatesForCarrier(account: CarrierAccountDto, request: LiveRat
     ...(request.signature && request.signature !== "none" ? { signature_option: request.signature } : {}),
   };
 
+  const isDebugSignature = request.signature && request.signature !== "none";
+  if (isDebugSignature) {
+    console.log(`[RateShopper] Fetching rates for ${account.nickname} with signature=${request.signature}. Body:`, JSON.stringify(body, null, 2));
+  }
+
   const response = await fetch(`${SS_BASE_V2}/rates/estimate`, {
     method: "POST",
     headers: { "API-Key": request.apiKeyV2 as string, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  
   if (!response.ok) {
+    const error = await response.text();
+    if (isDebugSignature) {
+      console.error(`[RateShopper] ShipStation API error for ${account.nickname} (signature=${request.signature}): ${response.status} ${error}`);
+    }
     return [];
   }
 
   const payload = await response.json() as Array<Record<string, unknown>> | { rates?: Array<Record<string, unknown>> };
   const rates = Array.isArray(payload) ? payload : (payload.rates ?? []);
+  
+  if (isDebugSignature) {
+    console.log(`[RateShopper] Response for ${account.nickname} (signature=${request.signature}): ${rates.length} rates found. Raw payload:`, JSON.stringify(payload, null, 2));
+  }
+  
   return rates.map((rate) => ({
     serviceCode: String(rate.service_code ?? ""),
     serviceName: String(rate.service_type ?? rate.service_code ?? ""),
