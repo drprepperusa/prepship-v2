@@ -67,7 +67,8 @@ export class RateServices {
     }
 
     const clientId = query.storeId ? this.repository.getClientIdForStoreId(query.storeId) : null;
-    const cacheKey = makeCacheKey(query.wt, zip, query.dims, query.residential, clientId);
+    const signature = query.signature && query.signature.trim() ? query.signature : "none";
+    const cacheKey = makeCacheKey(query.wt, zip, query.dims, query.residential, clientId, signature);
     const cached = this.readValidCache(cacheKey);
     if (!cached) {
       return { cached: false, rates: [], best: null };
@@ -90,7 +91,8 @@ export class RateServices {
       const residential = item.residential !== false;
       const storeId = item.storeId != null ? Number(item.storeId) : null;
       const clientId = storeId ? this.repository.getClientIdForStoreId(storeId) : null;
-      const cacheKey = makeCacheKey(item.wt, zip, item.dims ?? null, residential, clientId);
+      const signature = item.signature && item.signature.trim() ? item.signature : "none";
+      const cacheKey = makeCacheKey(item.wt, zip, item.dims ?? null, residential, clientId, signature);
       const cached = this.readValidCache(cacheKey);
 
       if (!cached) {

@@ -395,6 +395,7 @@ export function createApp(dependencies: AppDependencies) {
           dims,
           residential: parseBooleanQuery(url.searchParams.get("residential"), "residential", true),
           storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId") ?? null,
+          signature: url.searchParams.get("signature") ?? null,
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";

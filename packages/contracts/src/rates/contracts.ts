@@ -29,6 +29,7 @@ export interface GetCachedRatesQuery {
   dims: RateDimsDto | null;
   residential: boolean;
   storeId: number | null;
+  signature?: string | null;
 }
 
 export interface CachedRatesResponseDto {
@@ -47,6 +48,7 @@ export interface BulkCachedRatesRequestItem {
   dims?: RateDimsDto | null;
   residential?: boolean;
   storeId?: number | null;
+  signature?: string | null;
 }
 
 export interface BulkCachedRatesItemResult {
