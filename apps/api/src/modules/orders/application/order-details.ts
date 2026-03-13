@@ -16,6 +16,10 @@ export class OrderDetailsService {
     this.rateServices = rateServices ?? null;
   }
 
+  getRecord(orderId: number) {
+    return this.repository.getById(orderId);
+  }
+
   execute(orderId: number): OrderSummaryDto | null {
     const record = this.repository.getById(orderId);
 
@@ -44,6 +48,41 @@ export class OrderDetailsService {
       ? { value: record.weightValue, units: "ounces" }
       : null;
 
+    // Look up sku_qty_dims for this order's primary SKU+QTY combo
+    // This is the user-saved dimension record for this exact packing scenario.
+    // We intentionally do NOT fall back to order_local.rate_dims_* because:
+    //   - Different QTY = different packing = should show blank, not previous dims
+    //   - order_local.rate_dims_* is auto-populated by rate shopper (not user intent)
+    let rateDims: { length: number; width: number; height: number } | null = null;
+    let parsedItems: Array<{ sku?: string; quantity?: number; adjustment?: boolean }> = [];
+    try {
+      parsedItems = Array.isArray(items) ? items as typeof parsedItems : JSON.parse(record.items) as typeof parsedItems;
+    } catch { /* ignore */ }
+    const activeItems = parsedItems.filter((i) => !i.adjustment && i.sku);
+    const uniqueSkus = [...new Set(activeItems.map((i) => i.sku).filter(Boolean))];
+    if (uniqueSkus.length === 1) {
+      const sku = uniqueSkus[0] as string;
+      const qty = activeItems.filter((i) => i.sku === sku).reduce((s, i) => s + (i.quantity ?? 1), 0);
+      const dims = this.repository.getSkuQtyDims(sku, qty);
+      if (dims) {
+        // Validate saved dimensions against order weight.
+        // A heavy order (>= 16 oz) packed into a tiny box (< 1000 cubic inches)
+        // is almost certainly stale single-unit packing data — discard it so the
+        // UI prompts the user to enter correct dimensions instead of silently
+        // using wrong data for rate calculations.
+        const orderWeightOz = record.weightValue ?? 0;
+        const cubicInches = dims.length * dims.width * dims.height;
+        const isHeavy = orderWeightOz >= 16;
+        const isTinyBox = cubicInches < 1000;
+        if (isHeavy && isTinyBox) {
+          // Dimensions are implausible for this weight — treat as missing
+          rateDims = null;
+        } else {
+          rateDims = dims;
+        }
+      }
+    }
+
     let rawData: any = null;
     try {
       rawData = record.raw ? JSON.parse(record.raw) as any : null;
@@ -62,12 +101,13 @@ export class OrderDetailsService {
     }
 
     // If bestRate is missing from database, try to calculate from cached rates
+    // IMPORTANT: Only attempt if dims > 0 — no weight-only fallback
     let bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
-    if (!bestRate && this.rateServices && weight && record.shipToPostalCode) {
+    if (!bestRate && this.rateServices && weight && record.shipToPostalCode && rateDims) {
       const cached = this.rateServices.getCached({
         wt: weight.value,
         zip: record.shipToPostalCode,
-        dims: null,
+        dims: rateDims,
         storeId: record.storeId,
         residential: record.residential ?? false,
       });
@@ -120,6 +160,7 @@ export class OrderDetailsService {
       },
       items,
       raw: rawData,
+      rateDims,
     };
   }
 }
