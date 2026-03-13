@@ -91,3 +91,14 @@ export interface ReturnLabelRecord {
   reason: string;
   createdAt: number;
 }
+
+export interface ShipmentEnrichmentInput {
+  shipmentId: number;
+  otherCost: number;
+  createDate: string | null;
+  weightOz: number | null;
+  dimsLength: number | null;
+  dimsWidth: number | null;
+  dimsHeight: number | null;
+  updatedAt: number;
+}

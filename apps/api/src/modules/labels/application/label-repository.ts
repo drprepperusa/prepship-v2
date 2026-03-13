@@ -5,6 +5,7 @@ import type {
   PersistedShipmentInput,
   ResolvedPackageDimensions,
   ReturnLabelRecord,
+  ShipmentEnrichmentInput,
   ShippingAccountContext,
 } from "../domain/label.ts";
 
@@ -21,4 +22,5 @@ export interface LabelRepository {
   getLatestShipmentForOrderLookup(orderLookup: number | string): LabelShipmentRecord | null;
   updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void;
   backfillOrderLocalTracking(orderId: number, trackingNumber: string, providerAccountId: number | null, updatedAtSeconds: number): void;
+  enrichShipment(input: ShipmentEnrichmentInput): void;
 }

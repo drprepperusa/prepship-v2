@@ -914,6 +914,23 @@ class MemoryOrderRepository implements OrderRepository {
     if (entry) entry.record.bestRateJson = JSON.stringify(bestRate);
   }
 
+  updateOrderRateDims(orderId: number, length: number, width: number, height: number): void {
+    const entry = this.entries.find((item) => item.record.orderId === orderId);
+    if (entry) {
+      entry.record.rateDimsL = length;
+      entry.record.rateDimsW = width;
+      entry.record.rateDimsH = height;
+    }
+  }
+
+  getSkuQtyDims(_sku: string, _qty: number): { length: number; width: number; height: number } | null {
+    return null; // In-memory store doesn't persist sku_qty_dims
+  }
+
+  saveSkuQtyDims(_sku: string, _qty: number, _length: number, _width: number, _height: number): void {
+    // In-memory store: no-op
+  }
+
   getDailyStats(): OrdersDailyStatsDto {
     return {
       window: {
@@ -1367,6 +1384,7 @@ class MemoryLabelRepository implements LabelRepository {
   }
 
   backfillOrderLocalTracking(_orderId: number, _trackingNumber: string, _providerAccountId: number | null, _updatedAtSeconds: number): void {}
+  enrichShipment(_input: import("../../modules/labels/domain/label.ts").ShipmentEnrichmentInput): void {}
 }
 
 class MemoryShipmentRepository implements ShipmentRepository {

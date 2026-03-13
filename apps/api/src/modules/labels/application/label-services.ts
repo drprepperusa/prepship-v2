@@ -13,12 +13,13 @@ import type { OrderSelectedRateDto } from "../../../../../../../packages/contrac
 import type { TransitionalSecrets } from "../../../../../../../packages/shared/src/config/secrets-adapter.ts";
 import type { LabelRepository } from "./label-repository.ts";
 import type {
+  CreatedExternalLabel,
   ExternalOrderShipmentRecord,
   ShipstationV1Credentials,
   ShippingGateway,
 } from "./shipping-gateway.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
-import type { AddressRecord, LabelShipmentRecord } from "../domain/label.ts";
+import type { AddressRecord, LabelOrderRecord, LabelShipmentRecord } from "../domain/label.ts";
 
 function parseOrderShipTo(raw: string, fallbackName: string | null): AddressRecord {
   try {
@@ -206,13 +207,10 @@ export class LabelServices {
       ssOrderId: order.orderId,
     });
 
-    let enriched = await this.gateway.getShipment(credentials, created.shipmentId);
-    const finalTracking = enriched?.trackingNumber ?? created.trackingNumber;
-    const finalLabelUrl = created.labelUrl ?? enriched?.labelUrl ?? null;
-    const finalCost = enriched?.shipmentCost ?? created.cost;
-    const finalOtherCost = enriched?.otherCost ?? 0;
-    const finalVoided = enriched?.voided ?? created.voided;
-    const finalShipDate = enriched?.shipDate ?? created.shipDate ?? new Date().toISOString().slice(0, 10);
+    // V2 provides tracking, labelUrl, cost, shipDate immediately — no V1 wait needed.
+    const finalTracking = created.trackingNumber;
+    const finalLabelUrl = created.labelUrl ?? null;
+    const finalShipDate = created.shipDate ?? new Date().toISOString().slice(0, 10);
     const providerNickname = CARRIER_ACCOUNTS_V2.find((carrier) => carrier.shippingProviderId === created.providerAccountId)?.nickname ?? null;
     const selectedRate: OrderSelectedRateDto = created.selectedRate ?? {
       providerAccountId: created.providerAccountId,
@@ -226,19 +224,11 @@ export class LabelServices {
       otherCost: 0,
     };
 
-    if (!body.testLabel && finalTracking) {
-      await this.gateway.markOrderShipped(credentials, {
-        orderId: order.orderId,
-        carrierCode: created.carrierCode,
-        shipDate: finalShipDate,
-        trackingNumber: finalTracking,
-      });
-    }
-
     if (!body.testLabel) {
       const clientId = context.clientId ?? order.clientId;
       if (!clientId) throw new Error(`Cannot insert shipment: clientId lookup failed for storeId ${order.storeId}`);
 
+      // Persist V2 data immediately — otherCost/createDate will be enriched in the background.
       this.repository.saveShipment({
         shipmentId: created.shipmentId,
         orderId: order.orderId,
@@ -248,15 +238,15 @@ export class LabelServices {
         trackingNumber: finalTracking,
         shipDate: finalShipDate,
         labelUrl: finalLabelUrl,
-        shipmentCost: finalCost,
-        otherCost: finalOtherCost,
-        voided: finalVoided,
+        shipmentCost: created.cost,
+        otherCost: 0,
+        voided: created.voided,
         updatedAt: Date.now(),
         weightOz: effectiveWeightOz,
         dimsLength: length,
         dimsWidth: width,
         dimsHeight: height,
-        createDate: enriched?.createDate ?? new Date().toISOString(),
+        createDate: new Date().toISOString(),
         clientId,
         providerAccountId: created.providerAccountId,
         source: "prepship_v2",
@@ -270,10 +260,8 @@ export class LabelServices {
       }
       this.repository.markOrderShipped(order.orderId, Date.now());
 
-      const syncedShipments = await this.gateway.listOrderShipments(credentials, order.orderId);
-      for (const shipment of syncedShipments) {
-        this.repository.saveShipment(normalizeSyncedShipment(shipment, clientId));
-      }
+      // Kick off V1 enrichment in the background — user is NOT blocked by this.
+      void this.runV1EnrichmentBackground(credentials, created, order, effectiveWeightOz, clientId);
     }
 
     return {
@@ -285,6 +273,65 @@ export class LabelServices {
       orderStatus: body.testLabel ? order.orderStatus : "shipped",
       apiVersion: "v2",
     };
+  }
+
+  /**
+   * Background task: notify V1 that the order shipped, then fetch V1 enrichment data
+   * (otherCost, createDate, weightOz, dimensions) and sync all shipments for the order.
+   * Failures here are logged but never surface to the user.
+   */
+  private async runV1EnrichmentBackground(
+    credentials: ShipstationV1Credentials,
+    created: CreatedExternalLabel,
+    order: LabelOrderRecord,
+    effectiveWeightOz: number,
+    clientId: number,
+  ): Promise<void> {
+    const tag = `[V1 enrichment] shipmentId=${created.shipmentId} orderId=${order.orderId}`;
+    try {
+      const finalShipDate = created.shipDate ?? new Date().toISOString().slice(0, 10);
+
+      // 1. Mark order shipped in ShipStation V1 (best-effort — keeps SS in sync).
+      if (created.trackingNumber) {
+        try {
+          await this.gateway.markOrderShipped(credentials, {
+            orderId: order.orderId,
+            carrierCode: created.carrierCode,
+            shipDate: finalShipDate,
+            trackingNumber: created.trackingNumber,
+          });
+        } catch (err) {
+          console.error(`${tag} markOrderShipped failed (non-fatal):`, err);
+        }
+      }
+
+      // 2. Fetch V1 shipment details for enrichment fields.
+      const enriched = await this.gateway.getShipment(credentials, created.shipmentId);
+      if (enriched) {
+        this.repository.enrichShipment({
+          shipmentId: created.shipmentId,
+          otherCost: enriched.otherCost ?? 0,
+          createDate: enriched.createDate ?? null,
+          weightOz: enriched.weightOz ?? effectiveWeightOz,
+          dimsLength: enriched.dimsLength ?? null,
+          dimsWidth: enriched.dimsWidth ?? null,
+          dimsHeight: enriched.dimsHeight ?? null,
+          updatedAt: Date.now(),
+        });
+        console.log(`${tag} enriched: otherCost=${enriched.otherCost} createDate=${enriched.createDate}`);
+      } else {
+        console.warn(`${tag} getShipment returned null — enrichment skipped`);
+      }
+
+      // 3. Sync all V1 shipments for this order.
+      const syncedShipments = await this.gateway.listOrderShipments(credentials, order.orderId);
+      for (const shipment of syncedShipments) {
+        this.repository.saveShipment(normalizeSyncedShipment(shipment, clientId));
+      }
+      console.log(`${tag} synced ${syncedShipments.length} V1 shipment(s)`);
+    } catch (err) {
+      console.error(`${tag} background enrichment error (non-fatal):`, err);
+    }
   }
 
   async createBatch(body: CreateBatchLabelRequestDto): Promise<CreateBatchLabelResponseDto> {

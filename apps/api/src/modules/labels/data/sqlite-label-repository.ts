@@ -7,6 +7,7 @@ import type {
   PersistedShipmentInput,
   ResolvedPackageDimensions,
   ReturnLabelRecord,
+  ShipmentEnrichmentInput,
   ShippingAccountContext,
 } from "../domain/label.ts";
 
@@ -250,6 +251,29 @@ export class SqliteLabelRepository implements LabelRepository {
 
   updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void {
     this.db.prepare(`UPDATE shipments SET labelUrl = ? WHERE shipmentId = ?`).run(labelUrl, shipmentId);
+  }
+
+  enrichShipment(input: ShipmentEnrichmentInput): void {
+    this.db.prepare(`
+      UPDATE shipments SET
+        otherCost = ?,
+        createDate = COALESCE(?, createDate),
+        weight_oz  = COALESCE(?, weight_oz),
+        dims_l     = COALESCE(?, dims_l),
+        dims_w     = COALESCE(?, dims_w),
+        dims_h     = COALESCE(?, dims_h),
+        updatedAt  = ?
+      WHERE shipmentId = ?
+    `).run(
+      input.otherCost,
+      input.createDate,
+      input.weightOz,
+      input.dimsLength,
+      input.dimsWidth,
+      input.dimsHeight,
+      input.updatedAt,
+      input.shipmentId,
+    );
   }
 
   backfillOrderLocalTracking(orderId: number, trackingNumber: string, providerAccountId: number | null, updatedAtSeconds: number): void {
