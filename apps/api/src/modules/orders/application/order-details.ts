@@ -102,7 +102,10 @@ export class OrderDetailsService {
 
     // If bestRate is missing from database, try to calculate from cached rates
     // IMPORTANT: Only attempt if dims > 0 — no weight-only fallback
-    let bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
+    // Also: if dimensions were deemed stale above (rateDims=null), discard any stale bestRate from DB
+    let bestRate = rateDims 
+      ? normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`))
+      : null; // Stale dimensions detected — discard stale bestRate from DB too
     if (!bestRate && this.rateServices && weight && record.shipToPostalCode && rateDims) {
       const cached = this.rateServices.getCached({
         wt: weight.value,

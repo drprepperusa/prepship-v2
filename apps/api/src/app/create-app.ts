@@ -968,6 +968,29 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    const saveDimsMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/save-dims$/);
+    if (request.method === "POST" && saveDimsMatch) {
+      try {
+        const body = await readJson();
+        return jsonResponse(200, dependencies.ordersHandler.handleSaveDims(Number.parseInt(saveDimsMatch[1] ?? "0", 10), body));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    const getDimsMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/dims$/);
+    if (request.method === "GET" && getDimsMatch) {
+      try {
+        const orderId = Number.parseInt(getDimsMatch[1] ?? "0", 10);
+        const dims = dependencies.ordersHandler.handleGetDims(orderId);
+        return jsonResponse(200, dims);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(500, { error: message });
+      }
+    }
+
     const inventoryLedgerMatch = url.pathname.match(/^\/api\/inventory\/(\d+)\/ledger$/);
     if (request.method === "GET" && inventoryLedgerMatch) {
       try {

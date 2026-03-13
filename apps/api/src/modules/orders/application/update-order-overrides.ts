@@ -2,7 +2,7 @@ import type { OrderOverrideInput } from "../../../../../../packages/contracts/sr
 import type { OrderRepository } from "./order-repository.ts";
 
 export class UpdateOrderOverridesService {
-  private readonly repository: OrderRepository;
+  readonly repository: OrderRepository;
 
   constructor(repository: OrderRepository) {
     this.repository = repository;
@@ -29,5 +29,18 @@ export class UpdateOrderOverridesService {
     }
     this.repository.updateBestRate(input.orderId, input.bestRate, input.bestRateDims ?? null);
     return { ok: true };
+  }
+
+  saveDims(orderId: number, sku: string | null, qty: number | null, length: number, width: number, height: number) {
+    if (length <= 0 || width <= 0 || height <= 0) {
+      throw new Error("length, width, height must all be > 0");
+    }
+    // Always save to per-order dims
+    this.repository.updateOrderRateDims(orderId, length, width, height);
+    // Save to sku_qty_dims if SKU and qty provided (single-SKU orders)
+    if (sku && qty != null && qty > 0) {
+      this.repository.saveSkuQtyDims(sku, qty, length, width, height);
+    }
+    return { ok: true, orderId, sku, qty, length, width, height };
   }
 }

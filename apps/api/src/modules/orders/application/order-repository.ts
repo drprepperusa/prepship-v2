@@ -26,6 +26,9 @@ export interface OrderRepository {
   updateResidential(orderId: number, residential: boolean | null): void;
   updateSelectedPid(orderId: number, selectedPid: number | null): void;
   updateBestRate(orderId: number, bestRate: OrderBestRateDto, bestRateDims: string | null): void;
+  updateOrderRateDims(orderId: number, length: number, width: number, height: number): void;
+  getSkuQtyDims(sku: string, qty: number): { length: number; width: number; height: number } | null;
+  saveSkuQtyDims(sku: string, qty: number, length: number, width: number, height: number): void;
   getDailyStats(): OrdersDailyStatsDto;
   exportOrders(query: OrderExportQuery): OrderExportRow[];
 }

@@ -213,7 +213,10 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_raw_cost,
         ship.label_shipDate,
         o.raw,
-        COALESCE(o.items, '[]') AS items
+        COALESCE(o.items, '[]') AS items,
+        ol.rate_dims_l,
+        ol.rate_dims_w,
+        ol.rate_dims_h
       FROM orders o
       LEFT JOIN order_local ol ON ol.orderId = o.orderId
       LEFT JOIN clients c ON c.clientId = o.clientId
@@ -435,6 +438,61 @@ export class SqliteOrderRepository implements OrderRepository {
     `).run(orderId, JSON.stringify(bestRate), now, bestRateDims, now);
   }
 
+  updateOrderRateDims(orderId: number, length: number, width: number, height: number): void {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO order_local (orderId, rate_dims_l, rate_dims_w, rate_dims_h, updatedAt)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(orderId) DO UPDATE SET
+        rate_dims_l = excluded.rate_dims_l,
+        rate_dims_w = excluded.rate_dims_w,
+        rate_dims_h = excluded.rate_dims_h,
+        updatedAt = excluded.updatedAt
+    `).run(orderId, length, width, height, now);
+  }
+
+  getSkuQtyDims(sku: string, qty: number): { length: number; width: number; height: number } | null {
+    if (!this.hasTable("sku_qty_dims")) return null;
+    const row = this.db.prepare(`
+      SELECT length, width, height FROM sku_qty_dims WHERE sku = ? AND qty = ?
+    `).get(sku, qty) as { length: number; width: number; height: number } | undefined;
+    if (!row || !row.length || !row.width || !row.height) return null;
+    return { length: Number(row.length), width: Number(row.width), height: Number(row.height) };
+  }
+
+  saveSkuQtyDims(sku: string, qty: number, length: number, width: number, height: number): void {
+    const now = Date.now();
+    if (!this.hasTable("sku_qty_dims")) {
+      this.db.prepare(`
+        CREATE TABLE IF NOT EXISTS sku_qty_dims (
+          sku       TEXT NOT NULL,
+          qty       INTEGER NOT NULL,
+          length    REAL NOT NULL,
+          width     REAL NOT NULL,
+          height    REAL NOT NULL,
+          updatedAt INTEGER NOT NULL,
+          PRIMARY KEY (sku, qty)
+        )
+      `).run();
+    }
+    this.db.prepare(`
+      INSERT INTO sku_qty_dims (sku, qty, length, width, height, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(sku, qty) DO UPDATE SET
+        length = excluded.length,
+        width = excluded.width,
+        height = excluded.height,
+        updatedAt = excluded.updatedAt
+    `).run(sku, qty, length, width, height, now);
+  }
+
+  private hasTable(name: string): boolean {
+    const row = this.db.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?
+    `).get(name) as { name?: string } | undefined;
+    return row?.name === name;
+  }
+
   getDailyStats(): OrdersDailyStatsDto {
     const now = new Date();
     const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
@@ -616,6 +674,9 @@ export class SqliteOrderRepository implements OrderRepository {
       labelShipDate: row.label_shipDate == null ? null : String(row.label_shipDate),
       raw: String(row.raw ?? "{}"),
       items: String(row.items ?? "[]"),
+      rateDimsL: row.rate_dims_l == null ? null : Number(row.rate_dims_l),
+      rateDimsW: row.rate_dims_w == null ? null : Number(row.rate_dims_w),
+      rateDimsH: row.rate_dims_h == null ? null : Number(row.rate_dims_h),
     };
   }
 

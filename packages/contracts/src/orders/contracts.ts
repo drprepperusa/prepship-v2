@@ -51,6 +51,7 @@ export interface OrderSummaryDto {
   };
   items: unknown[];
   raw: unknown;
+  rateDims: { length: number; width: number; height: number } | null;
 }
 
 export type OrderBestRateDto = Omit<RateDto,

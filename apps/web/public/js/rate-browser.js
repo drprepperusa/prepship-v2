@@ -78,16 +78,46 @@ export async function openRateBrowser(o) {
   const panelLen = parseFloat(document.getElementById('p-len')?.value) || 0;
   const panelWid = parseFloat(document.getElementById('p-wid')?.value) || 0;
   const panelHgt = parseFloat(document.getElementById('p-hgt')?.value) || 0;
+
+  // Fetch saved dims from DB (sku_qty_dims) if not already on the order object.
+  // The bulk orders list doesn't include rateDims, so we fetch it on-demand here.
+  if (o?.orderId && !o.rateDims) {
+    try {
+      const dimsResp = await fetch(`/api/orders/${o.orderId}/dims`);
+      if (dimsResp.ok) {
+        const dimsData = await dimsResp.json();
+        if (dimsData?.dims) {
+          o.rateDims = dimsData.dims;
+          console.log(`[openRateBrowser] Fetched saved dims for order ${o.orderId}:`, dimsData.dims);
+        }
+      }
+    } catch (e) {
+      console.warn('[openRateBrowser] Could not fetch dims:', e.message);
+    }
+  }
+
+  // Priority order for dims:
+  // 1. Panel dims (user already typed something in the panel)
+  // 2. rateDims from API (saved SKU+QTY dims — user persisted)
+  // 3. Raw order dimensions from ShipStation API (marketplace-provided)
+  const savedDims = o?.rateDims || null;
   const orderDims = getOrderDimensions(o);
+  const savedLen = (savedDims?.length > 0) ? savedDims.length : 0;
+  const savedWid = (savedDims?.width  > 0) ? savedDims.width  : 0;
+  const savedHgt = (savedDims?.height > 0) ? savedDims.height : 0;
   const orderLen = orderDims.length || 0;
   const orderWid = orderDims.width  || 0;
   const orderHgt = orderDims.height || 0;
+  const resolvedLen = panelLen || savedLen || orderLen || 0;
+  const resolvedWid = panelWid || savedWid || orderWid || 0;
+  const resolvedHgt = panelHgt || savedHgt || orderHgt || 0;
+  console.log(`[openRateBrowser] dims: panel=${panelLen}x${panelWid}x${panelHgt}, saved=${savedLen}x${savedWid}x${savedHgt}, order=${orderLen}x${orderWid}x${orderHgt}, resolved=${resolvedLen}x${resolvedWid}x${resolvedHgt}`);
   rbSetVal('rb-wtlb', lb);
   rbSetVal('rb-wtoz', oz);
   rbSetVal('rb-zip',  o?.shipTo?.postalCode?.slice(0,5) || '');
-  rbSetVal('rb-len',  panelLen || orderLen || 0);
-  rbSetVal('rb-wid',  panelWid || orderWid || 0);
-  rbSetVal('rb-hgt',  panelHgt || orderHgt || 0);
+  rbSetVal('rb-len',  resolvedLen);
+  rbSetVal('rb-wid',  resolvedWid);
+  rbSetVal('rb-hgt',  resolvedHgt);
   rbSetVal('rb-signature', 'none');
   rbSetVal('rb-svcclass', '');
   rbSetVal('rb-viewby', 'all');
@@ -363,6 +393,32 @@ export async function browseRates() {
       <div style="font-size:12px">Fill in the fields on the left panel, then click Browse Rates.</div>
     </div>`);
     return;
+  }
+
+  // Persist dims for this SKU+QTY combo so future orders with same combo reuse them
+  if (hasDims && state.rbCurrentOrder?.orderId) {
+    const items = (state.rbCurrentOrder.items || []).filter(i => !i.adjustment && i.sku);
+    const uniqueSkus = [...new Set(items.map(i => i.sku).filter(Boolean))];
+    const orderId = state.rbCurrentOrder.orderId;
+    let sku = null;
+    let qty = null;
+    if (uniqueSkus.length === 1) {
+      sku = uniqueSkus[0];
+      qty = items.filter(i => i.sku === sku).reduce((s, i) => s + (i.quantity || 1), 0);
+    }
+    // Fire-and-forget: save dims to order_local + sku_qty_dims
+    fetch(`/api/orders/${orderId}/save-dims`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ length: len, width: wid, height: hgt, sku, qty }),
+    }).then(r => {
+      if (r.ok) {
+        console.log(`[browseRates] Saved dims ${len}x${wid}x${hgt} for order ${orderId}${sku ? ` (${sku} qty ${qty})` : ''}`);
+        // Update the in-memory order object so reopen shows correct dims
+        if (state.rbCurrentOrder) state.rbCurrentOrder.rateDims = { length: len, width: wid, height: hgt };
+        if (state.currentPanelOrder?.orderId === orderId) state.currentPanelOrder.rateDims = { length: len, width: wid, height: hgt };
+      }
+    }).catch(() => {});
   }
 
   state.rbRatesData = {};
