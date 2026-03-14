@@ -22,7 +22,7 @@ export interface OrderRepository {
   findIdsBySku(query: GetOrderIdsQuery): number[];
   getPicklist(query: GetOrderPicklistQuery): OrderPicklistItemDto[];
   getFullById(orderId: number): OrderFullDto | null;
-  updateExternalShipped(orderId: number, externalShipped: boolean): void;
+  updateExternalShipped(orderId: number, externalShipped: boolean, source?: string | null): void;
   updateResidential(orderId: number, residential: boolean | null): void;
   updateSelectedPid(orderId: number, selectedPid: number | null): void;
   updateBestRate(orderId: number, bestRate: OrderBestRateDto, bestRateDims: string | null): void;

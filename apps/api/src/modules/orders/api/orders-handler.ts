@@ -72,16 +72,17 @@ export class OrdersHttpHandler {
     return this.orderExportService.execute(query);
   }
 
-  handleSetExternalShipped(orderId: number, payload: { flag?: number | boolean }) {
+  handleSetExternalShipped(orderId: number, payload: { flag?: number | boolean; source?: string }) {
     const flag = payload.flag;
+    const source = payload.source ?? null;
     if (flag == null) {
-      return this.updateOrderOverridesService.setExternalShipped(orderId, true);
+      return this.updateOrderOverridesService.setExternalShipped(orderId, true, source);
     }
     if (typeof flag === "boolean") {
-      return this.updateOrderOverridesService.setExternalShipped(orderId, flag);
+      return this.updateOrderOverridesService.setExternalShipped(orderId, flag, source);
     }
     if (flag === 0 || flag === 1) {
-      return this.updateOrderOverridesService.setExternalShipped(orderId, flag === 1);
+      return this.updateOrderOverridesService.setExternalShipped(orderId, flag === 1, source);
     }
     throw new InputValidationError("flag must be boolean or 0/1");
   }

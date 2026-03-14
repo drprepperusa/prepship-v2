@@ -391,13 +391,13 @@ export class SqliteOrderRepository implements OrderRepository {
     };
   }
 
-  updateExternalShipped(orderId: number, externalShipped: boolean): void {
+  updateExternalShipped(orderId: number, externalShipped: boolean, source: string | null = null): void {
     const now = Date.now();
     this.db.prepare(`
-      INSERT INTO order_local (orderId, external_shipped, updatedAt)
-      VALUES (?, ?, ?)
-      ON CONFLICT(orderId) DO UPDATE SET external_shipped = ?, updatedAt = ?
-    `).run(orderId, externalShipped ? 1 : 0, now, externalShipped ? 1 : 0, now);
+      INSERT INTO order_local (orderId, external_shipped, external_shipped_source, updatedAt)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(orderId) DO UPDATE SET external_shipped = ?, external_shipped_source = ?, updatedAt = ?
+    `).run(orderId, externalShipped ? 1 : 0, source, now, externalShipped ? 1 : 0, source, now);
 
     if (externalShipped) {
       this.db.prepare("UPDATE shipments SET source = 'external' WHERE orderId = ? AND voided = 0").run(orderId);
