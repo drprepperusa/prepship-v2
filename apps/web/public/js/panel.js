@@ -1262,11 +1262,9 @@ export function showExtShipMenu(e, orderId) {
   document.body.appendChild(menu);
   _extShipMenu = menu;
 
-  // Position: align right edge of menu to right edge of button (prevents overflow on right-side panel)
+  // Position: center horizontally on screen
   const menuWidth = menu.offsetWidth || 160;
-  const rightAligned = rect.right - menuWidth;
-  const leftAligned  = rect.left;
-  menu.style.left = (rightAligned >= 0 ? rightAligned : leftAligned) + 'px';
+  menu.style.left = Math.round((window.innerWidth - menuWidth) / 2) + 'px';
 
   // Close menu when clicking outside
   const closeHandler = (ev) => {
