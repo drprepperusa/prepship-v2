@@ -643,6 +643,12 @@ export function renderRateCell(id, best, spid) {
     spid = getOrderBillingProviderId(ord);
   }
 
+  // If best rate is marked as _noDims, show "— add dims" instead of price
+  if (best?._noDims) {
+    cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
+    return;
+  }
+
   if (best) {
     const cc  = best.carrierCode || '';
     const rawCost    = (best.shipmentCost || 0) + (best.otherCost || 0);
@@ -782,8 +788,10 @@ export async function fetchCheapestRates(orders) {
 
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
     if (!dims) {
-      // Missing dims: only update rate cell, not custcarrier
-      // custcarrier should remain stable and never flash during rate fetching
+      // Missing dims: mark bestRate with _noDims flag so render logic shows "— add dims"
+      // This ensures the message persists across re-renders
+      if (o.bestRate) o.bestRate._noDims = true;
+      // Also update DOM immediately for instant feedback
       const cell = document.getElementById(`rate-${o.orderId}`);
       if (cell) {
         cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
