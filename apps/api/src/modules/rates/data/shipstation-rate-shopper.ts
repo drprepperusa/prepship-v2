@@ -4,7 +4,7 @@ import { BLOCKED_CARRIER_IDS, CARRIER_ACCOUNTS_V2 } from "../../../common/prepsh
 import type { LiveRateShopRequest, RateShopper } from "../application/rate-shopper.ts";
 
 const FROM_ZIP = "90248";
-const SS_BASE_V2 = "https://ssapi.shipstation.com/v2";
+const SS_BASE_V2 = "https://api.shipstation.com/v2";
 
 const ZIP_LOOKUP: Record<string, { city: string; state: string }> = {
   "02": { city: "Boston", state: "MA" },
@@ -83,16 +83,39 @@ async function fetchRatesForCarrier(account: CarrierAccountDto, request: LiveRat
     console.log(`[RateShopper] Fetching rates for ${account.nickname} with signature=${request.signature}. Body:`, JSON.stringify(body, null, 2));
   }
 
-  const response = await fetch(`${SS_BASE_V2}/rates/estimate`, {
-    method: "POST",
-    headers: { "API-Key": request.apiKeyV2 as string, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // Retry with exponential backoff for rate limits
+  let retries = 0;
+  const maxRetries = 3;
+  let response: Response | null = null;
+
+  while (retries <= maxRetries) {
+    response = await fetch(`${SS_BASE_V2}/rates/estimate`, {
+      method: "POST",
+      headers: { "API-Key": request.apiKeyV2 as string, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    // Success or client error (not rate limit)
+    if (response.ok || response.status !== 429) {
+      break;
+    }
+
+    // Rate limit - wait and retry
+    if (retries < maxRetries) {
+      const waitMs = Math.pow(2, retries) * 1000; // 1s, 2s, 4s backoff
+      console.log(`[RateShopper] ShipStation rate limit (429) for ${account.nickname}, retrying in ${waitMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      retries++;
+    } else {
+      break;
+    }
+  }
   
-  if (!response.ok) {
-    const error = await response.text();
-    if (isDebugSignature) {
-      console.error(`[RateShopper] ShipStation API error for ${account.nickname} (signature=${request.signature}): ${response.status} ${error}`);
+  if (!response!.ok) {
+    const error = await response!.text();
+    // Always log auth and rate limit errors
+    if (response!.status === 401 || response!.status === 429 || isDebugSignature) {
+      console.error(`[RateShopper] ShipStation API error for ${account.nickname}: ${response!.status} ${error.slice(0, 200)}`);
     }
     return [];
   }
