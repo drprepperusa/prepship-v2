@@ -406,7 +406,10 @@ export function renderOrders(skipRates = false) {
             return `<td data-col="carrier">${cc}</td>`;
           }
           const _pb  = o.bestRate;
-          if (_pb?._noDims) return `<td data-col="carrier"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          // Check if dimensions are missing (either no dims at all, or dimension values invalid)
+          const dims = getOrderDimensions(o);
+          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+          if (_pb && !hasDims) return `<td data-col="carrier"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb)  return `<td data-col="carrier"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
@@ -454,7 +457,10 @@ export function renderOrders(skipRates = false) {
             return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
           }
           const _pb   = o.bestRate;
-          if (_pb?._noDims) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          // Check if dimensions are missing
+          const dims = getOrderDimensions(o);
+          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+          if (_pb && !hasDims) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb)   return `<td data-col="custcarrier" style="white-space:nowrap"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
@@ -485,7 +491,10 @@ export function renderOrders(skipRates = false) {
           
           // For awaiting_shipment orders
           const _pb = o.bestRate;
-          if (_pb?._noDims) return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          // Check if dimensions are missing
+          const dims = getOrderDimensions(o);
+          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+          if (_pb && !hasDims) return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb) return `<td data-col="bestrate" id="rate-${o.orderId}"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _rawCost    = (_pb.shipmentCost || 0) + (_pb.otherCost || 0);
@@ -506,7 +515,10 @@ export function renderOrders(skipRates = false) {
             return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           }
           const _mpb = o.bestRate;
-          if (_mpb?._noDims) return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
+          // Check if dimensions are missing
+          const dims = getOrderDimensions(o);
+          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+          if (_mpb && !hasDims) return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           if (!_mpb) return `<td data-col="margin" style="text-align:right"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _mRaw    = (_mpb.shipmentCost || 0) + (_mpb.otherCost || 0);
           const _mMarked = applyCarrierMarkup(_mpb);
@@ -643,10 +655,15 @@ export function renderRateCell(id, best, spid) {
     spid = getOrderBillingProviderId(ord);
   }
 
-  // If best rate is marked as _noDims, show "— add dims" instead of price
-  if (best?._noDims) {
-    cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
-    return;
+  // Check if dimensions are missing for this order
+  const ord = state.allOrders.find(o => o.orderId === id);
+  if (best && ord) {
+    const dims = getOrderDimensions(ord);
+    const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+    if (!hasDims) {
+      cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
+      return;
+    }
   }
 
   if (best) {
@@ -788,14 +805,7 @@ export async function fetchCheapestRates(orders) {
 
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
     if (!dims) {
-      // Missing dims: mark bestRate with _noDims flag so render logic shows "— add dims"
-      // This ensures the message persists across re-renders
-      if (o.bestRate) o.bestRate._noDims = true;
-      // Also update DOM immediately for instant feedback
-      const cell = document.getElementById(`rate-${o.orderId}`);
-      if (cell) {
-        cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
-      }
+      // Missing dims: don't fetch rates (no need to set flag, render logic checks dims directly)
       return;
     }
     const wt  = Math.round(rawWt);

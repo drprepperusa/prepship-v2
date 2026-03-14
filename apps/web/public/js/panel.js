@@ -1258,11 +1258,15 @@ export function showExtShipMenu(e, orderId) {
   });
 
   const rect = e.target.getBoundingClientRect();
-  menu.style.top  = (rect.bottom + 4) + 'px';
-  menu.style.left = rect.left + 'px';
-  
+  menu.style.top = (rect.bottom + 4) + 'px';
   document.body.appendChild(menu);
   _extShipMenu = menu;
+
+  // Position: align right edge of menu to right edge of button (prevents overflow on right-side panel)
+  const menuWidth = menu.offsetWidth || 160;
+  const rightAligned = rect.right - menuWidth;
+  const leftAligned  = rect.left;
+  menu.style.left = (rightAligned >= 0 ? rightAligned : leftAligned) + 'px';
 
   // Close menu when clicking outside
   const closeHandler = (ev) => {
