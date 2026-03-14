@@ -26,15 +26,12 @@ export class ShipstationResidentialGateway {
 
   /**
    * Lookup residential status for orders.
-   * Batch endpoint (if available) is preferred; falls back to per-order if needed.
-   * 
-   * ShipStation API: /orders endpoint returns residential indicator in response.
-   * We extract the shipTo.residential flag from each order object.
+   * Queries ShipStation API with a strict timeout to avoid blocking order responses.
    * 
    * Returns:
    * - true = residential address
    * - false = commercial address
-   * - null = unable to determine (use fallback logic)
+   * - null = unable to determine or API timeout (use fallback logic)
    */
   async lookupResidential(
     shipStationOrderIds: Array<{ orderId: number; shipStationOrderNumber: string | null }>,
@@ -52,14 +49,13 @@ export class ShipstationResidentialGateway {
     }
 
     try {
-      // Batch lookup: Query ShipStation API for all orders at once
-      // Use a filter query to get only the orders we care about
-      // ShipStation /orders endpoint supports pagination and filtering
-      const shipStationNumbers = shipStationOrderIds
-        .filter((item) => item.shipStationOrderNumber)
-        .map((item) => item.shipStationOrderNumber as string);
+      const shipStationNumbers = new Set(
+        shipStationOrderIds
+          .filter((item) => item.shipStationOrderNumber)
+          .map((item) => item.shipStationOrderNumber as string),
+      );
 
-      if (shipStationNumbers.length === 0) {
+      if (shipStationNumbers.size === 0) {
         // No ShipStation order numbers to look up; return all nulls
         return Array.from(results.entries()).map(([orderId, residential]) => ({
           orderId,
@@ -67,41 +63,54 @@ export class ShipstationResidentialGateway {
         }));
       }
 
-      // Query ShipStation for these specific orders
-      // Paginate through results (ShipStation returns 100 at a time)
-      let page = 1;
-      let hasMore = true;
+      // Build a map of ShipStation order number → prepship order ID for fast lookup
+      const ssNumberToOrderId = new Map(
+        shipStationOrderIds.map((item) => [item.shipStationOrderNumber, item.orderId]),
+      );
 
-      while (hasMore) {
+      // Query ShipStation for orders with a strict timeout (5 seconds total)
+      // Only fetch the first page to avoid long pagination delays
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
         const response = await fetch(
-          `${this.baseUrl}/orders?pageSize=100&page=${page}`,
+          `${this.baseUrl}/orders?pageSize=100&page=1`,
           {
             method: "GET",
             headers: { Authorization: this.authHeader },
+            signal: controller.signal,
           },
         );
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-          // If API call fails, just return nulls (fall back to heuristic)
           console.warn(
             `ShipStation residential lookup failed: ${response.status}. Using fallback logic.`,
           );
-          break;
+          // Return nulls to fall back to company-based heuristic
+          return Array.from(results.entries()).map(([orderId, residential]) => ({
+            orderId,
+            residential,
+          }));
         }
 
         const data = (await response.json()) as any;
         if (!data.orders || !Array.isArray(data.orders)) {
-          break;
+          // Return nulls if response format is unexpected
+          return Array.from(results.entries()).map(([orderId, residential]) => ({
+            orderId,
+            residential,
+          }));
         }
 
-        // Check each order for residential indicator
+        // Extract residential status for matching orders
         for (const ssOrder of data.orders) {
-          // Find matching order by ShipStation order number
-          const prepshipOrderId = shipStationOrderIds.find(
-            (item) => item.shipStationOrderNumber === ssOrder.orderNumber,
-          )?.orderId;
+          const ssOrderNumber = ssOrder.orderNumber;
+          const prepshipOrderId = ssNumberToOrderId.get(ssOrderNumber);
 
-          if (prepshipOrderId && results.has(prepshipOrderId)) {
+          if (prepshipOrderId) {
             // Extract residential status from shipTo object
             // ShipStation API returns { shipTo: { residential: true|false } }
             const ssResidential = ssOrder.shipTo?.residential;
@@ -110,14 +119,16 @@ export class ShipstationResidentialGateway {
             }
           }
         }
-
-        // Check if more pages available
-        hasMore = data.totalPages && page < data.totalPages;
-        page++;
+      } finally {
+        clearTimeout(timeoutId);
       }
     } catch (error) {
-      console.warn(`ShipStation residential gateway error: ${error}. Using fallback logic.`);
-      // On error, return nulls (triggers fallback to company-based heuristic)
+      // On error or timeout, just return nulls (fall back to company-based heuristic)
+      if (error instanceof Error && error.name === "AbortError") {
+        console.warn("ShipStation residential lookup timed out. Using fallback logic.");
+      } else {
+        console.warn(`ShipStation residential gateway error: ${error}. Using fallback logic.`);
+      }
     }
 
     return Array.from(results.entries()).map(([orderId, residential]) => ({
