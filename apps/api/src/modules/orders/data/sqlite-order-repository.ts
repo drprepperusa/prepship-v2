@@ -82,6 +82,7 @@ export class SqliteOrderRepository implements OrderRepository {
           s.trackingNumber AS label_tracking,
           s.shipDate AS label_shipDate,
           s.providerAccountId AS label_provider,
+          s.label_created_at,
           s.selected_rate_json
         FROM latest_ship ls
         JOIN shipments s ON s.shipmentId = ls.shipmentId
@@ -142,6 +143,7 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_cost,
         ship.label_raw_cost,
         ship.label_shipDate,
+        ship.label_created_at,
         o.raw,
         COALESCE(o.items, '[]') AS items
       ${fromClause}
@@ -212,6 +214,7 @@ export class SqliteOrderRepository implements OrderRepository {
         ship.label_cost,
         ship.label_raw_cost,
         ship.label_shipDate,
+        ship.label_created_at,
         o.raw,
         COALESCE(o.items, '[]') AS items,
         ol.rate_dims_l,
@@ -237,6 +240,7 @@ export class SqliteOrderRepository implements OrderRepository {
           s.trackingNumber AS label_tracking,
           s.shipDate AS label_shipDate,
           s.providerAccountId AS label_provider,
+          s.label_created_at,
           s.selected_rate_json
         FROM latest_ship ls
         JOIN shipments s ON s.shipmentId = ls.shipmentId
@@ -672,6 +676,7 @@ export class SqliteOrderRepository implements OrderRepository {
       labelCost: row.label_cost == null ? null : Number(row.label_cost),
       labelRawCost: row.label_raw_cost == null ? null : Number(row.label_raw_cost),
       labelShipDate: row.label_shipDate == null ? null : String(row.label_shipDate),
+      labelCreatedAt: row.label_created_at == null ? null : Number(row.label_created_at),
       raw: String(row.raw ?? "{}"),
       items: String(row.items ?? "[]"),
       rateDimsL: row.rate_dims_l == null ? null : Number(row.rate_dims_l),

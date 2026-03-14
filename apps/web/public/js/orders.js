@@ -531,6 +531,18 @@ export function renderOrders(skipRates = false) {
           return `<td data-col="tracking" style="font-size:11px;font-family:monospace"><span style="color:var(--ss-blue);cursor:pointer" onclick="event.stopPropagation();navigator.clipboard.writeText('${escHtml(trackingNum)}').then(()=>showToast('Tracking # copied!'))" title="Click to copy">${escHtml(trackingNum)}</span></td>`;
         }
         case 'requested': return `<td data-col="requested" style="font-size:11px;color:var(--text3)">${escHtml(getOrderRequestedService(o) || '—')}</td>`;
+        case 'labelcreated': {
+          const lc = o.label?.createdAt;
+          if (!lc) return `<td data-col="labelcreated" style="font-size:11px;color:var(--text4);text-align:center">—</td>`;
+          const d = new Date(lc);
+          const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+          const hr = d.getHours() % 12 || 12;
+          const min = String(d.getMinutes()).padStart(2,'0');
+          const ampm = d.getHours() >= 12 ? 'pm' : 'am';
+          const txt = `${mon} ${d.getDate()}, ${hr}:${min}${ampm}`;
+          const fullDate = d.toLocaleString();
+          return `<td data-col="labelcreated" style="font-size:11px;color:var(--text2);white-space:nowrap" title="${escHtml(fullDate)}">${escHtml(txt)}</td>`;
+        }
         case 'age':       return `<td data-col="age"><div class="age-wrap"><span class="age-dot" style="background:${ageDot}"></span><span style="font-size:11px;color:${hrs > 48 ? 'var(--red)' : hrs > 24 ? '#d97706' : 'var(--text3)'}">${ageText}</span></div></td>`;
         
         // ═══════════════════════════════════════════════

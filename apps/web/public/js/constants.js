@@ -20,6 +20,7 @@ export const COLS = [
   { key:'bestrate',  label:'Best Rate',           width:105, toggleable:true,  sort:null       },
   { key:'margin',    label:'Ship Margin',         width:90,  toggleable:true,  sort:null       },
   { key:'tracking',  label:'Tracking #',          width:160, toggleable:true,  sort:null       },
+  { key:'labelcreated', label:'Label Created',    width:115, toggleable:true,  sort:null       },
   { key:'age',       label:'Age',                 width:50,  toggleable:true,  sort:'age'      },
   // === TESTING COLUMNS (diagnostic data) ===
   { key:'test_carrierCode',      label:'Carrier Code',        width:120, toggleable:true, sort:null },
