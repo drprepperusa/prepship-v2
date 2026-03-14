@@ -406,6 +406,7 @@ export function renderOrders(skipRates = false) {
             return `<td data-col="carrier">${cc}</td>`;
           }
           const _pb  = o.bestRate;
+          if (_pb?._noDims) return `<td data-col="carrier"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb)  return `<td data-col="carrier"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
