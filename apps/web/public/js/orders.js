@@ -657,9 +657,10 @@ export function renderRateCell(id, best, spid) {
 
   // Check if dimensions are missing for this order
   const ord = state.allOrders.find(o => o.orderId === id);
-  if (best && ord) {
+  if (ord) {
     const dims = getOrderDimensions(ord);
     const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
+    // If dimensions are missing, always show "— add dims" (whether or not we have a rate)
     if (!hasDims) {
       cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
       return;
@@ -805,7 +806,10 @@ export async function fetchCheapestRates(orders) {
 
     if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
     if (!dims) {
-      // Missing dims: don't fetch rates (no need to set flag, render logic checks dims directly)
+      // Missing dims: render "— add dims" message and skip rate fetching
+      // Pass null to renderRateCell so it checks the order's actual dimensions
+      // The render logic will show "— add dims" because dims exist in order but are invalid
+      renderRateCell(o.orderId, null);
       return;
     }
     const wt  = Math.round(rawWt);
