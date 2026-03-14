@@ -405,11 +405,13 @@ export function renderOrders(skipRates = false) {
             if (o.externalShipped) return `<td data-col="carrier"><span style="font-size:10px;color:var(--text2)">Externally Shipped</span></td>`;
             return `<td data-col="carrier">${cc}</td>`;
           }
-          const _pb  = o.bestRate;
-          // Check if dimensions are missing (either no dims at all, or dimension values invalid)
+          // For awaiting_shipment orders: check weight and dimensions first
+          const wt = (o.weight?.value) || 0;
           const dims = getOrderDimensions(o);
           const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
-          if (_pb && !hasDims) return `<td data-col="carrier"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          if (!wt || !hasDims) return `<td data-col="carrier"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          
+          const _pb  = o.bestRate;
           if (!_pb)  return `<td data-col="carrier"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
@@ -456,11 +458,13 @@ export function renderOrders(skipRates = false) {
             const serviceLabel = SERVICE_NAMES[serviceCode] || serviceCode.replace(/_/g, ' ');
             return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
           }
+          // For awaiting_shipment orders: check weight and dimensions first
+          const wt2 = (o.weight?.value) || 0;
+          const dims2 = getOrderDimensions(o);
+          const hasDims2 = dims2?.length > 0 && dims2?.width > 0 && dims2?.height > 0;
+          if (!wt2 || !hasDims2) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          
           const _pb   = o.bestRate;
-          // Check if dimensions are missing
-          const dims = getOrderDimensions(o);
-          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
-          if (_pb && !hasDims) return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
           if (!_pb)   return `<td data-col="custcarrier" style="white-space:nowrap"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _bsc  = _pb.serviceCode || '';
@@ -489,12 +493,13 @@ export function renderOrders(skipRates = false) {
           // For shipped orders with no rate data
           if (o.orderStatus !== 'awaiting_shipment') return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="color:var(--text3);font-size:11px">—</span></td>`;
           
-          // For awaiting_shipment orders
-          const _pb = o.bestRate;
-          // Check if dimensions are missing
+          // For awaiting_shipment orders: check weight and dimensions first
+          const wt = (o.weight?.value) || 0;
           const dims = getOrderDimensions(o);
           const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
-          if (_pb && !hasDims) return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          if (!wt || !hasDims) return `<td data-col="bestrate" id="rate-${o.orderId}"><span style="font-size:10.5px;color:var(--text3)">— add dims</span></td>`;
+          
+          const _pb = o.bestRate;
           if (!_pb) return `<td data-col="bestrate" id="rate-${o.orderId}"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _bcc  = _pb.carrierCode || '';
           const _rawCost    = (_pb.shipmentCost || 0) + (_pb.otherCost || 0);
@@ -514,11 +519,13 @@ export function renderOrders(skipRates = false) {
             }
             return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           }
+          // For awaiting_shipment orders: check weight and dimensions first
+          const wt3 = (o.weight?.value) || 0;
+          const dims3 = getOrderDimensions(o);
+          const hasDims3 = dims3?.length > 0 && dims3?.width > 0 && dims3?.height > 0;
+          if (!wt3 || !hasDims3) return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
+          
           const _mpb = o.bestRate;
-          // Check if dimensions are missing
-          const dims = getOrderDimensions(o);
-          const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
-          if (_mpb && !hasDims) return `<td data-col="margin" style="text-align:right;color:var(--text4);font-size:11px">—</td>`;
           if (!_mpb) return `<td data-col="margin" style="text-align:right"><div class="spin-center"><span class="spin-sm"></span></div></td>`;
           const _mRaw    = (_mpb.shipmentCost || 0) + (_mpb.otherCost || 0);
           const _mMarked = applyCarrierMarkup(_mpb);
@@ -649,23 +656,6 @@ export function renderRateCell(id, best, spid) {
   if (best) state.orderBestRate[id] = best;
   const cell = document.getElementById(`rate-${id}`);
   if (!cell) return;
-
-  if (!spid) {
-    const ord = state.allOrders.find(o => o.orderId === id);
-    spid = getOrderBillingProviderId(ord);
-  }
-
-  // Check if dimensions are missing for this order
-  const ord = state.allOrders.find(o => o.orderId === id);
-  if (ord) {
-    const dims = getOrderDimensions(ord);
-    const hasDims = dims?.length > 0 && dims?.width > 0 && dims?.height > 0;
-    // If dimensions are missing, always show "— add dims" (whether or not we have a rate)
-    if (!hasDims) {
-      cell.innerHTML = `<span style="font-size:10.5px;color:var(--text3)">— add dims</span>`;
-      return;
-    }
-  }
 
   if (best) {
     const cc  = best.carrierCode || '';
@@ -804,14 +794,8 @@ export async function fetchCheapestRates(orders) {
     const dSrc  = o._enrichedDims || getOrderDimensions(o);
     const dims  = (dSrc?.length > 0 && dSrc?.width > 0 && dSrc?.height > 0) ? dSrc : null;
 
-    if (!rawWt || rawWt <= 0) { renderRateCell(o.orderId, null); return; }
-    if (!dims) {
-      // Missing dims: render "— add dims" message and skip rate fetching
-      // Pass null to renderRateCell so it checks the order's actual dimensions
-      // The render logic will show "— add dims" because dims exist in order but are invalid
-      renderRateCell(o.orderId, null);
-      return;
-    }
+    if (!rawWt || rawWt <= 0) return;
+    if (!dims) return;
     const wt  = Math.round(rawWt);
     const zip = (o.shipTo?.postalCode || '').replace(/\D/g, '').slice(0, 5);
     if (!zip || zip.length < 5) return;
