@@ -9,6 +9,10 @@ export class UpdateOrderOverridesService {
   }
 
   setExternalShipped(orderId: number, externalShipped: boolean) {
+    // NOTE: This flag marks an order as fulfilled externally (Amazon, eBay, Shopify, etc.)
+    // It is a LOCAL-ONLY flag in PrepShip's database.
+    // NO notification is sent to the customer or original marketplace.
+    // This is for internal tracking only when orders are manually fulfilled outside PrepShip.
     this.repository.updateExternalShipped(orderId, externalShipped);
     return { ok: true, orderId, external_shipped: externalShipped ? 1 : 0 };
   }

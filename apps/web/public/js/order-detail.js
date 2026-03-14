@@ -210,6 +210,11 @@ export async function openOrderDetail(orderId) {
   }
 
   const isAwaiting = o.orderStatus === 'awaiting_shipment';
+  if (!isAwaiting) {
+    console.log(`[order-detail] Order ${o.orderId} status is "${o.orderStatus}" (not awaiting_shipment), hiding Mark as Shipped button`);
+  } else {
+    console.log(`[order-detail] Order ${o.orderId} status is "awaiting_shipment", showing Mark as Shipped button`);
+  }
   const actionsHtml = isAwaiting ? `
     <div class="od-card od-actions-card">
       <div class="od-card-title">⚡ Actions</div>
