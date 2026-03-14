@@ -841,7 +841,7 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "GET" && url.pathname === "/api/orders") {
       try {
-        return jsonResponse(200, dependencies.ordersHandler.handleList(url));
+        return jsonResponse(200, await dependencies.ordersHandler.handleList(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });

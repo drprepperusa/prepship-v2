@@ -40,7 +40,7 @@ export class OrdersHttpHandler {
     this.orderExportService = orderExportService;
   }
 
-  handleList(requestUrl: URL) {
+  async handleList(requestUrl: URL) {
     const query = parseListOrdersQuery(requestUrl);
     return this.listOrdersService.execute(query);
   }

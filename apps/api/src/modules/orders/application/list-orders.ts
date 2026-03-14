@@ -5,6 +5,7 @@ import type {
 } from "../../../../../../packages/contracts/src/orders/contracts.ts";
 import type { OrderRepository } from "./order-repository.ts";
 import type { RateServices } from "../../rates/application/rate-services.ts";
+import type { ShipstationResidentialGateway } from "../data/shipstation-residential-gateway.ts";
 import {
   normalizeOrderBestRateDto,
   normalizeOrderSelectedRateDto,
@@ -124,14 +125,47 @@ function toOrderDto(
 export class ListOrdersService {
   private readonly repository: OrderRepository;
   private readonly rateServices: RateServices | null;
+  private readonly residentialGateway: ShipstationResidentialGateway | null;
 
-  constructor(repository: OrderRepository, rateServices?: RateServices) {
+  constructor(
+    repository: OrderRepository,
+    rateServices?: RateServices,
+    residentialGateway?: ShipstationResidentialGateway,
+  ) {
     this.repository = repository;
     this.rateServices = rateServices ?? null;
+    this.residentialGateway = residentialGateway ?? null;
   }
 
-  execute(query: ListOrdersQuery): ListOrdersResponse {
+  async execute(query: ListOrdersQuery): Promise<ListOrdersResponse> {
     const result = this.repository.list(query);
+
+    // Enrich orders with ShipStation residential status BEFORE mapping to DTO
+    // This ensures rates are fetched with the correct residential flag
+    if (this.residentialGateway && result.orders.length > 0) {
+      const residentialResults = await this.residentialGateway.lookupResidential(
+        result.orders.map((record) => ({
+          orderId: record.orderId,
+          shipStationOrderNumber: record.orderNumber,
+        })),
+      );
+
+      // Merge ShipStation residential status into records
+      const residentialMap = new Map(
+        residentialResults
+          .filter((r) => r.residential !== null)
+          .map((r) => [r.orderId, r.residential]),
+      );
+
+      for (const record of result.orders) {
+        const ssResidential = residentialMap.get(record.orderId);
+        if (ssResidential !== undefined) {
+          // Update sourceResidential if ShipStation provided a value
+          record.sourceResidential = ssResidential;
+        }
+      }
+    }
+
     const pages = Math.max(1, Math.ceil(result.total / query.pageSize));
 
     return {

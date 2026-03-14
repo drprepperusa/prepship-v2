@@ -47,6 +47,7 @@ import { OrderPicklistService } from "../modules/orders/application/order-pickli
 import { OrderFullService } from "../modules/orders/application/order-full.ts";
 import { OrderDailyStatsService } from "../modules/orders/application/order-daily-stats.ts";
 import { UpdateOrderOverridesService } from "../modules/orders/application/update-order-overrides.ts";
+import { ShipstationResidentialGateway } from "../modules/orders/data/shipstation-residential-gateway.ts";
 import type { MemoryDataStoreSeed } from "./providers/memory-datastore.ts";
 
 export interface BootstrapApiOverrides {
@@ -93,7 +94,8 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const settingsHandler = new SettingsHttpHandler(settingsServices, rateServices);
   const shipmentServices = new ShipmentServices(dataStore.shipmentRepository, shippingGateway, config.secrets);
   const shipmentsHandler = new ShipmentsHttpHandler(shipmentServices);
-  const listOrdersService = new ListOrdersService(dataStore.orderRepository, rateServices);
+  const residentialGateway = new ShipstationResidentialGateway(config.secrets);
+  const listOrdersService = new ListOrdersService(dataStore.orderRepository, rateServices, residentialGateway);
   const orderDetailsService = new OrderDetailsService(dataStore.orderRepository, rateServices);
   const getOrderIdsService = new GetOrderIdsService(dataStore.orderRepository);
   const orderPicklistService = new OrderPicklistService(dataStore.orderRepository);
