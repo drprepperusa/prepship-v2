@@ -1226,14 +1226,10 @@ function toggleInsureVal() {
 let _extShipMenu = null;
 
 export function showExtShipMenu(e, orderId) {
-  console.log('[showExtShipMenu] Called with orderId:', orderId);
-  console.log('[showExtShipMenu] Event:', e);
-  
   e.stopPropagation();
   e.preventDefault();
   
   if (_extShipMenu) { 
-    console.log('[showExtShipMenu] Removing existing menu');
     _extShipMenu.remove(); 
     _extShipMenu = null; 
   }
@@ -1252,7 +1248,6 @@ export function showExtShipMenu(e, orderId) {
     item.style.cssText = 'padding:8px 14px;cursor:pointer;color:var(--text);transition:background .15s';
     item.textContent = s;
     item.onclick = (evt) => {
-      console.log('[menu item click] Source:', s);
       evt.stopPropagation();
       evt.preventDefault();
       markShippedExternal(orderId, s);
@@ -1265,25 +1260,21 @@ export function showExtShipMenu(e, orderId) {
   const rect = e.target.getBoundingClientRect();
   menu.style.top  = (rect.bottom + 4) + 'px';
   menu.style.left = rect.left + 'px';
-  console.log('[showExtShipMenu] Menu positioned at:', { top: menu.style.top, left: menu.style.left });
   
   document.body.appendChild(menu);
-  console.log('[showExtShipMenu] Menu appended to DOM');
   _extShipMenu = menu;
 
   // Close menu when clicking outside
   const closeHandler = (ev) => {
     if (_extShipMenu && !_extShipMenu.contains(ev.target) && ev.target !== e.target) {
-      console.log('[closeHandler] Closing menu (click outside)');
       _extShipMenu.remove();
       _extShipMenu = null;
-      document.removeEventListener('click', closeHandler);
+      document.removeEventListener('click', closeHandler, true); // must match capture=true
     }
   };
   
   // Use setTimeout to allow click event to fully propagate before installing close handler
   setTimeout(() => {
-    console.log('[showExtShipMenu] Installing close handler');
     document.addEventListener('click', closeHandler, true); // Use capture phase
   }, 50);
 }
