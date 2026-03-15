@@ -303,10 +303,13 @@ export function renderOrders(skipRates = false) {
         const grpIdJson = JSON.stringify(grpIds);
         const skuJson = JSON.stringify(thisSku);
         const qtyJson = JSON.stringify(thisQty);
+        // Check if all orders in this group are selected
+        const grpAllSelected = grpIds.every(id => state.selectedOrders.has(id));
+        const grpChecked = grpAllSelected ? 'checked' : '';
         groupHeader = `<tr class="sku-group-header">
           <td colspan="${visColCount}" style="padding:5px 12px;background:var(--ss-blue-bg);border-top:2px solid var(--ss-blue);border-bottom:1px solid var(--border);font-size:11.5px;font-weight:700;color:var(--ss-blue)">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;pointer-events:auto" onclick='event.stopPropagation();selectSkuGroupAndShowBatch(${grpIdJson},${skuJson},${qtyJson})'>
-              <input type="checkbox" style="width:16px;height:16px;accent-color:var(--ss-blue);cursor:pointer">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;pointer-events:auto">
+              <input type="checkbox" ${grpChecked} style="width:16px;height:16px;accent-color:var(--ss-blue);cursor:pointer" onchange='event.stopPropagation();toggleSkuGroup(${grpIdJson},this.checked,${skuJson})'>
               📦 ${escHtml(grpName)} &nbsp;·&nbsp; Qty ${thisQty} per order &nbsp;·&nbsp; <span style="font-weight:400;color:var(--text2)">${grpCount} order${grpCount !== 1 ? 's' : ''}</span>
             </label>
           </td>
