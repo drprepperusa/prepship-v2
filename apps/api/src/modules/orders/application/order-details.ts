@@ -161,6 +161,7 @@ export class OrderDetailsService {
         rawCost: record.labelRawCost,
         shipDate: record.labelShipDate,
         createdAt: record.labelCreatedAt,
+        labelUrl: record.labelUrl,
       },
       items,
       raw: rawData,

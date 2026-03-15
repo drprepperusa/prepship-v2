@@ -31,6 +31,7 @@ export interface OrderRecord {
   labelRawCost: number | null;
   labelShipDate: string | null;
   labelCreatedAt: number | null;
+  labelUrl: string | null;
   raw: string;
   items: string;
   // Stored dimensions from order_local (used for rate calculation)

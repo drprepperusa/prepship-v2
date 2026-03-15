@@ -116,6 +116,7 @@ function toOrderDto(
       rawCost: record.labelRawCost,
       shipDate: record.labelShipDate,
       createdAt: record.labelCreatedAt,
+      labelUrl: record.labelUrl,
     },
     items,
     raw: rawData,
