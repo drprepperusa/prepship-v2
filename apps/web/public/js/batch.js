@@ -230,9 +230,14 @@ export function showBatchPanel() {
         <div id="batch-rates-summary" style="display:none;margin-top:8px;padding:10px;background:var(--surface2);border-radius:6px;font-size:12px"></div>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-        <button class="btn btn-primary" id="batch-create-btn" style="width:100%;padding:12px;font-size:13px;font-weight:700;margin-bottom:8px;opacity:.5;pointer-events:none" onclick="batchCreateLabels()">
-          🖨️ Create ${orders.length} Labels
-        </button>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button class="btn btn-primary" id="batch-create-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700;opacity:.5;pointer-events:none" onclick="batchCreateLabels()">
+            🖨️ Print ${orders.length}
+          </button>
+          <button class="create-label-btn" id="batch-queue-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700;background:#16a34a;opacity:.5;pointer-events:none" onclick="batchSendToQueue()">
+            📥 Queue ${orders.length}
+          </button>
+        </div>
       </div>
       <div style="text-align:center;margin-top:14px">
         <button class="btn btn-ghost btn-sm" onclick="clearSelection()">✕ Clear Selection</button>
@@ -285,11 +290,13 @@ export function showBatchPanel() {
         </div>
         <div style="color:var(--text3);font-size:11px;margin-top:2px">Avg: $${(totalCost/rated).toFixed(2)}/order · Each order uses its cheapest carrier</div>`;
       if (missing === 0) {
-        // All already rated — hide Rate Shop button and enable Create
+        // All already rated — hide Rate Shop button and enable Create + Queue buttons
         const rateBtn   = document.getElementById('batch-rate-btn');
         const createBtn = document.getElementById('batch-create-btn');
+        const queueBtn  = document.getElementById('batch-queue-btn');
         if (rateBtn)   rateBtn.style.display = 'none';
         if (createBtn) { createBtn.style.opacity = '1'; createBtn.style.pointerEvents = 'auto'; }
+        if (queueBtn)  { queueBtn.style.opacity = '1'; queueBtn.style.pointerEvents = 'auto'; }
       }
     }
   }, 50);
@@ -608,6 +615,117 @@ export async function batchCreateLabels() {
   }
 }
 
+// ─── Batch Send to Queue (create labels + queue them without PDF download) ──────
+export async function batchSendToQueue() {
+  const ids    = [...state.selectedOrders];
+  const orders = ids.map(id => state.allOrders.find(o => o.orderId === id)).filter(Boolean);
+
+  if (!orders.length) {
+    showToast('⚠ No orders selected');
+    return;
+  }
+
+  // All orders must have a best rate (from batchRateShop)
+  const missingRate = orders.find(o => !state.orderBestRate[o.orderId]);
+  if (missingRate) {
+    showToast(`⚠ Rate Shop first — order ${missingRate.orderNumber} has no rate selected`);
+    return;
+  }
+
+  const btn = document.getElementById('batch-queue-btn');
+  btn.disabled = true;
+  btn.textContent = 'Queuing…';
+
+  // Read panel weight/dims
+  const panelWt = parseFloat(document.getElementById('batch-weight')?.value) || 0;
+  const panelL  = parseFloat(document.getElementById('batch-l')?.value) || 0;
+  const panelW  = parseFloat(document.getElementById('batch-w')?.value) || 0;
+  const panelH  = parseFloat(document.getElementById('batch-h')?.value) || 0;
+  const hasPanelDims = panelL > 0 && panelW > 0 && panelH > 0;
+
+  let queued = 0, failed = 0;
+  const failures = [];
+
+  for (const o of orders) {
+    try {
+      const bestRate = state.orderBestRate[o.orderId];
+      const serviceCode = bestRate.serviceCode;
+      const carrierCode = bestRate.carrierCode;
+
+      if (!serviceCode || !carrierCode) {
+        throw new Error('Missing serviceCode or carrierCode in best rate');
+      }
+
+      // Resolve weight/dimensions
+      const wtOz = hasPanelDims
+        ? panelWt > 0 ? panelWt * 16 : ((o._enrichedWeight || o.weight)?.value || 0)
+        : (o._enrichedWeight || o.weight)?.value || 0;
+
+      const dims = hasPanelDims
+        ? { length: panelL, width: panelW, height: panelH }
+        : o._enrichedDims || getOrderDimensions(o) || {};
+
+      // Create label using best rate's carrier/service
+      const labelResp = await fetch('/api/labels/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: o.orderId,
+          carrierCode: carrierCode,
+          serviceCode: serviceCode,
+          weight: wtOz,
+          length: dims.length || 0,
+          width: dims.width || 0,
+          height: dims.height || 0,
+        }),
+      });
+
+      if (!labelResp.ok) {
+        const err = await parseErrorResponse(labelResp);
+        throw new Error(err || 'Label creation failed');
+      }
+
+      const labelData = await labelResp.json();
+
+      // Queue the label (add to print queue)
+      const queueResp = await fetch('/api/queue/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: o.orderId,
+          labelId: labelData.labelId,
+        }),
+      });
+
+      if (!queueResp.ok) {
+        const err = await parseErrorResponse(queueResp);
+        throw new Error(err || 'Queue add failed');
+      }
+
+      queued++;
+    } catch (e) {
+      console.error(`[Batch Queue] Order ${o.orderNumber} failed:`, e.message);
+      failed++;
+      failures.push({ orderNumber: o.orderNumber, error: e.message });
+    }
+  }
+
+  // Re-fetch queue to update UI
+  await fetchQueue(state.currentStoreId);
+  await loadOrders();
+
+  btn.disabled = false;
+  btn.textContent = `📥 Queue ${orders.length}`;
+
+  if (failed === 0) {
+    showToast(`✅ Queued ${queued} orders`);
+    closeBatchPanel();
+  } else {
+    const msg = failures.map(f => `${f.orderNumber}: ${f.error}`).join(' | ');
+    showToast(`⚠ ${queued} queued, ${failed} failed: ${msg}`);
+  }
+}
+
 // Save per-SKU dimensions for multi-SKU batches
 export async function saveBatchSkuDims(sku, orderCount) {
   const wtInput = document.querySelector(`.sku-weight[data-sku="${sku}"]`);
@@ -660,5 +778,6 @@ window.showBatchPanel         = showBatchPanel;
 window.batchApplyToAll        = batchApplyToAll;
 window.batchRateShop          = batchRateShop;
 window.autoMatchPackageByDims = autoMatchPackageByDims;
-window.saveBatchSkuDims       = saveBatchSkuDims;
 window.batchCreateLabels      = batchCreateLabels;
+window.batchSendToQueue       = batchSendToQueue;
+window.saveBatchSkuDims       = saveBatchSkuDims;
