@@ -40,6 +40,11 @@ export class SqliteOrderRepository implements OrderRepository {
       params.push(query.storeId);
     }
 
+
+    if (query.clientId != null) {
+      clauses.push("o.clientId = ?");
+      params.push(query.clientId);
+    }
     if (query.dateStart) {
       clauses.push("o.orderDate >= ?");
       params.push(query.dateStart);

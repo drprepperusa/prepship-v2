@@ -7,6 +7,7 @@ export interface ListOrdersQuery {
   pageSize: number;
   orderStatus?: string;
   storeId?: number;
+  clientId?: number;
   dateStart?: string;
   dateEnd?: string;
 }
@@ -182,6 +183,7 @@ export function parseListOrdersQuery(url: URL): ListOrdersQuery {
     pageSize,
     orderStatus: url.searchParams.get("orderStatus") ?? undefined,
     storeId: parseOptionalIntegerParam(url.searchParams.get("storeId"), "storeId"),
+    clientId: parseOptionalIntegerParam(url.searchParams.get("clientId"), "clientId"),
     dateStart: url.searchParams.get("dateStart") ?? undefined,
     dateEnd: url.searchParams.get("dateEnd") ?? undefined,
   };
