@@ -203,7 +203,9 @@ export function closePanel() {
 // This file provides closeBatchPanel() for closing the batch panel
 
 export function closeBatchPanel() {
-  if (state.selectedOrders.size > 0) return;
+  // Close the batch panel (show "No order selected" message)
+  // Called when transitioning from batch (2+) to single (1), or when all orders deselected
+  // NOTE: No size check here — caller handles that logic
   
   document.getElementById('orderPanel').classList.remove('open');
   document.getElementById('panelBackdrop').classList.remove('show');
