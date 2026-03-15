@@ -290,14 +290,16 @@ export function showBatchPanel() {
         </div>
         <div style="color:var(--text3);font-size:11px;margin-top:2px">Avg: $${(totalCost/rated).toFixed(2)}/order · Each order uses its cheapest carrier</div>`;
       if (missing === 0) {
-        // All already rated — hide Rate Shop button and enable Create + Queue buttons
+        // All already rated — hide Rate Shop button and enable Create button
         const rateBtn   = document.getElementById('batch-rate-btn');
         const createBtn = document.getElementById('batch-create-btn');
-        const queueBtn  = document.getElementById('batch-queue-btn');
         if (rateBtn)   rateBtn.style.display = 'none';
         if (createBtn) { createBtn.style.opacity = '1'; createBtn.style.pointerEvents = 'auto'; }
-        if (queueBtn)  { queueBtn.style.opacity = '1'; queueBtn.style.pointerEvents = 'auto'; }
       }
+      
+      // Queue button ALWAYS enabled (uses cached best rates from order load, doesn't need rate shop)
+      const queueBtn = document.getElementById('batch-queue-btn');
+      if (queueBtn) { queueBtn.style.opacity = '1'; queueBtn.style.pointerEvents = 'auto'; }
     }
   }, 50);
 }
@@ -616,6 +618,7 @@ export async function batchCreateLabels() {
 }
 
 // ─── Batch Send to Queue (create labels + queue them without PDF download) ──────
+// Uses cached best rates (pre-populated when orders load) — no rate shop required
 export async function batchSendToQueue() {
   const ids    = [...state.selectedOrders];
   const orders = ids.map(id => state.allOrders.find(o => o.orderId === id)).filter(Boolean);
@@ -625,47 +628,31 @@ export async function batchSendToQueue() {
     return;
   }
 
-  // All orders must have a best rate (from batchRateShop)
-  const missingRate = orders.find(o => !state.orderBestRate[o.orderId]);
-  if (missingRate) {
-    showToast(`⚠ Rate Shop first — order ${missingRate.orderNumber} has no rate selected`);
-    return;
-  }
-
   const btn = document.getElementById('batch-queue-btn');
   btn.disabled = true;
   btn.textContent = 'Queuing…';
-
-  // Read panel weight/dims
-  const panelWt = parseFloat(document.getElementById('batch-weight')?.value) || 0;
-  const panelL  = parseFloat(document.getElementById('batch-l')?.value) || 0;
-  const panelW  = parseFloat(document.getElementById('batch-w')?.value) || 0;
-  const panelH  = parseFloat(document.getElementById('batch-h')?.value) || 0;
-  const hasPanelDims = panelL > 0 && panelW > 0 && panelH > 0;
 
   let queued = 0, failed = 0;
   const failures = [];
 
   for (const o of orders) {
     try {
+      // Use cached best rate if available; otherwise use order's default carrier/service
       const bestRate = state.orderBestRate[o.orderId];
+      
+      // If no cached rate, skip this order (user should rate shop or we need better fallback)
+      if (!bestRate || !bestRate.serviceCode || !bestRate.carrierCode) {
+        throw new Error('No carrier/service cached. Load order or rate shop first.');
+      }
+
       const serviceCode = bestRate.serviceCode;
       const carrierCode = bestRate.carrierCode;
 
-      if (!serviceCode || !carrierCode) {
-        throw new Error('Missing serviceCode or carrierCode in best rate');
-      }
+      // Resolve weight/dimensions from order's cached data
+      const wtOz = (o._enrichedWeight || o.weight)?.value || 0;
+      const dims = o._enrichedDims || getOrderDimensions(o) || {};
 
-      // Resolve weight/dimensions
-      const wtOz = hasPanelDims
-        ? panelWt > 0 ? panelWt * 16 : ((o._enrichedWeight || o.weight)?.value || 0)
-        : (o._enrichedWeight || o.weight)?.value || 0;
-
-      const dims = hasPanelDims
-        ? { length: panelL, width: panelW, height: panelH }
-        : o._enrichedDims || getOrderDimensions(o) || {};
-
-      // Create label using best rate's carrier/service
+      // Create label using cached best rate's carrier/service + order's weight/dims/address
       const labelResp = await fetch('/api/labels/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
