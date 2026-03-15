@@ -51,9 +51,13 @@ function getPanelDisplayCarriers() {
 
 // ─── Open / Close ─────────────────────────────────────────────────────────────
 export async function openPanel(id) {
+  console.log(`[openPanel] Called with id=${id}`);
   const { allOrders, packagesList, locationsList, selectedOrders } = state;
   const o = allOrders.find(o => o.orderId === id);
-  if (!o) return;
+  if (!o) {
+    console.warn(`[openPanel] Order ${id} not found`);
+    return;
+  }
 
   // Ensure packages + locations are loaded before building panel
   if (!packagesList.length) {
@@ -65,6 +69,7 @@ export async function openPanel(id) {
     await loadLocations();
   }
 
+  console.log(`[openPanel] Building panel for order ${id}`);
   state.currentPanelOrder = o;
   _panelStoreId = getOrderStoreId(o);
   
@@ -103,7 +108,9 @@ export async function openPanel(id) {
   if (window.updateBatchBar) window.updateBatchBar();
 
   // Build panel HTML
+  console.log(`[openPanel] Rendering single order panel HTML for order ${id}`);
   document.getElementById('panelInner').innerHTML = buildPanelHTML(o);
+  document.getElementById('orderPanel').classList.add('open');
   const confirmEl = document.getElementById('p-confirm');
   if (confirmEl) {
     const rawConfirmation = getOrderConfirmation(o);

@@ -974,11 +974,11 @@ export function toggleCheckbox(id, checked) {
     // Multiple selected: show batch panel
     if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
   } else if (state.selectedOrders.size === 1) {
-    // Single selected: show single order panel
+    // Single selected: show single order panel (will auto-close batch panel)
     const singleId = Array.from(state.selectedOrders)[0];
     if (typeof window.openPanel === 'function') window.openPanel(singleId);
   } else {
-    // None selected: close panel
+    // None selected: close all panels
     if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
   }
 }
