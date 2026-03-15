@@ -115,6 +115,7 @@ export class ShipstationShippingGateway implements ShippingGateway {
         packages: [pkg],
         confirmation: input.confirmation || "none",
         order_id: `se-${input.ssOrderId}`,
+        external_order_id: input.orderNumber ?? undefined,
       },
       is_return_label: false,
       label_layout: "4x6",

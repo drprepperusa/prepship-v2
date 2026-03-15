@@ -19,6 +19,7 @@ export interface CreateExternalLabelInput {
   shipFrom: AddressRecord;
   confirmation: string | null;
   ssOrderId: number;
+  orderNumber: string | null;
   testLabel?: boolean;
 }
 

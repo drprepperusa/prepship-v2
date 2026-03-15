@@ -205,6 +205,7 @@ export class LabelServices {
       shipFrom,
       confirmation: body.confirmation ?? null,
       ssOrderId: order.orderId,
+      orderNumber: order.orderNumber ?? null,
       testLabel: body.testLabel === true,
     });
 
