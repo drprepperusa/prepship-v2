@@ -628,6 +628,17 @@ export async function batchSendToQueue() {
     return;
   }
 
+  // ─── PRE-FLIGHT VALIDATION: Check all orders have cached best rates ───
+  const missingRates = orders.filter(o => !state.orderBestRate[o.orderId] || !state.orderBestRate[o.orderId].serviceCode || !state.orderBestRate[o.orderId].carrierCode);
+  if (missingRates.length > 0) {
+    const orderList = missingRates.map(o => `• ${o.orderNumber}`).join('\n');
+    showErrorModal(
+      'Missing Shipping Rates',
+      `The following orders need rate shopping before queuing:\n\n${orderList}\n\nPlease complete rate shopping prior to continuing with batch.`
+    );
+    return;
+  }
+
   const btn = document.getElementById('batch-queue-btn');
   btn.disabled = true;
   btn.textContent = 'Queuing…';
@@ -756,6 +767,66 @@ export async function saveBatchSkuDims(sku, orderCount) {
     console.error('[Batch] Error saving SKU defaults:', e.message);
     showToast(`❌ Error saving defaults: ${e.message}`);
   }
+}
+
+// ─── Error Modal (pre-flight validation feedback) ────────────────────────────
+// Shows an error popup if batch queue validation fails
+function showErrorModal(title, message) {
+  const modal = document.createElement('div');
+  modal.id = 'error-modal-overlay';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+
+  const box = document.createElement('div');
+  box.style.cssText = `
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    max-width: 500px;
+    min-width: 320px;
+    text-align: left;
+  `;
+
+  const titleElem = document.createElement('h2');
+  titleElem.textContent = title;
+  titleElem.style.cssText = 'margin: 0 0 12px 0; font-size: 18px; color: #dc2626;';
+
+  const msgElem = document.createElement('p');
+  msgElem.textContent = message;
+  msgElem.style.cssText = 'margin: 0 0 20px 0; font-size: 14px; color: #333; white-space: pre-wrap; line-height: 1.6;';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'OK';
+  closeBtn.style.cssText = `
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+  `;
+  closeBtn.onclick = () => {
+    modal.remove();
+  };
+
+  box.appendChild(titleElem);
+  box.appendChild(msgElem);
+  box.appendChild(closeBtn);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
 }
 
 // Expose for inline HTML handlers
