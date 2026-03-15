@@ -199,19 +199,8 @@ export function closePanel() {
 }
 
 // ─── Batch Panel ───────────────────────────────────────────────────────────────
-export function showBatchPanel() {
-  const selectedCount = state.selectedOrders.size;
-  if (selectedCount < 2) return;
-
-  state.currentPanelOrder = null;
-  document.getElementById('panelInner').innerHTML = buildBatchPanelHTML();
-  document.getElementById('orderPanel').classList.add('open');
-  
-  // Backdrop only on mobile
-  if (window.innerWidth <= 768) {
-    document.getElementById('panelBackdrop').classList.add('show');
-  }
-}
+// NOTE: showBatchPanel() is exported from batch.js, not here (avoid naming collision)
+// This file provides closeBatchPanel() for closing the batch panel
 
 export function closeBatchPanel() {
   if (state.selectedOrders.size > 0) return;
@@ -1589,7 +1578,7 @@ export function showBatchMenu(event, orderId) {
 // ─── Window exports ────────────────────────────────────────────────────────────
 window.openPanel            = openPanel;
 window.closePanel           = closePanel;
-window.showBatchPanel       = showBatchPanel;
+// NOTE: showBatchPanel is exported from batch.js, not here (avoid naming collision)
 window.closeBatchPanel      = closeBatchPanel;
 window.togglePanelSection   = togglePanelSection;
 window.applyPreset          = applyPreset;
