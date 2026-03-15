@@ -174,6 +174,7 @@ export async function createLabel(testLabel = false) {
 //  SEND TO QUEUE (Workflow B)
 //  Called by "Send to Queue" button in order panel.
 //  Creates label (if missing), ships order, adds to print queue.
+//  DOES NOT open the PDF in a new tab (unlike createLabel).
 // ═══════════════════════════════════════════════
 
 export async function sendToQueueFromOrder(orderId) {
@@ -181,18 +182,120 @@ export async function sendToQueueFromOrder(orderId) {
   const o = allOrders.find(o => o.orderId === orderId);
   if (!o) return showToast('⚠ Order not found');
 
+  // Gather label creation fields (same as createLabel)
+  const wtLb    = parseFloat(document.getElementById('p-wtlb')?.value) || 0;
+  const wtOz    = parseFloat(document.getElementById('p-wtoz')?.value) || 0;
+  const totalOz = (wtLb * 16) + wtOz;
+  const pid     = parseInt(document.getElementById('p-shipacct')?.value) || null;
+  const service = document.getElementById('p-service')?.value || '';
+  const pkgVal  = document.getElementById('p-package')?.value || '';
+  const length  = parseFloat(document.getElementById('p-len')?.value) || 0;
+  const width   = parseFloat(document.getElementById('p-wid')?.value) || 0;
+  const height  = parseFloat(document.getElementById('p-hgt')?.value) || 0;
+  const confirmationOption = document.getElementById('p-confirm')?.value || 'delivery';
+  const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
+  const locId   = parseInt(document.getElementById('p-location')?.value) || null;
+
+  // Validate: package required
+  if (!pkgVal || pkgVal === '') {
+    return showToast('⚠ Select a package before creating a label');
+  }
+
+  // Validate: carrier + service required
+  if (!pid)     return showToast('⚠ Select a carrier account');
+  if (!service) return showToast('⚠ Select a shipping service');
+  if (!totalOz) return showToast('⚠ Enter shipment weight');
+
+  // Determine packageCode and customPackageId
+  const selectedPkg = state.packagesList.find(p => String(p.packageId) === String(pkgVal));
+  let packageCode     = 'package';
+  let customPackageId = null;
+  if (selectedPkg) {
+    if (selectedPkg.source === 'ss_carrier') {
+      packageCode = selectedPkg.packageCode || 'package';
+    } else {
+      packageCode     = 'package';
+      customPackageId = selectedPkg.packageId;
+    }
+  } else if (pkgVal !== '__custom__') {
+    packageCode = pkgVal;
+  }
+
+  // Determine ship-from location
+  const shipFromLoc = locId ? state.locationsList.find(l => l.locationId === locId) : null;
+  const shipFrom = shipFromLoc
+    ? {
+        name:       shipFromLoc.name,
+        company:    shipFromLoc.company    || '',
+        street1:    shipFromLoc.street1    || '',
+        street2:    shipFromLoc.street2    || '',
+        city:       shipFromLoc.city       || '',
+        state:      shipFromLoc.state      || '',
+        postalCode: shipFromLoc.postalCode || '',
+        country:    shipFromLoc.country    || 'US',
+        phone:      shipFromLoc.phone      || '',
+      }
+    : null;
+
+  // Get carrier account code
+  const acct = state.carriersList.find(c => c.shippingProviderId === pid);
+  const carrierCode = acct?.code || '';
+  if (!carrierCode) return showToast('⚠ Could not resolve carrier code — select a valid account');
+  
+  const { getOrderShipTo } = await import('./order-data.js');
+  const shipTo = getOrderShipTo(o);
+
+  const payload = {
+    orderId:     o.orderId,
+    orderNumber: o.orderNumber,
+    carrierCode,
+    serviceCode: service,
+    packageCode,
+    customPackageId,
+    weightOz:    totalOz,
+    length, width, height,
+    confirmation: confirm,
+    testLabel:   false,
+    shippingProviderId: pid,
+    shipTo: {
+      name:       shipTo.name       || '',
+      company:    shipTo.company    || '',
+      street1:    shipTo.street1    || '',
+      street2:    shipTo.street2    || '',
+      city:       shipTo.city       || '',
+      state:      shipTo.state      || '',
+      postalCode: shipTo.postalCode || '',
+      country:    shipTo.country    || 'US',
+      phone:      shipTo.phone      || '',
+    },
+    ...(shipFrom ? { shipFrom } : {}),
+  };
+
   const btn = document.getElementById('sendToQueueBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Queuing…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Creating…'; }
 
   try {
-    // If no label yet, create one first
-    let labelUrl = o.label?.labelUrl || null;
+    // Create label
+    const data = await fetchValidatedJson('/api/labels/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }, parseCreateLabelResponse);
+
+    const tracking = data.trackingNumber || '';
+    const labelUrl = data.labelUrl;
+
+    console.log('[SendToQueue] Label created:', {
+      labelUrl: labelUrl || 'MISSING',
+      trackingNumber: tracking,
+    });
+
     if (!labelUrl) {
-      showToast('⚠ No label for this order — create a label first, then send to queue');
+      showToast('⚠ Label created but no PDF returned — check ShipStation dashboard');
       return;
     }
 
-    // Add to print queue
+    // Add to print queue (do NOT open PDF tab, unlike createLabel)
     const items = o.items || [];
     const sku = items.length === 1 ? items[0].sku : null;
     const desc = items.length === 1 ? items[0].name : null;
@@ -222,21 +325,23 @@ export async function sendToQueueFromOrder(orderId) {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
 
-    const data = await res.json();
-    if (data.already_queued) {
-      showToast(`ℹ Order ${o.orderNumber || orderId} already in print queue`);
-    } else {
-      showToast(`✅ Order ${o.orderNumber || orderId} added to print queue`);
-    }
+    const queueData = await res.json();
+    showToast(`✅ Label created & queued${tracking ? ': ' + tracking : ''}`);
 
     // Refresh queue panel
     if (typeof window.hydrateQueueFromDB === 'function') {
       await window.hydrateQueueFromDB(clientId);
     }
+
+    // Refresh orders list
+    if (typeof window.fetchOrders === 'function') {
+      await window.fetchOrders(state.currentPage, true);
+    }
+
   } catch (err) {
-    showToast(`❌ Failed to queue: ${err.message}`);
+    showToast(`❌ ${err.message}`);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '📥 Send to Queue'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '📥 Send to Queue'; }
   }
 }
 
