@@ -484,10 +484,10 @@ export function buildPanelHTML(o) {
       <button class="create-label-btn" id="createLabelBtn" onclick="createLabel()" style="flex:1">
         🖨️ Create + Print Label <span class="create-label-caret">▾</span>
       </button>
-      <button class="btn btn-sm" id="sendToQueueBtn"
+      <button class="create-label-btn" id="sendToQueueBtn"
         onclick="sendToQueueFromOrder(${o.orderId})"
         title="Create label and add to print queue (doesn't open PDF)"
-        style="flex:1;justify-content:center;background:var(--success,#16a34a);color:#fff;border-color:var(--success,#16a34a);font-size:12px">
+        style="flex:1;background:#16a34a">
         📥 Send to Queue
       </button>
       <button class="btn btn-ghost btn-sm" onclick="createLabel(true)" title="Create test label (no charge)"
