@@ -1238,7 +1238,11 @@ export function createApp(dependencies: AppDependencies) {
     const queueEntryMatch = url.pathname.match(/^\/api\/queue\/([^/]+)$/);
     if (request.method === "DELETE" && queueEntryMatch) {
       try {
-        return jsonResponse(200, dependencies.queueHandler.handleRemove(queueEntryMatch[1] ?? "", await readJson()));
+        // Support client_id in body (preferred) OR query param (fallback for clients that don't send DELETE bodies)
+        const body = await readJson();
+        const clientIdFromQuery = url.searchParams.get('client_id');
+        if (!body.client_id && clientIdFromQuery) body.client_id = Number(clientIdFromQuery);
+        return jsonResponse(200, dependencies.queueHandler.handleRemove(queueEntryMatch[1] ?? "", body));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = message.includes("not found") ? 404 : isInputError(error) ? 400 : 500;

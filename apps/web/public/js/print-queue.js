@@ -51,7 +51,8 @@ export async function hydrateQueueFromDB(clientId) {
   queueState.clientId = clientId;
 
   try {
-    const res = await fetch(`/api/queue?client_id=${clientId}`);
+    const qs = _showHistory ? `client_id=${clientId}&include_printed=1` : `client_id=${clientId}`;
+    const res = await fetch(`/api/queue?${qs}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
@@ -167,6 +168,54 @@ async function clearQueue() {
   }
 }
 
+// ─── Reprint Confirmation Modal ───────────────────────────────────────────────
+
+function showReprintModal(reprintCount, totalCount, onConfirm, onCancel) {
+  // Remove any existing modal
+  const existing = document.getElementById('pq-reprint-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'pq-reprint-modal';
+  modal.style.cssText = `
+    position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.5);backdrop-filter:blur(2px);
+  `;
+  modal.innerHTML = `
+    <div style="background:var(--surface,#fff);border:1px solid var(--border2,#e2e8f0);border-radius:12px;
+                box-shadow:0 20px 60px rgba(0,0,0,.3);padding:24px 28px;max-width:400px;width:90%;text-align:center">
+      <div style="font-size:28px;margin-bottom:12px">🔁</div>
+      <div style="font-size:16px;font-weight:700;color:var(--text,#111);margin-bottom:8px">Reprint Confirmation</div>
+      <div style="font-size:13px;color:var(--text2,#555);line-height:1.6;margin-bottom:20px">
+        <strong style="color:var(--warning,#d97706)">${reprintCount} of ${totalCount}</strong>
+        order${reprintCount !== 1 ? 's are' : ' is'} a reprint${reprintCount === totalCount ? '' : ` (${totalCount - reprintCount} new)`}.
+        <br>Continue and print all including reprints?
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button id="pq-reprint-cancel" class="btn btn-ghost btn-sm" style="min-width:80px">Cancel</button>
+        <button id="pq-reprint-confirm" class="btn btn-primary btn-sm" style="min-width:200px">
+          🖨️ Print All Including Reprints
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById('pq-reprint-cancel').onclick = () => {
+    modal.remove();
+    onCancel?.();
+  };
+  document.getElementById('pq-reprint-confirm').onclick = () => {
+    modal.remove();
+    onConfirm?.();
+  };
+  // Click backdrop to cancel
+  modal.onclick = (e) => {
+    if (e.target === modal) { modal.remove(); onCancel?.(); }
+  };
+}
+
 // ─── CRITICAL #5: Print All — Async PDF merge with polling ───────────────────
 
 async function printAll(entryIds) {
@@ -175,13 +224,13 @@ async function printAll(entryIds) {
     return;
   }
 
-  // Check for reprints (CRITICAL: reprint confirmation per spec)
+  // Check for reprints — show proper modal per spec (not browser confirm())
   const reprints = queueState.orders.filter(o => entryIds.includes(o.queue_entry_id) && o.print_count > 0);
   if (reprints.length > 0) {
-    const confirmed = confirm(
-      `${reprints.length} of ${entryIds.length} order${reprints.length !== 1 ? 's are' : ' is'} a reprint.\n\nContinue and print all including reprints?`
-    );
-    if (!confirmed) return;
+    const confirmed = await new Promise(resolve => {
+      showReprintModal(reprints.length, entryIds.length, () => resolve(true), () => resolve(false));
+    });
+    if (!confirmed) return; // User cancelled
   }
 
   // Show progress UI
@@ -312,6 +361,7 @@ function renderQueuePanel() {
   if (!container) return;
 
   const queued = queueState.orders.filter(o => o.status === 'queued');
+  const printed = _showHistory ? queueState.orders.filter(o => o.status === 'printed') : [];
 
   // Update summary
   const summaryEl = document.getElementById('pq-summary');
@@ -374,6 +424,25 @@ function renderQueuePanel() {
     html += `</div></div>`;
   }
 
+  // Append printed history if toggled
+  if (_showHistory && printed.length > 0) {
+    html += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px;font-weight:600">
+        📋 Printed History (${printed.length})
+      </div>`;
+    for (const order of printed) {
+      const printedAt = order.last_printed_at ? new Date(order.last_printed_at).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+      html += `
+        <div class="pq-order-row" style="opacity:.7">
+          <span class="pq-order-num">Order #${escHtml(order.order_number || order.order_id)}</span>
+          <span class="pq-order-qty">Qty: ${order.order_qty ?? 1}</span>
+          <span class="pq-order-time" title="Printed at ${printedAt}">✅ ${printedAt}</span>
+          <span style="font-size:9px;color:var(--text3)">#${order.print_count}</span>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
   container.innerHTML = html;
 
   // Update Print All button state
@@ -395,6 +464,58 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ─── Show printed history toggle ──────────────────────────────────────────────
+
+let _showHistory = false;
+
+export function toggleQueueHistory() {
+  _showHistory = !_showHistory;
+  renderQueuePanel();
+  const btn = document.getElementById('pq-history-btn');
+  if (btn) btn.textContent = _showHistory ? '🔼 Hide History' : '🕐 History';
+}
+
+// ─── Cross-tab sync: Poll DB every 30s when panel is open ────────────────────
+
+let _syncInterval = null;
+
+function startCrossTabSync() {
+  if (_syncInterval) return; // Already running
+  _syncInterval = setInterval(() => {
+    if (queueState.isOpen && queueState.clientId) {
+      // Silent background refresh — only update if count changes to avoid flicker
+      const syncQs = _showHistory ? `client_id=${queueState.clientId}&include_printed=1` : `client_id=${queueState.clientId}`;
+      fetch(`/api/queue?${syncQs}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data) return;
+          const newOrders = data.queuedOrders ?? [];
+          const oldCount = queueState.orders.filter(o => o.status === 'queued').length;
+          const newCount = newOrders.length;
+          // Update state
+          queueState.orders = newOrders;
+          saveToCache(newOrders, queueState.clientId);
+          // Only re-render if something changed (cross-tab detection)
+          if (newCount !== oldCount) {
+            renderQueuePanel();
+            updateQueueBadge();
+          }
+        })
+        .catch(() => {}); // Silently ignore network errors during background sync
+    }
+  }, 30_000); // Poll every 30 seconds
+}
+
+function stopCrossTabSync() {
+  if (_syncInterval) {
+    clearInterval(_syncInterval);
+    _syncInterval = null;
+  }
+}
+
+// Start sync immediately
+startCrossTabSync();
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function getQueueCount() {
@@ -409,6 +530,7 @@ export function setQueueClientId(clientId) {
 window.toggleQueuePanel = toggleQueuePanel;
 window.removeFromPrintQueue = removeFromQueue;
 window.clearPrintQueue = clearQueue;
+window.toggleQueueHistory = toggleQueueHistory;
 window.printQueueGroup = (idsJson) => {
   try {
     const ids = JSON.parse(idsJson);

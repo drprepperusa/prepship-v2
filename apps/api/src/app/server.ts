@@ -4,7 +4,7 @@ export function startHttpServer(handler: (request: Request) => Promise<Response>
   const server = createServer(async (req, res) => {
     const origin = `http://${req.headers.host ?? `127.0.0.1:${port}`}`;
     const method = req.method ?? 'GET';
-    const hasBody = method !== 'GET' && method !== 'HEAD' && method !== 'DELETE';
+    const hasBody = method !== 'GET' && method !== 'HEAD';
     
     const requestInit: RequestInit & { duplex?: string } = {
       method,

@@ -11,7 +11,8 @@ export class QueueHttpHandler {
   handleGet(url: URL) {
     const clientIdRaw = url.searchParams.get('client_id');
     if (!clientIdRaw) throw new InputValidationError("client_id is required");
-    return this.services.getQueueForClient(Number(clientIdRaw));
+    const includePrinted = url.searchParams.get('include_printed') === '1' || url.searchParams.get('include_printed') === 'true';
+    return this.services.getQueueForClient(Number(clientIdRaw), includePrinted);
   }
 
   handleAdd(body: unknown) {

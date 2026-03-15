@@ -143,36 +143,8 @@ export async function createLabel(testLabel = false) {
       showToast('⚠ Label created but no PDF returned — check ShipStation dashboard');
     }
 
-    // Auto-send to print queue if label URL present and not a test label
-    if (!testLabel && data.labelUrl && o) {
-      const items = o.items || [];
-      const sku = items.length === 1 ? items[0].sku : null;
-      const desc = items.length === 1 ? items[0].name : null;
-      const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
-      const multiSkus = items.length > 1 ? items.map(i => ({ sku: i.sku, description: i.name, qty: i.quantity || 1 })) : null;
-      const skuGroupId = sku ? `SKU:${sku}` : `ORDER:${o.orderId}`;
-      const clientId = window._queueClientId || o.clientId || 1;
-
-      fetch('/api/queue/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: String(o.orderId),
-          order_number: o.orderNumber,
-          client_id: clientId,
-          label_url: data.labelUrl,
-          sku_group_id: skuGroupId,
-          primary_sku: sku,
-          item_description: desc,
-          order_qty: qty,
-          multi_sku_data: multiSkus,
-        }),
-      }).then(res => {
-        if (res.ok && typeof window.hydrateQueueFromDB === 'function') {
-          window.hydrateQueueFromDB(clientId);
-        }
-      }).catch(e => console.warn('[Labels] Queue add failed:', e));
-    }
+    // NOTE: PRINT button does NOT auto-add to queue (spec: Workflow A)
+    // Use the "Send to Queue" button in the panel for Workflow B
 
     // Re-render panel to show shipped state
     if (!testLabel) {
@@ -193,6 +165,79 @@ export async function createLabel(testLabel = false) {
     }
   }
 }
+
+// ═══════════════════════════════════════════════
+//  SEND TO QUEUE (Workflow B)
+//  Called by "Send to Queue" button in order panel.
+//  Creates label (if missing), ships order, adds to print queue.
+// ═══════════════════════════════════════════════
+
+export async function sendToQueueFromOrder(orderId) {
+  const { allOrders } = state;
+  const o = allOrders.find(o => o.orderId === orderId);
+  if (!o) return showToast('⚠ Order not found');
+
+  const btn = document.getElementById('sendToQueueBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Queuing…'; }
+
+  try {
+    // If no label yet, create one first
+    let labelUrl = o.label?.labelUrl || null;
+    if (!labelUrl) {
+      showToast('⚠ No label for this order — create a label first, then send to queue');
+      return;
+    }
+
+    // Add to print queue
+    const items = o.items || [];
+    const sku = items.length === 1 ? items[0].sku : null;
+    const desc = items.length === 1 ? items[0].name : null;
+    const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+    const multiSkus = items.length > 1 ? items.map(i => ({ sku: i.sku, description: i.name, qty: i.quantity || 1 })) : null;
+    const skuGroupId = sku ? `SKU:${sku}` : `ORDER:${o.orderId}`;
+    const clientId = window._queueClientId || o.clientId || 1;
+
+    const res = await fetch('/api/queue/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: String(o.orderId),
+        order_number: o.orderNumber,
+        client_id: clientId,
+        label_url: labelUrl,
+        sku_group_id: skuGroupId,
+        primary_sku: sku,
+        item_description: desc,
+        order_qty: qty,
+        multi_sku_data: multiSkus,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown' }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (data.already_queued) {
+      showToast(`ℹ Order ${o.orderNumber || orderId} already in print queue`);
+    } else {
+      showToast(`✅ Order ${o.orderNumber || orderId} added to print queue`);
+    }
+
+    // Refresh queue panel
+    if (typeof window.hydrateQueueFromDB === 'function') {
+      await window.hydrateQueueFromDB(clientId);
+    }
+  } catch (err) {
+    showToast(`❌ Failed to queue: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📥 Send to Queue'; }
+  }
+}
+
+// Expose to window
+window.sendToQueueFromOrder = sendToQueueFromOrder;
 
 // ═══════════════════════════════════════════════
 //  MARK SHIPPED EXTERNALLY

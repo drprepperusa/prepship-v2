@@ -35,12 +35,16 @@ export class QueueServices {
   }
 
   // ── CRITICAL #1: GET /api/queue — hydrate from DB ────────────────────────
-  getQueueForClient(clientId: number): { ok: true; queuedOrders: object[]; totalOrders: number; totalQty: number } {
+  getQueueForClient(clientId: number, includePrinted = false): { ok: true; queuedOrders: object[]; totalOrders: number; totalQty: number } {
     if (!clientId || !Number.isFinite(clientId)) {
       throw new InputValidationError("client_id is required");
     }
 
-    const entries = this.repo.getByClient(clientId, 'queued');
+    // Return queued + optionally printed (for history view)
+    const allEntries = includePrinted
+      ? this.repo.getByClient(clientId)
+      : this.repo.getByClient(clientId, 'queued');
+    const entries = allEntries;
     const totalQty = entries.reduce((sum, e) => sum + (e.orderQty ?? 1), 0);
 
     return {
@@ -86,17 +90,12 @@ export class QueueServices {
     const clientId = Number(raw.client_id);
     const orderId = raw.order_id;
 
-    // Check for duplicate
+    // Check if already queued (for already_queued flag in response)
     const existing = this.repo.findByOrderId(orderId, clientId);
-    if (existing && existing.status === 'queued') {
-      return {
-        ok: true,
-        queue_entry_id: existing.id,
-        queued_at: new Date(existing.queuedAt * 1000).toISOString(),
-        already_queued: true,
-      };
-    }
+    const alreadyQueued = existing !== null && existing.status === 'queued';
 
+    // Always upsert — this ensures label_url is updated if re-queued with fresh URL
+    // (e.g. after void + re-create). UPSERT in DB handles the ON CONFLICT logic.
     const input: AddToQueueInput = {
       clientId,
       orderId,
@@ -115,7 +114,7 @@ export class QueueServices {
       ok: true,
       queue_entry_id: entry.id,
       queued_at: new Date(entry.queuedAt * 1000).toISOString(),
-      already_queued: false,
+      already_queued: alreadyQueued,
     };
   }
 

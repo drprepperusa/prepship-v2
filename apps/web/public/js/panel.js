@@ -487,6 +487,16 @@ export function buildPanelHTML(o) {
       <button class="btn btn-ghost btn-sm" onclick="createLabel(true)" title="Create test label (no charge)"
         style="font-size:10.5px;color:var(--text3);padding:4px 7px">Test</button>
     </div>
+    ${o.label?.labelUrl ? `
+    <div style="margin-top:4px">
+      <button class="btn btn-sm" id="sendToQueueBtn"
+        onclick="sendToQueueFromOrder(${o.orderId})"
+        title="Add this order's label to the print queue for batch printing later"
+        style="width:100%;justify-content:center;background:var(--success,#16a34a);color:#fff;border-color:var(--success,#16a34a);font-size:12px">
+        📥 Send to Queue
+      </button>
+    </div>
+    ` : ''}
     `}
     ${isShipped && o.label?.trackingNumber ? `
     <div class="delivery-row" style="display:flex;align-items:center;gap:6px">
