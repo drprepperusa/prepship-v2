@@ -267,7 +267,7 @@ export class LabelServices {
     return {
       shipmentId: created.shipmentId,
       trackingNumber: finalTracking,
-      labelUrl: body.testLabel ? null : finalLabelUrl,
+      labelUrl: finalLabelUrl,   // always return URL — test labels are watermarked "VOID - DO NOT SHIP"
       cost: created.cost,
       voided: created.voided,
       orderStatus: body.testLabel ? order.orderStatus : "shipped",
