@@ -97,9 +97,16 @@ export async function fetchOrders(page = 1, skipRatesHint = false) {
   state._fetchSkipRates = skipRatesHint;
   state.preSkuSortSnapshot = null;
   setLoading(true);
+  
+  // Increment request ID to track this fetch. Older requests will be ignored.
+  const requestId = ++state._lastFetchRequestId;
+  
   try {
     const data = await loadOrdersData(page);
-    applyOrdersData(data, page, skipRatesHint);
+    // Only apply data if this is still the latest request
+    if (requestId === state._lastFetchRequestId) {
+      applyOrdersData(data, page, skipRatesHint);
+    }
   } catch (e) {
     setLoading(false, '⚠️ Error: ' + e.message);
   }

@@ -48,6 +48,8 @@ export const state = {
   // Inventory
   invCurrentTab: 'stock',
   invClientsData: [],
+  // Race condition prevention
+  _lastFetchRequestId: 0,
   invStockData: [],
   bulkDimsMode: false,
   // Misc
