@@ -531,12 +531,13 @@ export async function batchCreateLabels() {
     try {
       const bestRate = state.orderBestRate[o.orderId];
 
-      // Both serviceCode AND carrierCode are required — the guard above ensures bestRate exists
+      // serviceCode, carrierCode, and shippingProviderId are all required — the guard above ensures bestRate exists
       const serviceCode = bestRate.serviceCode;
       const carrierCode = bestRate.carrierCode;
+      const shippingProviderId = bestRate.shippingProviderId;
 
-      if (!serviceCode || !carrierCode) {
-        console.warn(`[Batch] Order ${o.orderNumber} best rate missing serviceCode or carrierCode`, bestRate);
+      if (!serviceCode || !carrierCode || !shippingProviderId) {
+        console.warn(`[Batch] Order ${o.orderNumber} best rate missing required fields`, bestRate);
         failed++;
         failures.push(o.orderNumber);
         continue;
@@ -546,6 +547,7 @@ export async function batchCreateLabels() {
         orderId:     o.orderId,
         serviceCode,
         carrierCode,
+        shippingProviderId: bestRate.shippingProviderId,
         packageCode: 'package',
         ...(panelWt       ? { weightOz: panelWt }                              : {}),
         ...(hasPanelDims  ? { length: panelL, width: panelW, height: panelH }  : {}),
@@ -629,7 +631,10 @@ export async function batchSendToQueue() {
   }
 
   // ─── PRE-FLIGHT VALIDATION: Check all orders have cached best rates ───
-  const missingRates = orders.filter(o => !state.orderBestRate[o.orderId] || !state.orderBestRate[o.orderId].serviceCode || !state.orderBestRate[o.orderId].carrierCode);
+  const missingRates = orders.filter(o => {
+    const r = state.orderBestRate[o.orderId];
+    return !r || !r.serviceCode || !r.carrierCode || !r.shippingProviderId;
+  });
   if (missingRates.length > 0) {
     const orderList = missingRates.map(o => `• ${o.orderNumber}`).join('\n');
     showErrorModal(
@@ -671,7 +676,9 @@ export async function batchSendToQueue() {
           orderId: o.orderId,
           carrierCode: carrierCode,
           serviceCode: serviceCode,
-          weight: wtOz,
+          shippingProviderId: bestRate.shippingProviderId,
+          weightOz: wtOz,
+          packageCode: 'package',
           length: dims.length || 0,
           width: dims.width || 0,
           height: dims.height || 0,
@@ -708,9 +715,13 @@ export async function batchSendToQueue() {
     }
   }
 
-  // Re-fetch queue to update UI
-  await fetchQueue(state.currentStoreId);
-  await loadOrders();
+  // Re-fetch queue and orders to update UI
+  try {
+    const { fetchOrders } = await import('./orders.js');
+    fetchOrders(state.currentPage, true);
+  } catch (e) {
+    console.error('[Batch Queue] Error refreshing orders:', e.message);
+  }
 
   btn.disabled = false;
   btn.textContent = `📥 Queue ${orders.length}`;
