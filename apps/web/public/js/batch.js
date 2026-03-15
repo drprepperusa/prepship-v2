@@ -246,6 +246,7 @@ export function showBatchPanel() {
 
   // Show the panel (make it visible with 'open' class)
   document.getElementById('orderPanel').classList.add('open');
+  console.log('[showBatchPanel] Added open class to panel, panelInner HTML length:', document.getElementById('panelInner').innerHTML.length);
 
   // Auto-fill from already-cached rates (state.orderBestRate populated from prior rate fetch)
   // This prevents users having to re-click "Rate Shop All" for orders already rated on the main table

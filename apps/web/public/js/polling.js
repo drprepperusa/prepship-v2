@@ -49,6 +49,9 @@ async function runPoll() {
   // Avoid running too frequently (min 1s between polls)
   if (now - lastPollTime < 1000) return;
   lastPollTime = now;
+  
+  const panelInnerHTML = document.getElementById('panelInner')?.innerHTML || '';
+  console.log('[runPoll] Polling cycle started, panelInner HTML length:', panelInnerHTML.length, 'Has batch panel:', panelInnerHTML.includes('Batch Ship'));
 
   // Skip polling if:
   // - View is not 'orders'

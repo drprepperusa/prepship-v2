@@ -177,7 +177,8 @@ export async function openPanel(id) {
 }
 
 export function closePanel() {
-  console.log('[closePanel] Closing panel');
+  console.log('[closePanel] Closing panel (single order panel)');
+  console.trace('[closePanel] Stack trace:');
   document.getElementById('orderPanel').classList.remove('open');
   document.getElementById('panelBackdrop').classList.remove('show');
   document.querySelectorAll('.row-panel-open').forEach(r => r.classList.remove('row-panel-open'));
@@ -207,6 +208,8 @@ export function closeBatchPanel() {
   // Called when transitioning from batch (2+) to single (1), or when all orders deselected
   // NOTE: No size check here — caller handles that logic
   
+  console.log('[closeBatchPanel] Closing batch panel');
+  console.trace('[closeBatchPanel] Stack trace:');
   document.getElementById('orderPanel').classList.remove('open');
   document.getElementById('panelBackdrop').classList.remove('show');
   document.querySelectorAll('.row-panel-open').forEach(r => r.classList.remove('row-panel-open'));
