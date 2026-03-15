@@ -146,7 +146,7 @@ export async function createLabel(testLabel = false) {
     // NOTE: PRINT button does NOT auto-add to queue (spec: Workflow A)
     // Use the "Send to Queue" button in the panel for Workflow B
 
-    // Re-render panel to show shipped state
+    // Re-render panel to show shipped state + Send to Queue button
     if (!testLabel) {
       // Clear shipped orders cache so the fresh order appears in shipped view
       if (typeof window.clearShippedOrdersCache === 'function') {
@@ -154,6 +154,10 @@ export async function createLabel(testLabel = false) {
       }
       if (typeof window.fetchOrders === 'function') {
         await window.fetchOrders(state.currentPage, true);
+      }
+      // Re-open panel to show updated label + Send to Queue button
+      if (typeof window.openPanel === 'function' && o?.orderId) {
+        window.openPanel(o.orderId);
       }
     }
   } catch (e) {
