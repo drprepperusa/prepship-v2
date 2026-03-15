@@ -225,11 +225,18 @@ export function closeBatchPanel() {
 
 function buildBatchPanelHTML() {
   const selectedCount = state.selectedOrders.size;
-  const selectedOrderNums = state.allOrders
-    .filter(o => state.selectedOrders.has(o.orderId))
-    .map(o => o.orderNumber)
-    .sort()
-    .join(', ');
+  const selectedOrders = state.allOrders.filter(o => state.selectedOrders.has(o.orderId));
+  const selectedOrderNums = selectedOrders.map(o => o.orderNumber).sort().join(', ');
+  
+  // Get first selected order to extract dimensions/weight
+  const firstOrder = selectedOrders[0];
+  const dimensions = getOrderDimensions(firstOrder);
+  const wt = firstOrder.weight?.value || 0;
+  const wtLb = Math.floor(wt / 16);
+  const wtOz = (wt % 16).toFixed(0);
+  const len = dimensions.length || 0;
+  const wid = dimensions.width || 0;
+  const hgt = dimensions.height || 0;
   
   return `
   <div class="panel-topbar">
@@ -263,11 +270,67 @@ function buildBatchPanelHTML() {
           </button>
         </div>
 
-        <div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:4px;border-left:3px solid var(--text4)">
-          <div style="font-size:11px;color:var(--text3);line-height:1.6">
-            <div><strong>Print:</strong> Creates labels for all selected orders, downloads PDFs</div>
-            <div><strong>Queue:</strong> Creates labels and adds to print queue (no download)</div>
+        <div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:4px;margin-bottom:12px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:600">Shipping Parameters (from 1st order):</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;font-size:12px">
+            <div>
+              <div style="color:var(--text3);font-size:10px;margin-bottom:2px">Weight</div>
+              <div style="color:var(--text2);font-weight:600">${wtLb} lb ${wtOz} oz</div>
+            </div>
+            <div>
+              <div style="color:var(--text3);font-size:10px;margin-bottom:2px">Dimensions</div>
+              <div style="color:var(--text2);font-weight:600">${len} × ${wid} × ${hgt} in</div>
+            </div>
           </div>
+        </div>
+
+        <div style="padding:12px;background:var(--surface2);border-radius:4px;margin-bottom:12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:600">Shipping Options:</div>
+          
+          <div style="margin-bottom:8px">
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:4px">Carrier Account</label>
+            <select id="batch-shipacct" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface1)">
+              <option value="">— Select carrier —</option>
+              ${getPanelDisplayCarriers().map(c => `<option value="${c.shippingProviderId}">${c.name}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="margin-bottom:8px">
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:4px">Service</label>
+            <select id="batch-service" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface1)">
+              <option value="">— Select service —</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:8px">
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:4px">Package Type</label>
+            <select id="batch-package" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface1)">
+              <option value="">— Select package —</option>
+              ${state.packagesList.map(p => `<option value="${p.packageId}">${p.name}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="margin-bottom:8px">
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:4px">Delivery Confirmation</label>
+            <select id="batch-confirm" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface1)">
+              <option value="delivery">Delivery</option>
+              <option value="signature">Signature</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:4px">Ship From Location</label>
+            <select id="batch-location" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surface1)">
+              <option value="">Default</option>
+              ${state.locationsList.map(l => `<option value="${l.locationId}">${l.name}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div style="font-size:10px;color:var(--text4);line-height:1.5">
+          <div style="margin-bottom:6px"><strong>Print:</strong> Creates labels for all, downloads PDFs</div>
+          <div><strong>Queue:</strong> Creates labels and adds to queue (no download)</div>
         </div>
       </div>
     </div>

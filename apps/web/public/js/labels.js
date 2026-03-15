@@ -543,6 +543,20 @@ export async function batchSendToQueue() {
     return;
   }
 
+  // Gather batch form fields
+  const pid     = parseInt(document.getElementById('batch-shipacct')?.value) || null;
+  const service = document.getElementById('batch-service')?.value || '';
+  const pkgVal  = document.getElementById('batch-package')?.value || '';
+  const confirmationOption = document.getElementById('batch-confirm')?.value || 'delivery';
+  const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
+  const locId   = parseInt(document.getElementById('batch-location')?.value) || null;
+
+  // Validate
+  if (!pid || !service || !pkgVal) {
+    showToast('⚠ Fill carrier, service, and package before queuing');
+    return;
+  }
+
   const selectedList = Array.from(selectedOrders)
     .map(id => allOrders.find(o => o.orderId === id))
     .filter(Boolean);
@@ -556,26 +570,19 @@ export async function batchSendToQueue() {
   try {
     for (const o of selectedList) {
       try {
-        // Gather label creation fields (same as createLabel + sendToQueueFromOrder)
-        const wtLb    = parseFloat(document.getElementById('p-wtlb')?.value) || 0;
-        const wtOz    = parseFloat(document.getElementById('p-wtoz')?.value) || 0;
-        const totalOz = (wtLb * 16) + wtOz;
-        const pid     = parseInt(document.getElementById('p-shipacct')?.value) || null;
-        const service = document.getElementById('p-service')?.value || '';
-        const pkgVal  = document.getElementById('p-package')?.value || '';
-        const length  = parseFloat(document.getElementById('p-len')?.value) || 0;
-        const width   = parseFloat(document.getElementById('p-wid')?.value) || 0;
-        const height  = parseFloat(document.getElementById('p-hgt')?.value) || 0;
-        const confirmationOption = document.getElementById('p-confirm')?.value || 'delivery';
-        const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
-        const locId   = parseInt(document.getElementById('p-location')?.value) || null;
+        // Get dimensions and weight from current order (not the first anymore - use this order's data)
+        const { getOrderDimensions, getOrderShipTo } = await import('./order-data.js');
+        const dimensions = getOrderDimensions(o);
+        const wt = o.weight?.value || 0;
+        const wtLb = Math.floor(wt / 16);
+        const wtOz = (wt % 16).toFixed(0);
+        const totalOz = (wtLb * 16) + parseFloat(wtOz);
+        const length = dimensions.length || 0;
+        const width = dimensions.width || 0;
+        const height = dimensions.height || 0;
 
-        // Validate basic requirements
-        if (!pkgVal) {
-          failureCount++;
-          continue;
-        }
-        if (!pid || !service || !totalOz) {
+        // Validate weight
+        if (!totalOz) {
           failureCount++;
           continue;
         }
@@ -619,7 +626,6 @@ export async function batchSendToQueue() {
           continue;
         }
 
-        const { getOrderShipTo } = await import('./order-data.js');
         const shipTo = getOrderShipTo(o);
 
         const payload = {
