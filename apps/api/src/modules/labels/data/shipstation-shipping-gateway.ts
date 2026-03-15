@@ -120,6 +120,7 @@ export class ShipstationShippingGateway implements ShippingGateway {
       label_layout: "4x6",
       label_format: "pdf",
       label_download_type: "url",
+      ...(input.testLabel ? { test_label: true } : {}),
     };
 
     const response = await fetch(`${this.baseV2}/labels`, {

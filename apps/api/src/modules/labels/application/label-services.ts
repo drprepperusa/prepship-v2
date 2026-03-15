@@ -205,6 +205,7 @@ export class LabelServices {
       shipFrom,
       confirmation: body.confirmation ?? null,
       ssOrderId: order.orderId,
+      testLabel: body.testLabel === true,
     });
 
     // V2 provides tracking, labelUrl, cost, shipDate immediately — no V1 wait needed.
