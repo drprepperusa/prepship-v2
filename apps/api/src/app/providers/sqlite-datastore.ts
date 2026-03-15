@@ -13,6 +13,7 @@ import { SqliteProductRepository } from "../../modules/products/data/sqlite-prod
 import { SqliteRateRepository } from "../../modules/rates/data/sqlite-rate-repository.ts";
 import { SqliteSettingsRepository } from "../../modules/settings/data/sqlite-settings-repository.ts";
 import { SqliteShipmentRepository } from "../../modules/shipments/data/sqlite-shipment-repository.ts";
+import { SqliteQueueRepository } from "../../modules/queue/data/sqlite-queue-repository.ts";
 import { openSqliteDatabase } from "../../../../../packages/shared/src/sqlite/database.ts";
 import type { ApiDataStore } from "../datastore.ts";
 
@@ -20,6 +21,7 @@ export function createSqliteDataStore(sqliteDbPath: string, excludedStoreIds: nu
   const db = openSqliteDatabase(sqliteDbPath);
 
   return {
+    queueRepository: new SqliteQueueRepository(db),
     billingRepository: new SqliteBillingRepository(db),
     analysisRepository: new SqliteAnalysisRepository(db),
     clientRepository: new SqliteClientRepository(db),

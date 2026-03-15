@@ -13,8 +13,10 @@ import type { ProductRepository } from "../modules/products/application/product-
 import type { RateRepository } from "../modules/rates/application/rate-repository.ts";
 import type { SettingsRepository } from "../modules/settings/application/settings-repository.ts";
 import type { ShipmentRepository } from "../modules/shipments/application/shipment-repository.ts";
+import type { QueueRepository } from "../modules/queue/application/queue-repository.ts";
 
 export interface ApiDataStore {
+  queueRepository: QueueRepository;
   billingRepository: BillingRepository;
   analysisRepository: AnalysisRepository;
   clientRepository: ClientRepository;

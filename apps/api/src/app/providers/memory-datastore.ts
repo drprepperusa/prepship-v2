@@ -53,6 +53,9 @@ import type { ProductRepository } from "../../modules/products/application/produ
 import type { ProductDefaultsRecord, SaveProductDefaultsRecordResult } from "../../modules/products/domain/product.ts";
 import type { CachedRateRecord, RateRepository, RateSourceConfig, RefetchRateOrderRecord } from "../../modules/rates/application/rate-repository.ts";
 import type { SettingsRepository } from "../../modules/settings/application/settings-repository.ts";
+import type { QueueRepository } from "../../modules/queue/application/queue-repository.ts";
+import type { AddToQueueInput, PrintQueueEntry } from "../../modules/queue/domain/queue.ts";
+import { randomUUID } from "node:crypto";
 
 interface MemoryOrderEntry {
   record: OrderRecord;
@@ -1466,6 +1469,75 @@ class MemorySettingsRepository implements SettingsRepository {
   }
 }
 
+class MemoryQueueRepository implements QueueRepository {
+  private readonly entries: Map<string, PrintQueueEntry> = new Map();
+
+  add(input: AddToQueueInput): PrintQueueEntry {
+    const now = Math.floor(Date.now() / 1000);
+    // Check for existing by orderId+clientId
+    for (const e of this.entries.values()) {
+      if (e.orderId === input.orderId && e.clientId === input.clientId) {
+        const updated: PrintQueueEntry = { ...e, labelUrl: input.labelUrl, status: 'queued', queuedAt: now };
+        this.entries.set(e.id, updated);
+        return updated;
+      }
+    }
+    const entry: PrintQueueEntry = {
+      id: randomUUID(),
+      clientId: input.clientId,
+      orderId: input.orderId,
+      orderNumber: input.orderNumber ?? null,
+      labelUrl: input.labelUrl,
+      skuGroupId: input.skuGroupId,
+      primarySku: input.primarySku ?? null,
+      itemDescription: input.itemDescription ?? null,
+      orderQty: input.orderQty ?? 1,
+      multiSkuData: input.multiSkuData ?? null,
+      status: 'queued',
+      printCount: 0,
+      lastPrintedAt: null,
+      queuedAt: now,
+      createdAt: now,
+    };
+    this.entries.set(entry.id, entry);
+    return entry;
+  }
+
+  getByClient(clientId: number, status?: 'queued' | 'printed'): PrintQueueEntry[] {
+    return [...this.entries.values()].filter(e => e.clientId === clientId && (!status || e.status === status));
+  }
+
+  findById(id: string): PrintQueueEntry | null {
+    return this.entries.get(id) ?? null;
+  }
+
+  findByOrderId(orderId: string, clientId: number): PrintQueueEntry | null {
+    for (const e of this.entries.values()) {
+      if (e.orderId === orderId && e.clientId === clientId) return e;
+    }
+    return null;
+  }
+
+  markPrinted(ids: string[], printedAt: number): void {
+    for (const id of ids) {
+      const e = this.entries.get(id);
+      if (e) this.entries.set(id, { ...e, status: 'printed', printCount: e.printCount + 1, lastPrintedAt: printedAt });
+    }
+  }
+
+  remove(id: string): void {
+    this.entries.delete(id);
+  }
+
+  clearByClient(clientId: number): number {
+    let count = 0;
+    for (const [id, e] of this.entries.entries()) {
+      if (e.clientId === clientId && e.status === 'queued') { this.entries.delete(id); count++; }
+    }
+    return count;
+  }
+}
+
 export function createMemoryDataStore(seed: MemoryDataStoreSeed = {}): ApiDataStore {
   const clients = clone(seed.clients ?? []);
   const locations = clone(seed.locations ?? []);
@@ -1481,6 +1553,7 @@ export function createMemoryDataStore(seed: MemoryDataStoreSeed = {}): ApiDataSt
   const shipFromState: ShipFromState = new InMemoryShipFromState();
 
   return {
+    queueRepository: new MemoryQueueRepository(),
     billingRepository: new MemoryBillingRepository(seed.billing),
     analysisRepository: new MemoryAnalysisRepository(seed.analysis),
     clientRepository: new MemoryClientRepository(clients),

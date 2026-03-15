@@ -14,8 +14,10 @@ import type { ProductsHttpHandler } from "../modules/products/api/products-handl
 import type { RatesHttpHandler } from "../modules/rates/api/rates-handler.ts";
 import type { SettingsHttpHandler } from "../modules/settings/api/settings-handler.ts";
 import type { ShipmentsHttpHandler } from "../modules/shipments/api/shipments-handler.ts";
+import type { QueueHttpHandler } from "../modules/queue/api/queue-handler.ts";
 
 export interface AppDependencies {
+  queueHandler: QueueHttpHandler;
   analysisHandler: AnalysisHttpHandler;
   billingHandler: BillingHttpHandler;
   ordersHandler: OrdersHttpHandler;
@@ -1157,6 +1159,89 @@ export function createApp(dependencies: AppDependencies) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = message.startsWith("No active label found") || message.startsWith("Label was created") || message === "Label URL not available. The label may have been voided or deleted." ? 404 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
+    // ── PRINT QUEUE ENDPOINTS ────────────────────────────────────────────────
+
+    // CRITICAL #1: GET /api/queue — hydrate UI from DB (source of truth)
+    if (request.method === "GET" && url.pathname === "/api/queue") {
+      try {
+        return jsonResponse(200, dependencies.queueHandler.handleGet(url));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    // CRITICAL #2: POST /api/queue/add — atomic add to queue
+    if (request.method === "POST" && url.pathname === "/api/queue/add") {
+      try {
+        const body = await readJson();
+        const result = dependencies.queueHandler.handleAdd(body);
+        // 200 with already_queued flag so frontend can show toast
+        return jsonResponse(200, result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    // POST /api/queue/clear — remove all queued orders for a client
+    if (request.method === "POST" && url.pathname === "/api/queue/clear") {
+      try {
+        return jsonResponse(200, dependencies.queueHandler.handleClear(await readJson()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    // CRITICAL #5: POST /api/queue/print — start async PDF merge job
+    if (request.method === "POST" && url.pathname === "/api/queue/print") {
+      try {
+        return jsonResponse(200, dependencies.queueHandler.handleStartPrint(await readJson()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    // GET /api/queue/print/status/:jobId — poll job status
+    const printStatusMatch = url.pathname.match(/^\/api\/queue\/print\/status\/([^/]+)$/);
+    if (request.method === "GET" && printStatusMatch) {
+      const jobId = printStatusMatch[1] ?? "";
+      const status = dependencies.queueHandler.handleJobStatus(jobId);
+      if (!status) return jsonResponse(404, { error: "Job not found" });
+      return jsonResponse(200, status);
+    }
+
+    // GET /api/queue/print/download/:jobId — download the merged PDF
+    const printDownloadMatch = url.pathname.match(/^\/api\/queue\/print\/download\/([^/]+)$/);
+    if (request.method === "GET" && printDownloadMatch) {
+      const jobId = printDownloadMatch[1] ?? "";
+      const dl = dependencies.queueHandler.handleJobDownload(jobId);
+      if (!dl) return jsonResponse(404, { error: "Job not found or not ready" });
+      const pdfBytes = Buffer.from(dl.base64, 'base64');
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `attachment; filename="${dl.fileName}"`,
+          "content-length": String(pdfBytes.byteLength),
+        },
+      });
+    }
+
+    // DELETE /api/queue/:entryId — remove single order from queue
+    const queueEntryMatch = url.pathname.match(/^\/api\/queue\/([^/]+)$/);
+    if (request.method === "DELETE" && queueEntryMatch) {
+      try {
+        return jsonResponse(200, dependencies.queueHandler.handleRemove(queueEntryMatch[1] ?? "", await readJson()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = message.includes("not found") ? 404 : isInputError(error) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }

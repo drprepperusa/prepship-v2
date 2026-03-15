@@ -143,6 +143,37 @@ export async function createLabel(testLabel = false) {
       showToast('⚠ Label created but no PDF returned — check ShipStation dashboard');
     }
 
+    // Auto-send to print queue if label URL present and not a test label
+    if (!testLabel && data.labelUrl && o) {
+      const items = o.items || [];
+      const sku = items.length === 1 ? items[0].sku : null;
+      const desc = items.length === 1 ? items[0].name : null;
+      const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+      const multiSkus = items.length > 1 ? items.map(i => ({ sku: i.sku, description: i.name, qty: i.quantity || 1 })) : null;
+      const skuGroupId = sku ? `SKU:${sku}` : `ORDER:${o.orderId}`;
+      const clientId = window._queueClientId || o.clientId || 1;
+
+      fetch('/api/queue/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: String(o.orderId),
+          order_number: o.orderNumber,
+          client_id: clientId,
+          label_url: data.labelUrl,
+          sku_group_id: skuGroupId,
+          primary_sku: sku,
+          item_description: desc,
+          order_qty: qty,
+          multi_sku_data: multiSkus,
+        }),
+      }).then(res => {
+        if (res.ok && typeof window.hydrateQueueFromDB === 'function') {
+          window.hydrateQueueFromDB(clientId);
+        }
+      }).catch(e => console.warn('[Labels] Queue add failed:', e));
+    }
+
     // Re-render panel to show shipped state
     if (!testLabel) {
       // Clear shipped orders cache so the fresh order appears in shipped view

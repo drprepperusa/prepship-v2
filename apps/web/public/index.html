@@ -121,6 +121,7 @@
         </div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="printSelected()">🖨️ Labels</button>
+      <button class="btn btn-outline btn-sm" id="pq-toggle-btn" onclick="toggleQueuePanel()" style="position:relative;gap:4px">🖨️ Print Queue<span id="pq-badge" style="display:none;position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#000;border-radius:99px;font-size:9px;font-weight:700;min-width:16px;height:16px;padding:0 3px;align-items:center;justify-content:center">0</span></button>
     </div>
     <div class="col-toggle-wrap" style="position:relative">
       <button class="btn btn-outline btn-sm" onclick="toggleZoomMenu()" id="zoomBtn" style="gap:4px;min-width:68px">
@@ -879,6 +880,65 @@
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════
+     PRINT QUEUE PANEL
+     Floating panel anchored to top-right
+═══════════════════════════════════════════ -->
+<div id="print-queue-panel" style="display:none;position:fixed;top:56px;right:12px;width:520px;max-width:calc(100vw - 24px);max-height:calc(100vh - 80px);background:var(--surface);border:1px solid var(--border2);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);z-index:1200;flex-direction:column;overflow:hidden">
+
+  <!-- Panel Header -->
+  <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0">
+    <span style="font-size:13px;font-weight:700;color:var(--text)">🖨️ Print Queue</span>
+    <span style="font-size:11px;color:var(--text3);margin-left:4px" id="pq-summary-inline"></span>
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn btn-ghost btn-xs" onclick="clearPrintQueue()" title="Clear all queued orders">🗑️ Clear</button>
+      <button class="btn btn-ghost btn-xs" onclick="toggleQueuePanel()">✕</button>
+    </div>
+  </div>
+
+  <!-- Summary Stats -->
+  <div id="pq-summary" style="display:flex;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:12px"></div>
+
+  <!-- Progress Bar (hidden until print starts) -->
+  <div id="pq-progress" style="display:none;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:5px" id="pq-progress-text">Merging labels…</div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="pq-progress-bar" style="background:var(--primary,#2563eb);height:100%;width:0%;transition:width .3s;border-radius:4px"></div>
+    </div>
+  </div>
+
+  <!-- Order List -->
+  <div id="pq-order-list" style="overflow-y:auto;flex:1;padding:8px 12px"></div>
+
+  <!-- Footer Actions -->
+  <div style="display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--border);background:var(--surface2);flex-shrink:0">
+    <button class="btn btn-primary btn-sm" id="pq-print-all-btn" onclick="" style="flex:1;justify-content:center">🖨️ Print All</button>
+  </div>
+</div>
+
+<style>
+/* Print Queue Panel Styles */
+.pq-stat { display:flex;flex-direction:column;align-items:center;min-width:60px;padding:4px 8px;border-radius:6px;background:var(--surface2) }
+.pq-stat-val { font-size:18px;font-weight:700;color:var(--text);line-height:1.1 }
+.pq-stat-lbl { font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:1px }
+.pq-group { margin-bottom:10px;border:1px solid var(--border);border-radius:7px;overflow:hidden }
+.pq-group-header { display:flex;align-items:center;gap:6px;padding:7px 10px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:12px }
+.pq-group-label { font-weight:600;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.pq-group-meta { font-size:11px;color:var(--text3);white-space:nowrap }
+.pq-group-actions { margin-left:4px }
+.pq-group-orders { padding:4px 0 }
+.pq-order-row { display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11.5px;border-bottom:1px solid var(--border) }
+.pq-order-row:last-child { border-bottom:none }
+.pq-order-num { flex:1;color:var(--text);font-family:monospace }
+.pq-order-qty { color:var(--text2);font-size:10.5px;white-space:nowrap }
+.pq-order-time { color:var(--text3);font-size:10px;white-space:nowrap }
+.pq-remove-btn { background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:2px 5px;border-radius:4px;line-height:1 }
+.pq-remove-btn:hover { background:var(--danger,#ef4444);color:#fff }
+.pq-reprint-badge { display:inline-block;font-size:9px;background:#f59e0b;color:#000;border-radius:3px;padding:0 4px;margin-left:4px;font-weight:600 }
+.pq-empty { padding:32px 16px;text-align:center;color:var(--text3);font-size:13px;line-height:1.8 }
+.btn-xs { font-size:11px;padding:3px 8px;height:auto;min-height:0 }
+</style>
 
 </body>
 </html>

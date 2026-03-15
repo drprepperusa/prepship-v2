@@ -33,6 +33,7 @@ import './order-detail.js';
 import './packages-ui.js';
 import './locations-ui.js';
 import './manifests.js';
+import { hydrateQueueFromDB, setQueueClientId } from './print-queue.js';
 
 // ══════════════════════════════════════════════
 //  VIEW ROUTER
@@ -122,9 +123,57 @@ export function copyOrderNum(num) {
 window.copyAddr     = copyAddr;
 window.copyOrderNum = copyOrderNum;
 
-export function printSelected() {
-  if (!state.selectedOrders.size) return showToast('Select orders first');
-  showToast(`🖨️ ${state.selectedOrders.size} labels queued — Phase 3`);
+export async function printSelected() {
+  if (!state.selectedOrders.size) {
+    // Open the queue panel to show what's already queued
+    if (typeof window.toggleQueuePanel === 'function') window.toggleQueuePanel();
+    return;
+  }
+  // Batch-send selected orders to print queue
+  showToast(`⏳ Sending ${state.selectedOrders.size} order${state.selectedOrders.size !== 1 ? 's' : ''} to print queue…`);
+  let sent = 0;
+  let failed = 0;
+  for (const orderId of state.selectedOrders) {
+    const order = state.allOrders.find(o => o.orderId === orderId);
+    if (!order) continue;
+    const label = order.label;
+    if (!label?.labelUrl) {
+      failed++;
+      continue;
+    }
+    const items = order.items || [];
+    const sku = items.length === 1 ? items[0].sku : null;
+    const desc = items.length === 1 ? items[0].name : null;
+    const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+    const multiSkus = items.length > 1 ? items.map(i => ({ sku: i.sku, description: i.name, qty: i.quantity || 1 })) : null;
+    const skuGroupId = sku ? `SKU:${sku}` : `ORDER:${orderId}`;
+    try {
+      const res = await fetch('/api/queue/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: String(orderId),
+          order_number: order.orderNumber,
+          client_id: window._queueClientId || 1,
+          label_url: label.labelUrl,
+          sku_group_id: skuGroupId,
+          primary_sku: sku,
+          item_description: desc,
+          order_qty: qty,
+          multi_sku_data: multiSkus,
+        }),
+      });
+      if (res.ok) sent++;
+      else failed++;
+    } catch (e) { failed++; }
+  }
+  const msg = sent > 0
+    ? `✅ ${sent} order${sent !== 1 ? 's' : ''} added to print queue${failed > 0 ? ` (${failed} skipped — no label)` : ''}`
+    : `⚠ No orders added — ${failed} skipped (create labels first)`;
+  showToast(msg);
+  if (sent > 0 && typeof window.hydrateQueueFromDB === 'function') {
+    await window.hydrateQueueFromDB(window._queueClientId || 1);
+  }
 }
 export function clearSelection() {
   state.selectedOrders.forEach(id => {
@@ -314,6 +363,19 @@ document.addEventListener('click', e => {
   selectStatus('awaiting_shipment');
   startSyncPoller();
   startPolling(); // Auto-refresh orders every 5 seconds
+
+  // CRITICAL #1/#3: Hydrate print queue from DB on mount (DB = source of truth)
+  // Use first available client (in real use, clientId is set per-session by user)
+  const queueClientKeys = Object.keys(state.clientMap ?? {});
+  const defaultQueueClientId = queueClientKeys.length > 0 ? Number(queueClientKeys[0]) : null;
+  if (defaultQueueClientId) {
+    setQueueClientId(defaultQueueClientId);
+    hydrateQueueFromDB(defaultQueueClientId).catch(e => console.warn('[PrintQueue] Initial hydration failed:', e));
+  }
+  // Expose for other modules to call when client changes
+  window.hydrateQueueFromDB = hydrateQueueFromDB;
+  window.setQueueClientId = setQueueClientId;
+  window._queueClientId = defaultQueueClientId;
 })();
 
 // ── Refetch All Rates ────────────────────────────────────────────────────────

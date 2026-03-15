@@ -1,0 +1,60 @@
+import type { QueueServices } from "../application/queue-services.ts";
+import { InputValidationError } from "../../../../../../packages/contracts/src/common/input-validation.ts";
+
+export class QueueHttpHandler {
+  private readonly services: QueueServices;
+
+  constructor(services: QueueServices) {
+    this.services = services;
+  }
+
+  handleGet(url: URL) {
+    const clientIdRaw = url.searchParams.get('client_id');
+    if (!clientIdRaw) throw new InputValidationError("client_id is required");
+    return this.services.getQueueForClient(Number(clientIdRaw));
+  }
+
+  handleAdd(body: unknown) {
+    return this.services.addToQueue(body);
+  }
+
+  handleRemove(entryId: string, body: unknown) {
+    const raw = body as Record<string, unknown>;
+    if (!raw.client_id) throw new InputValidationError("client_id is required");
+    return this.services.removeFromQueue(entryId, Number(raw.client_id));
+  }
+
+  handleClear(body: unknown) {
+    const raw = body as Record<string, unknown>;
+    if (!raw.client_id) throw new InputValidationError("client_id is required");
+    return this.services.clearQueue(Number(raw.client_id));
+  }
+
+  handleStartPrint(body: unknown) {
+    return this.services.startPrintJob(body);
+  }
+
+  handleJobStatus(jobId: string) {
+    const job = this.services.getMergeJobStatus(jobId);
+    if (!job) return null;
+
+    // Return job status without the full PDF bytes (those go in /download)
+    return {
+      ok: true,
+      job_id: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      total: job.total,
+      current: job.current,
+      message: job.message,
+      file_name: job.fileName ?? null,
+      error: job.errorMessage ?? null,
+    };
+  }
+
+  handleJobDownload(jobId: string): { base64: string; fileName: string } | null {
+    const job = this.services.getMergeJobStatus(jobId);
+    if (!job || job.status !== 'done' || !job.mergedPdfBase64 || !job.fileName) return null;
+    return { base64: job.mergedPdfBase64, fileName: job.fileName };
+  }
+}

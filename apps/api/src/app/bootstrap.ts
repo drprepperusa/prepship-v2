@@ -48,6 +48,8 @@ import { OrderFullService } from "../modules/orders/application/order-full.ts";
 import { OrderDailyStatsService } from "../modules/orders/application/order-daily-stats.ts";
 import { UpdateOrderOverridesService } from "../modules/orders/application/update-order-overrides.ts";
 import { ShipstationResidentialGateway } from "../modules/orders/data/shipstation-residential-gateway.ts";
+import { QueueHttpHandler } from "../modules/queue/api/queue-handler.ts";
+import { QueueServices } from "../modules/queue/application/queue-services.ts";
 import type { MemoryDataStoreSeed } from "./providers/memory-datastore.ts";
 
 export interface BootstrapApiOverrides {
@@ -103,6 +105,9 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const updateOrderOverridesService = new UpdateOrderOverridesService(dataStore.orderRepository);
   const orderDailyStatsService = new OrderDailyStatsService(dataStore.orderRepository);
   const orderExportService = new OrderExportService(dataStore.orderRepository);
+  const queueServices = new QueueServices(dataStore.queueRepository);
+  const queueHandler = new QueueHttpHandler(queueServices);
+
   const ordersHandler = new OrdersHttpHandler(
     listOrdersService,
     orderDetailsService,
@@ -116,6 +121,6 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
 
   return {
     config,
-    app: createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler }),
+    app: createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler }),
   };
 }
