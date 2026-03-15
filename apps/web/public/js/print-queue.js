@@ -377,6 +377,9 @@ function renderQueuePanel() {
 
   if (queued.length === 0) {
     container.innerHTML = `<div class="pq-empty">📭 Queue is empty<br><small>Click "Send to Queue" on any order with a label</small></div>`;
+    // Disable Print All when empty (must do this even on early return)
+    const emptyPrintBtn = document.getElementById('pq-print-all-btn');
+    if (emptyPrintBtn) { emptyPrintBtn.disabled = true; emptyPrintBtn.onclick = null; }
     return;
   }
 
