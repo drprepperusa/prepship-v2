@@ -529,6 +529,197 @@ export async function reprintLabel(orderId) {
   }
 }
 
+// ═══════════════════════════════════════════
+//  BATCH SEND TO QUEUE
+//  Called by batch panel "Send to Queue" button.
+//  Creates labels for all selected orders and adds them to queue.
+// ═══════════════════════════════════════════
+
+export async function batchSendToQueue() {
+  const { allOrders, selectedOrders } = state;
+  
+  if (selectedOrders.size < 2) {
+    showToast('⚠ Select 2+ orders for batch');
+    return;
+  }
+
+  const selectedList = Array.from(selectedOrders)
+    .map(id => allOrders.find(o => o.orderId === id))
+    .filter(Boolean);
+
+  const btn = document.getElementById('batchQueueBtn');
+  if (btn) { btn.disabled = true; btn.textContent = `⏳ Queuing ${selectedList.length}…`; }
+
+  let successCount = 0;
+  let failureCount = 0;
+
+  try {
+    for (const o of selectedList) {
+      try {
+        // Gather label creation fields (same as createLabel + sendToQueueFromOrder)
+        const wtLb    = parseFloat(document.getElementById('p-wtlb')?.value) || 0;
+        const wtOz    = parseFloat(document.getElementById('p-wtoz')?.value) || 0;
+        const totalOz = (wtLb * 16) + wtOz;
+        const pid     = parseInt(document.getElementById('p-shipacct')?.value) || null;
+        const service = document.getElementById('p-service')?.value || '';
+        const pkgVal  = document.getElementById('p-package')?.value || '';
+        const length  = parseFloat(document.getElementById('p-len')?.value) || 0;
+        const width   = parseFloat(document.getElementById('p-wid')?.value) || 0;
+        const height  = parseFloat(document.getElementById('p-hgt')?.value) || 0;
+        const confirmationOption = document.getElementById('p-confirm')?.value || 'delivery';
+        const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
+        const locId   = parseInt(document.getElementById('p-location')?.value) || null;
+
+        // Validate basic requirements
+        if (!pkgVal) {
+          failureCount++;
+          continue;
+        }
+        if (!pid || !service || !totalOz) {
+          failureCount++;
+          continue;
+        }
+
+        // Determine packageCode and customPackageId
+        const selectedPkg = state.packagesList.find(p => String(p.packageId) === String(pkgVal));
+        let packageCode = 'package';
+        let customPackageId = null;
+        if (selectedPkg) {
+          if (selectedPkg.source === 'ss_carrier') {
+            packageCode = selectedPkg.packageCode || 'package';
+          } else {
+            packageCode = 'package';
+            customPackageId = selectedPkg.packageId;
+          }
+        } else if (pkgVal !== '__custom__') {
+          packageCode = pkgVal;
+        }
+
+        // Get ship-from location
+        const shipFromLoc = locId ? state.locationsList.find(l => l.locationId === locId) : null;
+        const shipFrom = shipFromLoc
+          ? {
+              name:       shipFromLoc.name,
+              company:    shipFromLoc.company    || '',
+              street1:    shipFromLoc.street1    || '',
+              street2:    shipFromLoc.street2    || '',
+              city:       shipFromLoc.city       || '',
+              state:      shipFromLoc.state      || '',
+              postalCode: shipFromLoc.postalCode || '',
+              country:    shipFromLoc.country    || 'US',
+              phone:      shipFromLoc.phone      || '',
+            }
+          : null;
+
+        // Get carrier account code
+        const acct = state.carriersList.find(c => c.shippingProviderId === pid);
+        const carrierCode = acct?.code || '';
+        if (!carrierCode) {
+          failureCount++;
+          continue;
+        }
+
+        const { getOrderShipTo } = await import('./order-data.js');
+        const shipTo = getOrderShipTo(o);
+
+        const payload = {
+          orderId:     o.orderId,
+          orderNumber: o.orderNumber,
+          carrierCode,
+          serviceCode: service,
+          packageCode,
+          customPackageId,
+          weightOz:    totalOz,
+          length, width, height,
+          confirmation: confirm,
+          testLabel:   false,
+          shippingProviderId: pid,
+          shipTo: {
+            name:       shipTo.name       || '',
+            company:    shipTo.company    || '',
+            street1:    shipTo.street1    || '',
+            street2:    shipTo.street2    || '',
+            city:       shipTo.city       || '',
+            state:      shipTo.state      || '',
+            postalCode: shipTo.postalCode || '',
+            country:    shipTo.country    || 'US',
+            phone:      shipTo.phone      || '',
+          },
+          ...(shipFrom ? { shipFrom } : {}),
+        };
+
+        // Create label
+        const labelData = await fetchValidatedJson('/api/labels/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }, parseCreateLabelResponse);
+
+        const labelUrl = labelData.labelUrl;
+        if (!labelUrl) {
+          failureCount++;
+          continue;
+        }
+
+        // Add to queue
+        const items = o.items || [];
+        const sku = items.length === 1 ? items[0].sku : null;
+        const desc = items.length === 1 ? items[0].name : null;
+        const qty = items.reduce((s, i) => s + (i.quantity || 1), 0);
+        const multiSkus = items.length > 1 ? items.map(i => ({ sku: i.sku, description: i.name, qty: i.quantity || 1 })) : null;
+        const skuGroupId = sku ? `SKU:${sku}` : `ORDER:${o.orderId}`;
+        const clientId = window._queueClientId || o.clientId || 1;
+
+        const qRes = await fetch('/api/queue/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: String(o.orderId),
+            order_number: o.orderNumber,
+            client_id: clientId,
+            label_url: labelUrl,
+            sku_group_id: skuGroupId,
+            primary_sku: sku,
+            item_description: desc,
+            order_qty: qty,
+            multi_sku_data: multiSkus,
+          }),
+        });
+
+        if (!qRes.ok) {
+          failureCount++;
+          continue;
+        }
+
+        successCount++;
+      } catch (e) {
+        console.error('[batchSendToQueue] error processing order', o.orderId, e);
+        failureCount++;
+      }
+    }
+
+    // Refresh queue panel and orders list
+    if (typeof window.hydrateQueueFromDB === 'function') {
+      await window.hydrateQueueFromDB(state.selectedOrders.values().next().value ? 
+        state.allOrders.find(o => state.selectedOrders.has(o.orderId))?.clientId || 1 : 1);
+    }
+    if (typeof window.fetchOrders === 'function') {
+      await window.fetchOrders(state.currentPage, true);
+    }
+
+    if (successCount > 0) {
+      showToast(`✅ ${successCount}/${selectedList.length} orders queued`);
+    }
+    if (failureCount > 0) {
+      showToast(`⚠ ${failureCount}/${selectedList.length} orders failed`);
+    }
+  } catch (err) {
+    showToast(`❌ Batch queue failed: ${err.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📥 Send to Queue'; }
+  }
+}
+
 window.createLabel           = createLabel;
 window.generateReturnLabel   = generateReturnLabel;
 window.showExtShipMenu     = showExtShipMenu;
@@ -536,3 +727,4 @@ window.markShippedExternal = markShippedExternal;
 window.toggleResidential   = toggleResidential;
 window.voidLabel           = voidLabel;
 window.reprintLabel        = reprintLabel;
+window.batchSendToQueue    = batchSendToQueue;

@@ -191,6 +191,90 @@ export function closePanel() {
     </div>`;
 }
 
+// ─── Batch Panel ───────────────────────────────────────────────────────────────
+export function showBatchPanel() {
+  const selectedCount = state.selectedOrders.size;
+  if (selectedCount < 2) return;
+
+  state.currentPanelOrder = null;
+  document.getElementById('panelInner').innerHTML = buildBatchPanelHTML();
+  document.getElementById('orderPanel').classList.add('open');
+  
+  // Backdrop only on mobile
+  if (window.innerWidth <= 768) {
+    document.getElementById('panelBackdrop').classList.add('show');
+  }
+}
+
+export function closeBatchPanel() {
+  if (state.selectedOrders.size > 0) return;
+  
+  document.getElementById('orderPanel').classList.remove('open');
+  document.getElementById('panelBackdrop').classList.remove('show');
+  document.querySelectorAll('.row-panel-open').forEach(r => r.classList.remove('row-panel-open'));
+  state.currentPanelOrder = null;
+  
+  document.getElementById('panelInner').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+      height:100%;padding:40px 20px;text-align:center;color:var(--text3)">
+      <div style="font-size:36px;margin-bottom:14px;opacity:.5">📋</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)">No order selected</div>
+      <div style="font-size:12px;line-height:1.5;margin-bottom:20px">Click any row to view details</div>
+    </div>`;
+}
+
+function buildBatchPanelHTML() {
+  const selectedCount = state.selectedOrders.size;
+  const selectedOrderNums = state.allOrders
+    .filter(o => state.selectedOrders.has(o.orderId))
+    .map(o => o.orderNumber)
+    .sort()
+    .join(', ');
+  
+  return `
+  <div class="panel-topbar">
+    <button class="panel-topbar-btn" onclick="closeBatchPanel()">Clear Selection</button>
+    <div class="panel-ordnum">📦 ${selectedCount} order${selectedCount===1?'':'s'} selected</div>
+    <button class="panel-close" onclick="closeBatchPanel()">✕</button>
+  </div>
+
+  <div class="panel-body">
+    <div class="panel-section">
+      <div class="panel-section-header">
+        <span class="panel-section-title">Batch Actions</span>
+      </div>
+      <div class="panel-section-body">
+        <div style="padding:12px;border-bottom:1px solid var(--border);margin-bottom:12px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Selected orders:</div>
+          <div style="font-size:12px;font-family:monospace;color:var(--text2);line-height:1.4;word-break:break-all">${escHtml(selectedOrderNums)}</div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="create-label-btn" id="batchPrintBtn" 
+            onclick="createLabel()" 
+            style="flex:1">
+            🖨️ Create + Print Label
+          </button>
+          <button class="create-label-btn" id="batchQueueBtn"
+            onclick="batchSendToQueue()"
+            title="Create labels and add to print queue (doesn't open PDFs)"
+            style="flex:1;background:#16a34a">
+            📥 Send to Queue
+          </button>
+        </div>
+
+        <div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:4px;border-left:3px solid var(--text4)">
+          <div style="font-size:11px;color:var(--text3);line-height:1.6">
+            <div><strong>Print:</strong> Creates labels for all selected orders, downloads PDFs</div>
+            <div><strong>Queue:</strong> Creates labels and adds to print queue (no download)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
 // ─── Panel HTML ────────────────────────────────────────────────────────────────
 export function buildPanelHTML(o) {
   const { filteredOrders, locationsList, packagesList } = state;
@@ -1435,6 +1519,8 @@ export function showBatchMenu(event, orderId) {
 // ─── Window exports ────────────────────────────────────────────────────────────
 window.openPanel            = openPanel;
 window.closePanel           = closePanel;
+window.showBatchPanel       = showBatchPanel;
+window.closeBatchPanel      = closeBatchPanel;
 window.togglePanelSection   = togglePanelSection;
 window.applyPreset          = applyPreset;
 window.saveSkuDefaults      = saveSkuDefaults;

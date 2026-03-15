@@ -968,10 +968,18 @@ export function toggleCheckbox(id, checked) {
     if (state.currentPanelOrder?.orderId === id && typeof window.closePanel === 'function') window.closePanel();
   }
   updateBatchBar();
+  
+  // Show/close panels based on selection count
   if (state.selectedOrders.size >= 2) {
+    // Multiple selected: show batch panel
     if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
-  } else if (checked) {
-    if (typeof window.openPanel === 'function') window.openPanel(id);
+  } else if (state.selectedOrders.size === 1) {
+    // Single selected: show single order panel
+    const singleId = Array.from(state.selectedOrders)[0];
+    if (typeof window.openPanel === 'function') window.openPanel(singleId);
+  } else {
+    // None selected: close panel
+    if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
   }
 }
 
