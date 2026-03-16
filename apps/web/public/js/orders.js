@@ -1063,7 +1063,14 @@ export async function toggleSkuGroup(currentPageIds, checked, skuJson) {
 
   // Auto-open batch panel when SKU group is selected
   if (checked && state.selectedOrders.size >= 2) {
+    state.currentPanelOrder = null;  // ← Clear single-order state
+    document.getElementById('orderPanel').classList.add('open');
+    document.getElementById('panelBackdrop').classList.add('show');
     if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
+  } else if (!checked && state.selectedOrders.size < 2) {
+    // When unchecking a group, if < 2 orders remain, close batch panel
+    state.currentPanelOrder = null;
+    if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
   }
 }
 
