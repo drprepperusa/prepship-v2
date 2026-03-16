@@ -54,6 +54,7 @@ export async function openPanel(id) {
   // Guard: Don't open single-order panel if batch mode is active (2+ orders selected)
   if (state.selectedOrders.size >= 2) {
     console.log('[openPanel] Blocked: batch mode is active, cannot override with single-order panel');
+    console.log('[openPanel] Stack trace:', new Error().stack);
     return;
   }
   console.log(`[openPanel] Called with id=${id}`);

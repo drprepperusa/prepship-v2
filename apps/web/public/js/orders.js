@@ -221,7 +221,7 @@ export function applyOrdersData(data, page = 1, skipRatesHint = false) {
 
   // Guard: Don't restore single-order panel state if batch mode is active
   if (state.selectedOrders.size >= 2) {
-    console.log('[applyOrdersData] Batch mode active, skipping single-order panel restore');
+    console.log('[applyOrdersData] 🛡️ BATCH GUARD: Batch mode active (' + state.selectedOrders.size + ' orders), skipping single-order panel restore');
     // In batch mode, clear currentPanelOrder to prevent it from being restored
     state.currentPanelOrder = null;
   } else if (state.currentPanelOrder) {
