@@ -979,7 +979,9 @@ export function toggleCheckbox(id, checked) {
   
   // Show/close panels based on selection count
   if (state.selectedOrders.size >= 2) {
-    // Multiple selected: show batch panel
+    // Multiple selected: atomic transition to batch mode
+    state.currentPanelOrder = null;  // ← Clear stale single-order state BEFORE batch render
+    if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
     if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
   } else if (state.selectedOrders.size === 1) {
     // Single selected: close batch panel FIRST, then show single order panel
@@ -988,6 +990,7 @@ export function toggleCheckbox(id, checked) {
     if (typeof window.openPanel === 'function') window.openPanel(singleId);
   } else {
     // None selected: close all panels
+    state.currentPanelOrder = null;  // ← Clean state
     if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
   }
 }
