@@ -108,64 +108,9 @@ export function showBatchPanel() {
   const statesMap = {};
   orders.forEach(o => { const st = o.shipTo?.state || '?'; statesMap[st] = (statesMap[st]||0) + 1; });
   const stateList = Object.entries(statesMap).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([st,n])=>`${st} (${n})`).join(', ');
-  const first = orders[0];
-  const wt = (first._enrichedWeight || first.weight)?.value || 0;
-  const dSrc = first._enrichedDims || getOrderDimensions(first) || {};
-  const pkgOpts = state.packagesList.filter(p => p.source === 'custom').map(p => `<option value="${p.packageId}">${escHtml(p.name)} (${p.length}×${p.width}×${p.height})</option>`).join('');
-  
-  // Get the order's existing package and find its packageId
-  const orderPkgCode = getOrderPackageCode(first);
-  const orderPkg = orderPkgCode && state.packagesList.find(p => p.packageCode === orderPkgCode);
-  const selectedPkgId = orderPkg?.packageId || '';
 
   state.currentPanelOrder = null;
   state.batchForceShared  = false;
-
-  // For multi-SKU, build per-SKU form sections
-  let perSkuHtml = '';
-  if (!sameSku && skus.length > 0) {
-    perSkuHtml = skus.map(sku => {
-      const ordersWithSku = orders.filter(o => getOrderPrimarySku(o) === sku);
-      const skuOrderName = ordersWithSku[0]?.items?.find(i => !i.adjustment && i.sku === sku)?.name || sku;
-      return `
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:6px">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ss-blue)"></span>
-          ${escHtml(skuOrderName)}
-        </div>
-        <div style="font-size:10px;color:var(--text3);font-family:monospace;margin-bottom:10px">${escHtml(sku)} · ${ordersWithSku.length} order${ordersWithSku.length > 1 ? 's' : ''}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-          <div>
-            <label style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;display:block;margin-bottom:3px">Weight (oz)</label>
-            <input type="number" class="sku-weight ship-select" data-sku="${escHtml(sku)}" step="0.1" min="0" style="width:100%;font-size:11px;padding:6px">
-          </div>
-          <div>
-            <label style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;display:block;margin-bottom:3px">Package</label>
-            <select class="sku-package ship-select" data-sku="${escHtml(sku)}" style="width:100%;font-size:11px;padding:6px">
-              <option value="">— Select —</option>${pkgOpts}
-            </select>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-          <div>
-            <label style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;display:block;margin-bottom:3px">L (in)</label>
-            <input type="number" class="sku-length ship-select" data-sku="${escHtml(sku)}" step="0.1" min="0" style="width:100%;font-size:11px;padding:6px">
-          </div>
-          <div>
-            <label style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;display:block;margin-bottom:3px">W (in)</label>
-            <input type="number" class="sku-width ship-select" data-sku="${escHtml(sku)}" step="0.1" min="0" style="width:100%;font-size:11px;padding:6px">
-          </div>
-          <div>
-            <label style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;display:block;margin-bottom:3px">H (in)</label>
-            <input type="number" class="sku-height ship-select" data-sku="${escHtml(sku)}" step="0.1" min="0" style="width:100%;font-size:11px;padding:6px">
-          </div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="saveBatchSkuDims('${escHtml(sku).replace(/'/g, '')}', ${ordersWithSku.length})" style="width:100%;font-size:11px;padding:6px 8px">
-          💾 Save to ${escHtml(sku.substring(0, 20))}
-        </button>
-      </div>`;
-    }).join('');
-  }
 
   document.getElementById('panelInner').innerHTML = `
     <div style="padding:14px 16px">
@@ -183,210 +128,45 @@ export function showBatchPanel() {
         <div style="font-size:11px;color:var(--text3);font-family:monospace">${escHtml(sameSku)}</div>
       </div>` : `
       <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;margin-bottom:14px">
-        <div style="font-size:11px;font-weight:600;color:#92400e">⚠ Multi-SKU — ${skus.length} different products. Enter dims for each.</div>
+        <div style="font-size:11px;font-weight:600;color:#92400e">⚠ Multi-SKU — ${skus.length} different products</div>
       </div>`}
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px;margin-bottom:4px">Destinations</div>
       <div style="font-size:11.5px;color:var(--text2);margin-bottom:14px">${escHtml(stateList)}</div>
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px;margin-bottom:6px">Orders</div>
-      <div style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
-        ${orders.map(o=>`<div style="padding:5px 10px;font-size:11px;display:flex;justify-content:space-between;border-bottom:1px solid var(--border)">
-          <span style="font-family:monospace;color:var(--ss-blue)">${escHtml(o.orderNumber)}</span>
-          <span style="color:var(--text3)">${escHtml(o.shipTo?.state||'')} ${escHtml((o.shipTo?.postalCode||'').substring(0,5))}</span>
-        </div>`).join('')}
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px;margin-bottom:6px">Selected Orders</div>
+      <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:14px">
+        ${orders.map(o => {
+          const carrier = o.carrier ? (state.carrierAccountMap[o.carrier] || o.carrier) : '—';
+          return `<div style="padding:8px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
+            <span style="font-family:monospace;color:var(--ss-blue);flex:1">${escHtml(o.orderNumber)}</span>
+            <span style="color:var(--text3);font-size:10px;margin:0 8px">${escHtml(o.shipTo?.state||'')} ${escHtml((o.shipTo?.postalCode||'').substring(0,5))}</span>
+            <span style="color:var(--text2);font-size:10px;min-width:60px;text-align:right">${escHtml(carrier)}</span>
+          </div>`;
+        }).join('')}
       </div>
-      ${sameSku ? `
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px">📦 Package</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <div>
-            <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">Weight (oz)</label>
-            <input type="number" id="batch-weight" value="${wt}" step="0.1" min="0" class="ship-select" style="width:100%;font-size:12px">
-          </div>
-          <div>
-            <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">Package</label>
-            <select id="batch-package" class="ship-select" style="width:100%;font-size:12px" data-selected="${selectedPkgId}">
-              <option value="">— Select —</option>${pkgOpts}
-            </select>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
-          <div><label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">L (in)</label>
-            <input type="number" id="batch-l" value="${dSrc.length||0}" step="0.1" min="0" class="ship-select" style="width:100%;font-size:12px" onchange="autoMatchPackageByDims()"></div>
-          <div><label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">W (in)</label>
-            <input type="number" id="batch-w" value="${dSrc.width||0}" step="0.1" min="0" class="ship-select" style="width:100%;font-size:12px" onchange="autoMatchPackageByDims()"></div>
-          <div><label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">H (in)</label>
-            <input type="number" id="batch-h" value="${dSrc.height||0}" step="0.1" min="0" class="ship-select" style="width:100%;font-size:12px" onchange="autoMatchPackageByDims()"></div>
-        </div>
-      </div>` : `
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px;margin-bottom:12px">📦 Dimensions Per SKU</div>
-        ${perSkuHtml}
-      </div>`}
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);letter-spacing:.4px">💰 Best Rate Per Order</div>
-          <button class="btn btn-outline btn-sm" onclick="batchRateShop()" id="batch-rate-btn">Rate Shop All</button>
-        </div>
-        <div id="batch-rates-list" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;max-height:250px;overflow-y:auto">
-          <div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Click "Rate Shop All" to find the cheapest carrier for each order</div>
-        </div>
-        <div id="batch-rates-summary" style="display:none;margin-top:8px;padding:10px;background:var(--surface2);border-radius:6px;font-size:12px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn btn-primary" id="batch-create-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700" onclick="batchCreateLabels()">
+          🖨️ Print Labels
+        </button>
+        <button class="create-label-btn" id="batch-queue-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700;background:#16a34a" onclick="batchSendToQueue()">
+          📥 Send to Queue
+        </button>
       </div>
-      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <button class="btn btn-primary" id="batch-create-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700;opacity:.5;pointer-events:none" onclick="batchCreateLabels()">
-            🖨️ Print ${orders.length}
-          </button>
-          <button class="create-label-btn" id="batch-queue-btn" style="flex:1;padding:12px;font-size:13px;font-weight:700;background:#16a34a;opacity:.5;pointer-events:none" onclick="batchSendToQueue()">
-            📥 Queue ${orders.length}
-          </button>
-        </div>
-      </div>
-      <div style="text-align:center;margin-top:14px">
+      <div style="text-align:center;margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" onclick="clearSelection()">✕ Clear Selection</button>
+      </div>
+      <div style="background:#f0f4f8;border-radius:6px;padding:10px;font-size:10px;color:var(--text3);line-height:1.4">
+        <div style="font-weight:600;color:var(--text);margin-bottom:6px">ℹ️ All data from orders</div>
+        <div>Dimensions, weight, package type, and carrier all come from each order's settings.</div>
+        <div style="margin-top:6px">Click individual orders to edit before shipping.</div>
       </div>
     </div>`;
 
   // Show the panel (make it visible with 'open' class)
   document.getElementById('orderPanel').classList.add('open');
-  console.log('[showBatchPanel] Added open class to panel, panelInner HTML length:', document.getElementById('panelInner').innerHTML.length);
-
-  // Auto-fill from already-cached rates (state.orderBestRate populated from prior rate fetch)
-  // This prevents users having to re-click "Rate Shop All" for orders already rated on the main table
-  setTimeout(() => {
-    // Pre-select the order's existing package if available
-    const pkgSel = document.getElementById('batch-package');
-    if (pkgSel) {
-      const selectedPkgId = pkgSel.getAttribute('data-selected');
-      if (selectedPkgId) {
-        pkgSel.value = selectedPkgId;
-      }
-    }
-    const list    = document.getElementById('batch-rates-list');
-    const summary = document.getElementById('batch-rates-summary');
-    if (!list) return;
-
-    let html = '', totalCost = 0, rated = 0, missing = 0;
-
-    for (const o of orders) {
-      const spid    = getOrderBillingProviderId(o);
-      const storeId = getOrderStoreId(o);
-      const cached  = state.orderBestRate[o.orderId];
-      if (cached) {
-        const cc   = CARRIER_NAMES[cached.carrierCode] || cached.carrierCode;
-        const sc   = SERVICE_NAMES[cached.serviceCode] || cached.serviceName || cached.serviceCode;
-        const cost = applyCarrierMarkup(cached, spid, storeId);
-        const _nick = cached.carrierNickname && !cached.carrierNickname.startsWith('se-') ? cached.carrierNickname : '';
-        const acct = _nick || state.carrierAccountMap[cached.shippingProviderId] || cc;
-        totalCost += cost;
-        rated++;
-        html += `<div style="padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
-          <span style="font-family:monospace;color:var(--ss-blue);min-width:80px">${escHtml((o.orderNumber||'').slice(-8))}</span>
-          <span style="font-size:10px;color:var(--text2);flex:1;margin:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(acct)} · ${escHtml((sc+'').substring(0,18))}</span>
-          <strong style="color:var(--green-dark)">$${cost.toFixed(2)}</strong>
-        </div>`;
-      } else {
-        missing++;
-        html += `<div id="br-${o.orderId}" style="padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)">
-          <span style="font-family:monospace;color:var(--ss-blue);min-width:80px">${escHtml((o.orderNumber||'').slice(-8))}</span>
-          <span style="color:var(--text3)">${escHtml(o.shipTo?.state||'')} ${escHtml((o.shipTo?.postalCode||'').substring(0,5))}</span>
-          <span style="color:var(--text4);font-size:10px">— rate shop</span>
-        </div>`;
-      }
-    }
-
-    if (rated > 0) {
-      list.innerHTML = html;
-      summary.style.display = '';
-      summary.innerHTML = `
-        <div style="display:flex;justify-content:space-between;font-weight:700">
-          <span>${rated} of ${orders.length} rated${missing ? ` · <span style="color:var(--yellow)">${missing} need rate shop</span>` : ''}</span>
-          <span style="color:var(--green-dark);font-size:14px">Total: $${totalCost.toFixed(2)}</span>
-        </div>
-        <div style="color:var(--text3);font-size:11px;margin-top:2px">Avg: $${(totalCost/rated).toFixed(2)}/order · Each order uses its cheapest carrier</div>`;
-      if (missing === 0) {
-        // All already rated — hide Rate Shop button and enable Create button
-        const rateBtn   = document.getElementById('batch-rate-btn');
-        const createBtn = document.getElementById('batch-create-btn');
-        if (rateBtn)   rateBtn.style.display = 'none';
-        if (createBtn) { createBtn.style.opacity = '1'; createBtn.style.pointerEvents = 'auto'; }
-      }
-      
-      // Queue button ALWAYS enabled (uses cached best rates from order load, doesn't need rate shop)
-      const queueBtn = document.getElementById('batch-queue-btn');
-      if (queueBtn) { queueBtn.style.opacity = '1'; queueBtn.style.pointerEvents = 'auto'; }
-
-      // Auto-match package if dimensions are pre-populated
-      const l = parseFloat(document.getElementById('batch-l')?.value) || 0;
-      const w = parseFloat(document.getElementById('batch-w')?.value) || 0;
-      const h = parseFloat(document.getElementById('batch-h')?.value) || 0;
-      if (l && w && h) {
-        (async () => { await autoMatchPackageByDims(); })();  // ← Trigger auto-match async
-      }
-    }
-  }, 50);
+  console.log('[showBatchPanel] Added open class to panel with', orders.length, 'orders');
 }
 
-export function batchApplyToAll() {
-  state.batchForceShared = true;
-  const btn = document.getElementById('batch-apply-all-btn');
-  if (btn) { btn.textContent = '✓ Applied'; btn.disabled = true; }
-  showToast('Batch weight/dims will apply to all orders');
-}
 
-// Auto-package matching: when user enters dims, find or create matching package
-export async function autoMatchPackageByDims() {
-  const l = parseFloat(document.getElementById('batch-l')?.value) || 0;
-  const w = parseFloat(document.getElementById('batch-w')?.value) || 0;
-  const h = parseFloat(document.getElementById('batch-h')?.value) || 0;
-  const pkgSel = document.getElementById('batch-package');
-
-  if (!l || !w || !h || !pkgSel) return;
-
-  try {
-    // Try to find existing package with matching dims
-    const pkg = await fetchValidatedJson(`/api/packages/find-by-dims?length=${l}&width=${w}&height=${h}`, undefined, parseNullablePackageDto);
-
-    if (pkg) {
-      // Found exact match — auto-select it
-      pkgSel.value = pkg.packageId;
-      showToast(`📦 Auto-selected: ${escHtml(pkg.name)}`);
-    } else {
-      // No match found — check if single-SKU batch, then prompt to auto-create
-      const ids = [...state.selectedOrders];
-      const orders = ids.map(id => state.allOrders.find(o => o.orderId === id)).filter(Boolean);
-      const skus = [...new Set(orders.map(o => getOrderPrimarySku(o)))];
-      const isSingleSku = skus.length === 1 && skus[0];
-
-      if (isSingleSku) {
-        // Get clientId from any order's store
-        const storeId = getOrderStoreId(orders[0]);
-        const client = (state.clientsList || []).find(c => Array.isArray(c.storeIds) && c.storeIds.includes(storeId));
-        const clientId = client?.clientId;
-
-        if (clientId) {
-          // Auto-create the package and set as SKU default
-          const createResult = await fetchValidatedJson('/api/packages/auto-create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ length: l, width: w, height: h, sku: isSingleSku, clientId }),
-          }, parseAutoCreatePackageResponse);
-          if (createResult.ok && createResult.package) {
-            pkgSel.value = createResult.package.packageId;
-            showToast(`✨ Created & selected: ${createResult.package.name} (saved as default for ${isSingleSku})`);
-            // Refresh packages list to include new package
-            const pkgs = await fetchValidatedJson('/api/packages?source=custom', undefined, parsePackageDtoList);
-            state.packagesList = pkgs;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[AutoMatch] Error:', e);
-  }
-}
 
 export async function batchRateShop() {
   const ids    = [...state.selectedOrders];
