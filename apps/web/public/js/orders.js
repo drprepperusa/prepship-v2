@@ -1002,7 +1002,20 @@ export async function toggleRowSelect(id) {
     updateBatchBar();
     if (state.currentPanelOrder?.orderId === id && typeof window.closePanel === 'function') window.closePanel();
   } else {
-    if (typeof window.openPanel === 'function') await window.openPanel(id);
+    // BUGFIX: Add to selectedOrders BEFORE calling openPanel, so batch guard works correctly
+    state.selectedOrders.add(id);
+    const row = document.getElementById(`row-${id}`);
+    if (row) row.classList.add('row-selected');
+    const rowCb = document.querySelector(`#row-${id} input[type=checkbox]`);
+    if (rowCb) rowCb.checked = true;
+    updateBatchBar();
+    
+    // Now show appropriate panel
+    if (state.selectedOrders.size >= 2) {
+      if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
+    } else {
+      if (typeof window.openPanel === 'function') await window.openPanel(id);
+    }
   }
 }
 
