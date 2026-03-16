@@ -304,6 +304,14 @@ export function showBatchPanel() {
       // Queue button ALWAYS enabled (uses cached best rates from order load, doesn't need rate shop)
       const queueBtn = document.getElementById('batch-queue-btn');
       if (queueBtn) { queueBtn.style.opacity = '1'; queueBtn.style.pointerEvents = 'auto'; }
+
+      // Auto-match package if dimensions are pre-populated
+      const l = parseFloat(document.getElementById('batch-l')?.value) || 0;
+      const w = parseFloat(document.getElementById('batch-w')?.value) || 0;
+      const h = parseFloat(document.getElementById('batch-h')?.value) || 0;
+      if (l && w && h) {
+        autoMatchPackageByDims();  // ← Trigger auto-match (fires async, updates dropdown)
+      }
     }
   }, 50);
 }
