@@ -151,6 +151,10 @@ export function showBatchPanel() {
           📥 Send to Queue
         </button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 10px;background:#f3e8ff;border-radius:6px;border:1px solid #e9d5ff">
+        <input type="checkbox" id="batch-test-mode" style="cursor:pointer">
+        <label for="batch-test-mode" style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text)">🧪 Test mode (no charges)</label>
+      </div>
       <div style="text-align:center;margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" onclick="clearSelection()">✕ Clear Selection</button>
       </div>
@@ -320,6 +324,9 @@ export async function batchCreateLabels() {
   btn.disabled = true;
   btn.textContent = 'Creating…';
 
+  // Read test mode flag
+  const testMode = document.getElementById('batch-test-mode')?.checked || false;
+
   // Read panel weight/dims — sent to backend as authoritative values.
   // Backend auto-resolves from DB if these are 0, so no harm in always sending.
   const panelWt = parseFloat(document.getElementById('batch-weight')?.value) || 0;
@@ -356,6 +363,7 @@ export async function batchCreateLabels() {
         packageCode: 'package',
         ...(panelWt       ? { weightOz: panelWt }                              : {}),
         ...(hasPanelDims  ? { length: panelL, width: panelW, height: panelH }  : {}),
+        ...(testMode      ? { testLabel: true }                                : {}),
       };
 
       const data = await fetchValidatedJson('/api/labels/create', {
@@ -435,6 +443,8 @@ export async function batchSendToQueue() {
     return;
   }
 
+  const testMode = document.getElementById('batch-test-mode')?.checked || false;
+
   // ─── PRE-FLIGHT VALIDATION: Check all orders have cached best rates ───
   const missingRates = orders.filter(o => {
     const r = state.orderBestRate[o.orderId];
@@ -487,6 +497,7 @@ export async function batchSendToQueue() {
           length: dims.length || 0,
           width: dims.width || 0,
           height: dims.height || 0,
+          testLabel: testMode,
         }),
       });
 
