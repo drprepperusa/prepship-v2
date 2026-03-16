@@ -219,7 +219,12 @@ export function applyOrdersData(data, page = 1, skipRatesHint = false) {
   state.totalPages = data.pages || 1;
   state.currentPage = page;
 
-  if (state.currentPanelOrder) {
+  // Guard: Don't restore single-order panel state if batch mode is active
+  if (state.selectedOrders.size >= 2) {
+    console.log('[applyOrdersData] Batch mode active, skipping single-order panel restore');
+    // In batch mode, clear currentPanelOrder to prevent it from being restored
+    state.currentPanelOrder = null;
+  } else if (state.currentPanelOrder) {
     const updatedPanelOrder = state.allOrders.find((order) => order.orderId === state.currentPanelOrder.orderId) || null;
     if (!updatedPanelOrder) {
       if (typeof window.closePanel === 'function') window.closePanel();

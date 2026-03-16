@@ -51,6 +51,11 @@ function getPanelDisplayCarriers() {
 
 // ─── Open / Close ─────────────────────────────────────────────────────────────
 export async function openPanel(id) {
+  // Guard: Don't open single-order panel if batch mode is active (2+ orders selected)
+  if (state.selectedOrders.size >= 2) {
+    console.log('[openPanel] Blocked: batch mode is active, cannot override with single-order panel');
+    return;
+  }
   console.log(`[openPanel] Called with id=${id}`);
   const { allOrders, packagesList, locationsList, selectedOrders } = state;
   const o = allOrders.find(o => o.orderId === id);
