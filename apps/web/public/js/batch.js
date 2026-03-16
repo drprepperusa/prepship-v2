@@ -649,9 +649,7 @@ function showErrorModal(title, message) {
 window.getRates               = getRates;
 window.updateProfitEstimate   = updateProfitEstimate;
 window.showBatchPanel         = showBatchPanel;
-window.batchApplyToAll        = batchApplyToAll;
 window.batchRateShop          = batchRateShop;
-window.autoMatchPackageByDims = autoMatchPackageByDims;
 window.batchCreateLabels      = batchCreateLabels;
 window.batchSendToQueue       = batchSendToQueue;
 window.saveBatchSkuDims       = saveBatchSkuDims;
