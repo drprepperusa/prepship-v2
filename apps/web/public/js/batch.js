@@ -5,7 +5,7 @@ import { applyCarrierMarkup, pickBestRate, isResidential } from './markups.js';
 import { getStoreName } from './stores.js';
 import { getOrderPrimarySku, updateBatchBar } from './table.js';
 import { fetchValidatedJson, parseErrorResponse } from './api-client.js';
-import { getOrderBillingProviderId, getOrderDimensions, getOrderStoreId } from './order-data.js';
+import { getOrderBillingProviderId, getOrderDimensions, getOrderStoreId, getOrderPackageCode } from './order-data.js';
 import {
   parseAutoCreatePackageResponse,
   parseBulkCachedRatesResponse,
@@ -112,6 +112,11 @@ export function showBatchPanel() {
   const wt = (first._enrichedWeight || first.weight)?.value || 0;
   const dSrc = first._enrichedDims || getOrderDimensions(first) || {};
   const pkgOpts = state.packagesList.filter(p => p.source === 'custom').map(p => `<option value="${p.packageId}">${escHtml(p.name)} (${p.length}×${p.width}×${p.height})</option>`).join('');
+  
+  // Get the order's existing package and find its packageId
+  const orderPkgCode = getOrderPackageCode(first);
+  const orderPkg = orderPkgCode && state.packagesList.find(p => p.packageCode === orderPkgCode);
+  const selectedPkgId = orderPkg?.packageId || '';
 
   state.currentPanelOrder = null;
   state.batchForceShared  = false;
@@ -201,7 +206,7 @@ export function showBatchPanel() {
           </div>
           <div>
             <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase">Package</label>
-            <select id="batch-package" class="ship-select" style="width:100%;font-size:12px">
+            <select id="batch-package" class="ship-select" style="width:100%;font-size:12px" data-selected="${selectedPkgId}">
               <option value="">— Select —</option>${pkgOpts}
             </select>
           </div>
@@ -251,6 +256,14 @@ export function showBatchPanel() {
   // Auto-fill from already-cached rates (state.orderBestRate populated from prior rate fetch)
   // This prevents users having to re-click "Rate Shop All" for orders already rated on the main table
   setTimeout(() => {
+    // Pre-select the order's existing package if available
+    const pkgSel = document.getElementById('batch-package');
+    if (pkgSel) {
+      const selectedPkgId = pkgSel.getAttribute('data-selected');
+      if (selectedPkgId) {
+        pkgSel.value = selectedPkgId;
+      }
+    }
     const list    = document.getElementById('batch-rates-list');
     const summary = document.getElementById('batch-rates-summary');
     if (!list) return;
