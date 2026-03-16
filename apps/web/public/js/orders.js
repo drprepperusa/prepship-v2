@@ -364,7 +364,7 @@ export function renderOrders(skipRates = false) {
     const cells = COLS.map(c => {
       if (state.hiddenCols.has(c.key)) return '';
       switch (c.key) {
-        case 'select':    return `<td data-col="select"><input type="checkbox" ${chk} onchange="toggleCheckbox(${o.orderId},this.checked)" tabindex="-1"></td>`;
+        case 'select':    return `<td data-col="select"><input type="checkbox" ${chk} onclick="event.stopPropagation()" onchange="toggleCheckbox(${o.orderId},this.checked)" tabindex="-1"></td>`;
         case 'date': {
           const _pb = o.bestRate;
           const serviceCode = _pb?.serviceCode || getOrderNormalizedServiceCode(o) || getOrderRequestedService(o) || '';
