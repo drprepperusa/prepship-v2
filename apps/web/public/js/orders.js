@@ -1001,20 +1001,13 @@ export function toggleCheckbox(id, checked) {
 export function toggleRowSelect(id) {
   // Delegate to toggleCheckbox to unify behavior
   // Clicking the row should have identical effect to clicking the checkbox
+  //
+  // IMPORTANT: Setting rowCb.checked = true programmatically does NOT fire the onchange event.
+  // Therefore we MUST call toggleCheckbox() explicitly — we cannot rely on onchange to do it.
+  // The previous "early return" guard was wrong: it set checked=true but never called toggleCheckbox,
+  // so selectedOrders was never updated and showBatchPanel() was never called.
   const rowCb = document.querySelector(`#row-${id} input[type=checkbox]`);
   if (rowCb) {
-    // ✅ GUARD: If clicking a checkbox to ADD to batch (not currently selected, will become selected),
-    // let the checkbox's onchange handler manage the state. This prevents duplicate toggleCheckbox() calls.
-    const isCurrentlySelected = state.selectedOrders.has(id);
-    const willBeSelected = !rowCb.checked;  // About to toggle to true
-    if (!isCurrentlySelected && willBeSelected) {
-      // User clicking row to SELECT an order while others are already selected (batch mode)
-      // Let the checkbox onchange handler fire and manage batch state
-      rowCb.checked = true;
-      return;  // ✅ Don't call toggleCheckbox here — let onchange do it
-    }
-    
-    // All other cases: deselect, or toggle when no batch context
     const newState = !rowCb.checked;
     rowCb.checked = newState;
     toggleCheckbox(id, newState);
