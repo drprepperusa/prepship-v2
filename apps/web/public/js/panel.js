@@ -92,6 +92,14 @@ export async function openPanel(id) {
     state.panelStoreCarriers = null;
   }
 
+  // ✅ GUARD: Re-check batch mode after async operations complete
+  // (toggleCheckbox may have added 2nd order while we were awaiting packages/locations)
+  if (state.selectedOrders.size >= 2) {
+    console.log('[openPanel] After async: batch mode is now active, showing batch panel instead');
+    if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
+    return;
+  }
+
   // Single-select mode: clear all other selections unless multi-select (>1 already checked)
   if (selectedOrders.size <= 1) {
     selectedOrders.forEach(prevId => {
