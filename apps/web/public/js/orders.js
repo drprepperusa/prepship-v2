@@ -992,30 +992,15 @@ export function toggleCheckbox(id, checked) {
   }
 }
 
-export async function toggleRowSelect(id) {
-  if (state.selectedOrders.has(id)) {
-    state.selectedOrders.delete(id);
-    const row = document.getElementById(`row-${id}`);
-    if (row) row.classList.remove('row-selected', 'row-panel-open');
-    const rowCb = document.querySelector(`#row-${id} input[type=checkbox]`);
-    if (rowCb) rowCb.checked = false;
-    updateBatchBar();
-    if (state.currentPanelOrder?.orderId === id && typeof window.closePanel === 'function') window.closePanel();
-  } else {
-    // BUGFIX: Add to selectedOrders BEFORE calling openPanel, so batch guard works correctly
-    state.selectedOrders.add(id);
-    const row = document.getElementById(`row-${id}`);
-    if (row) row.classList.add('row-selected');
-    const rowCb = document.querySelector(`#row-${id} input[type=checkbox]`);
-    if (rowCb) rowCb.checked = true;
-    updateBatchBar();
-    
-    // Now show appropriate panel
-    if (state.selectedOrders.size >= 2) {
-      if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
-    } else {
-      if (typeof window.openPanel === 'function') await window.openPanel(id);
-    }
+export function toggleRowSelect(id) {
+  // Delegate to toggleCheckbox to unify behavior
+  // Clicking the row should have identical effect to clicking the checkbox
+  const rowCb = document.querySelector(`#row-${id} input[type=checkbox]`);
+  if (rowCb) {
+    // Toggle the checkbox state and delegate to toggleCheckbox
+    const newState = !rowCb.checked;
+    rowCb.checked = newState;
+    toggleCheckbox(id, newState);
   }
 }
 
