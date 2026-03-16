@@ -980,11 +980,14 @@ export function toggleCheckbox(id, checked) {
   // Show/close panels based on selection count
   if (state.selectedOrders.size >= 2) {
     // Multiple selected: atomic transition to batch mode
+    // ✅ DO NOT call closeBatchPanel() — it calls closePanel() which can be interrupted by polling
+    // ✅ Instead, atomically clear single-order state and render batch directly
     state.currentPanelOrder = null;  // ← Clear stale single-order state BEFORE batch render
-    if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
+    document.getElementById('orderPanel').classList.add('open');
+    document.getElementById('panelBackdrop').classList.add('show');
     if (typeof window.showBatchPanel === 'function') window.showBatchPanel();
   } else if (state.selectedOrders.size === 1) {
-    // Single selected: close batch panel FIRST, then show single order panel
+    // Single selected: clear batch, then show single order panel
     if (typeof window.closeBatchPanel === 'function') window.closeBatchPanel();
     const singleId = Array.from(state.selectedOrders)[0];
     if (typeof window.openPanel === 'function') window.openPanel(singleId);
