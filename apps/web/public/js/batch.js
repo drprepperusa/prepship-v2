@@ -310,7 +310,7 @@ export function showBatchPanel() {
       const w = parseFloat(document.getElementById('batch-w')?.value) || 0;
       const h = parseFloat(document.getElementById('batch-h')?.value) || 0;
       if (l && w && h) {
-        autoMatchPackageByDims();  // ← Trigger auto-match (fires async, updates dropdown)
+        (async () => { await autoMatchPackageByDims(); })();  // ← Trigger auto-match async
       }
     }
   }, 50);
