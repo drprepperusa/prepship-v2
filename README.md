@@ -78,7 +78,7 @@ Operationally:
 - run the copied parity frontend with `npm run dev:web`
 - run the React migration app with `npm run dev:react`
 - prefer documenting parity gaps explicitly rather than silently inventing replacement UI behavior
-- React Orders View parity has improved recently: the filter bar now follows the V1 structure more closely, and the core V1 table columns including `Ship Margin`, `Label Created`, and `Age` are now present with populated data
+- React Orders View parity has improved recently: the filter bar now follows the V1 structure more closely, and the orders table now shares `apps/web` column prefs / markup settings plus the main V1 table columns and diagnostic order fields
 
 ## Configuration
 

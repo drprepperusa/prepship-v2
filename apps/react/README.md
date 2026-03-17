@@ -18,7 +18,8 @@ It is not the canonical frontend yet, and it is not a redesign track. The behavi
 
 - the React app boots and builds with `npm --prefix apps/react run build`
 - the Orders View filter bar now follows the V1/apps/web structure more closely, including server-backed date presets plus custom date range handling
-- the Orders table now includes the main V1 operator columns, including `Ship Margin`, `Label Created`, and `Age`, with data populated from V2 order DTOs and carrier markups
+- the Orders table now reads the same `/api/settings/colPrefs` and `/api/settings/rbMarkups` surfaces as `apps/web`, so column order/visibility/widths and marked-up rate cells can match the copied frontend instead of diverging in React-local storage
+- the Orders table now renders the V1/apps/web cell precedence for shipped vs awaiting rows, including client badges, multi-SKU item/SKU cells, shipping-account resolution, selected-rate vs label-rate display, and the diagnostic columns such as `Carrier Code`, `Provider ID`, `Client ID`, and `Acct Nickname` when those columns are enabled in saved prefs
 - the Order Panel is being migrated with parity-first behavior
 - other views still contain mixed migration quality and should be treated as in-progress unless explicitly verified against V1
 

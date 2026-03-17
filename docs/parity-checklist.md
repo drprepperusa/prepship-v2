@@ -33,7 +33,7 @@ Run these first:
 ### Orders
 
 - order list
-  Compare the orders filter bar, date presets/custom range behavior, and core table columns such as `Best Rate`, `Ship Margin`, `Tracking #`, `Label Created`, and `Age`.
+  Compare the orders filter bar, date presets/custom range behavior, server-backed column prefs (`colPrefs`), marked-up rate display (`rbMarkups`), and table columns such as `Best Rate`, `Ship Margin`, `Tracking #`, `Label Created`, `Age`, plus any enabled diagnostic columns like `Carrier Code`, `Provider ID`, `Client ID`, and `Acct Nickname`.
 - order detail/full view
 - daily stats
 - selected package / best-rate / residential / selected-pid overrides
