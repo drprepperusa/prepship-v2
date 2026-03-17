@@ -671,7 +671,14 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
         </div>
 
         {/* Right Panel — always visible (gap #2) */}
-        <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
+        <OrderPanel
+          orderId={panelOrderId}
+          orderSnapshot={filteredOrders.find((order) => order.orderId === panelOrderId) ?? null}
+          orderIds={tableOrders.map((order) => order.orderId)}
+          onOpenOrder={handleOpenPanelLocal}
+          onClose={handleClosePanel}
+          onRefresh={refetch}
+        />
       </div>
     </div>
   )

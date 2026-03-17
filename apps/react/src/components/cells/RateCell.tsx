@@ -1,4 +1,4 @@
-import { OrderDTO, Rate } from '../../types/orders';
+import type { OrderDTO, Rate } from '../../types/orders';
 import { getOrderDimensions, getOrderWeight } from '../../utils/orders';
 
 interface RateCellProps {

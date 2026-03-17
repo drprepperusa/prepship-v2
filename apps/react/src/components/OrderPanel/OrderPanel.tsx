@@ -1,373 +1,1265 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useOrderDetail, useShippingAccounts } from '../../hooks'
-import { useRates } from '../../hooks/useRates'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import type { CarrierAccountDto } from '@prepshipv2/contracts/init/contracts'
+import type { OrderSummaryDto, OrderSelectedRateDto } from '@prepshipv2/contracts/orders/contracts'
+import type { PackageDto } from '@prepshipv2/contracts/packages/contracts'
+import type { LocationDto } from '@prepshipv2/contracts/locations/contracts'
+import type { RateDto } from '@prepshipv2/contracts/rates/contracts'
+import { useLocations, useOrderDetail, useShippingAccounts } from '../../hooks'
 import { useToast } from '../../hooks/useToast'
 
-interface OrderPanelProps {
+type ProductDefaultsDto = {
+  sku: string
+  weightOz: number
+  length: number
+  width: number
+  height: number
+  defaultPackageCode?: string | null
+  packageCode?: string | null
+}
+
+type PackageOption = PackageDto & {
+  packageCode?: string | null
+}
+
+type OrderPanelProps = {
   orderId: number | null
+  orderSnapshot: OrderSummaryDto | null
+  orderIds: number[]
+  onOpenOrder: (orderId: number) => void
   onClose: () => void
-  onRefresh?: () => void
-  onSendToQueue?: (orderId: number) => void
+  onRefresh?: () => Promise<void> | void
 }
 
-// Preset box sizes
-const PRESETS: Record<string, { w: number; h: number; d: number; weight: number }> = {
-  'Small':         { w: 8,  h: 6,  d: 4,  weight: 0.5 },
-  'Medium':        { w: 12, h: 9,  d: 4,  weight: 1.0 },
-  'Large':         { w: 16, h: 12, d: 6,  weight: 2.0 },
-  'Poly Mailer':   { w: 10, h: 13, d: 0,  weight: 0.5 },
+const PRESETS = {
+  Small: { lb: 0, oz: 8, len: 8, wid: 6, hgt: 2 },
+  Medium: { lb: 1, oz: 0, len: 12, wid: 9, hgt: 4 },
+  Large: { lb: 2, oz: 0, len: 16, wid: 12, hgt: 6 },
+  'Poly Mailer S': { lb: 0, oz: 8, len: 10, wid: 13, hgt: 0 },
+  'Poly Mailer L': { lb: 1, oz: 0, len: 14, wid: 17, hgt: 0 },
+} as const
+
+const EXTERNAL_SOURCES = ['Amazon', 'Walmart', 'eBay', 'Etsy', 'Other']
+
+const CARRIER_SERVICES: Record<string, Array<{ code: string; label: string }>> = {
+  stamps_com: [
+    { code: 'usps_media_mail', label: 'USPS Media Mail' },
+    { code: 'usps_first_class_mail', label: 'USPS First Class Mail' },
+    { code: 'usps_ground_advantage', label: 'USPS Ground Advantage' },
+    { code: 'usps_priority_mail', label: 'USPS Priority Mail' },
+    { code: 'usps_priority_mail_express', label: 'USPS Priority Express' },
+    { code: 'usps_parcel_select', label: 'USPS Parcel Select' },
+  ],
+  ups: [
+    { code: 'ups_ground', label: 'UPS Ground' },
+    { code: 'ups_ground_saver', label: 'UPS Ground Saver' },
+    { code: 'ups_surepost_less_than_1_lb', label: 'UPS SurePost (<1 lb)' },
+    { code: 'ups_surepost_1_lb_or_greater', label: 'UPS SurePost (≥1 lb)' },
+    { code: 'ups_3_day_select', label: 'UPS 3 Day Select' },
+    { code: 'ups_2nd_day_air', label: 'UPS 2nd Day Air' },
+    { code: 'ups_2nd_day_air_am', label: 'UPS 2nd Day Air AM' },
+    { code: 'ups_next_day_air_saver', label: 'UPS Next Day Air Saver' },
+    { code: 'ups_next_day_air', label: 'UPS Next Day Air' },
+    { code: 'ups_next_day_air_early_am', label: 'UPS Next Day Air Early AM' },
+  ],
+  ups_walleted: [
+    { code: 'ups_ground', label: 'UPS Ground' },
+    { code: 'ups_ground_saver', label: 'UPS Ground Saver' },
+    { code: 'ups_surepost_less_than_1_lb', label: 'UPS SurePost (<1 lb)' },
+    { code: 'ups_surepost_1_lb_or_greater', label: 'UPS SurePost (≥1 lb)' },
+    { code: 'ups_3_day_select', label: 'UPS 3 Day Select' },
+    { code: 'ups_2nd_day_air', label: 'UPS 2nd Day Air' },
+    { code: 'ups_next_day_air_saver', label: 'UPS Next Day Air Saver' },
+    { code: 'ups_next_day_air', label: 'UPS Next Day Air' },
+  ],
+  fedex: [
+    { code: 'fedex_ground', label: 'FedEx Ground' },
+    { code: 'fedex_home_delivery', label: 'FedEx Home Delivery' },
+    { code: 'fedex_2day', label: 'FedEx 2Day' },
+    { code: 'fedex_express_saver', label: 'FedEx Express Saver' },
+    { code: 'fedex_priority_overnight', label: 'FedEx Priority Overnight' },
+    { code: 'fedex_standard_overnight', label: 'FedEx Standard Overnight' },
+  ],
+  fedex_walleted: [
+    { code: 'fedex_ground', label: 'FedEx Ground' },
+    { code: 'fedex_home_delivery', label: 'FedEx Home Delivery' },
+    { code: 'fedex_2day', label: 'FedEx 2Day' },
+    { code: 'fedex_express_saver', label: 'FedEx Express Saver' },
+    { code: 'fedex_priority_overnight', label: 'FedEx Priority Overnight' },
+    { code: 'fedex_standard_overnight', label: 'FedEx Standard Overnight' },
+  ],
 }
 
-const CARRIER_LABELS: Record<string, string> = {
+const CARRIER_NAMES: Record<string, string> = {
   stamps_com: 'USPS',
-  usps: 'USPS',
-  fedex: 'FedEx',
-  fedex_ground: 'FedEx',
   ups: 'UPS',
-  ups_ground: 'UPS',
+  ups_walleted: 'UPS',
+  fedex: 'FedEx',
+  fedex_walleted: 'FedEx',
+  dhl_express: 'DHL',
+  asendia_us: 'Asendia',
+  ontrac: 'OnTrac',
+  lasership: 'LaserShip',
 }
 
-function carrierLabel(code: string) {
-  if (!code) return ''
-  if (code === 'stamps_com' || code === 'usps') return 'USPS'
-  if (code.startsWith('fedex')) return 'FedEx'
-  if (code.startsWith('ups')) return 'UPS'
-  return code.toUpperCase()
+const SERVICE_NAMES: Record<string, string> = {
+  usps_priority_mail: 'Priority Mail',
+  usps_priority_mail_express: 'Priority Express',
+  usps_first_class_mail: 'First Class',
+  usps_ground_advantage: 'Ground Advantage',
+  usps_media_mail: 'Media Mail',
+  usps_library_mail: 'Library Mail',
+  usps_parcel_select: 'Parcel Select',
+  ups_ground: 'UPS Ground',
+  ups_ground_saver: 'UPS Ground Saver',
+  ups_surepost: 'UPS SurePost',
+  ups_surepost_1_lb_or_greater: 'UPS SurePost (≥1 lb)',
+  ups_surepost_less_than_1_lb: 'UPS SurePost (<1 lb)',
+  ups_3_day_select: 'UPS 3 Day Select',
+  ups_2nd_day_air: 'UPS 2nd Day Air',
+  ups_2nd_day_air_am: 'UPS 2nd Day Air AM',
+  ups_next_day_air_saver: 'UPS Next Day Air Saver',
+  ups_next_day_air: 'UPS Next Day Air',
+  ups_next_day_air_early_am: 'UPS Next Day Air Early AM',
+  fedex_ground: 'FedEx Ground',
+  fedex_home_delivery: 'FedEx Home Delivery',
+  fedex_2day: 'FedEx 2Day',
+  fedex_express_saver: 'FedEx Express Saver',
+  fedex_priority_overnight: 'FedEx Priority Overnight',
+  fedex_standard_overnight: 'FedEx Standard Overnight',
 }
 
-export default function OrderPanel({ orderId, onClose, onRefresh, onSendToQueue }: OrderPanelProps) {
-  const { order, loading: orderLoading, error: orderError } = useOrderDetail(orderId)
-  const { accounts, loading: accountsLoading } = useShippingAccounts()
-  const { fetchRates, loading: ratesLoading } = useRates()
+const menuStyle: CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 4px)',
+  left: 0,
+  zIndex: 40,
+  minWidth: '170px',
+  overflow: 'hidden',
+  border: '1px solid var(--border2)',
+  borderRadius: '6px',
+  background: 'var(--surface)',
+  boxShadow: '0 4px 16px rgba(0,0,0,.15)',
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  return value as Record<string, unknown>
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function getRawOrder(order: OrderSummaryDto | null) {
+  return asRecord(order?.raw) ?? {}
+}
+
+function getAdvancedOptions(order: OrderSummaryDto | null) {
+  return asRecord(getRawOrder(order).advancedOptions) ?? {}
+}
+
+function getOrderDimensions(order: OrderSummaryDto | null) {
+  if (order?.rateDims) {
+    return order.rateDims
+  }
+
+  const rawDims = asRecord(getRawOrder(order).dimensions)
+  return {
+    length: asNumber(rawDims?.length) ?? 0,
+    width: asNumber(rawDims?.width) ?? 0,
+    height: asNumber(rawDims?.height) ?? 0,
+  }
+}
+
+function getOrderShipTo(order: OrderSummaryDto | null) {
+  const rawShipTo = asRecord(getRawOrder(order).shipTo)
+  const fallback = order?.shipTo ?? {
+    name: '',
+    city: '',
+    state: '',
+    postalCode: '',
+  }
+  return {
+    name: typeof rawShipTo?.name === 'string' ? rawShipTo.name : fallback.name ?? '',
+    company: typeof rawShipTo?.company === 'string' ? rawShipTo.company : '',
+    street1: typeof rawShipTo?.street1 === 'string' ? rawShipTo.street1 : '',
+    street2: typeof rawShipTo?.street2 === 'string' ? rawShipTo.street2 : '',
+    city: typeof rawShipTo?.city === 'string' ? rawShipTo.city : fallback.city ?? '',
+    state: typeof rawShipTo?.state === 'string' ? rawShipTo.state : fallback.state ?? '',
+    postalCode: typeof rawShipTo?.postalCode === 'string' ? rawShipTo.postalCode : fallback.postalCode ?? '',
+    country: typeof rawShipTo?.country === 'string' ? rawShipTo.country : 'US',
+    phone: typeof rawShipTo?.phone === 'string' ? rawShipTo.phone : '',
+  }
+}
+
+function getOrderRequestedService(order: OrderSummaryDto | null) {
+  const requested = getRawOrder(order).requestedShippingService
+  if (typeof requested === 'string' && requested) return requested
+  return order?.serviceCode ?? null
+}
+
+function getOrderConfirmation(order: OrderSummaryDto | null) {
+  const confirmation = getRawOrder(order).confirmation
+  return typeof confirmation === 'string' && confirmation ? confirmation : null
+}
+
+function getOrderCustomerUsername(order: OrderSummaryDto | null) {
+  const username = getRawOrder(order).customerUsername
+  return typeof username === 'string' && username ? username : null
+}
+
+function getOrderStoreId(order: OrderSummaryDto | null) {
+  const advanced = getAdvancedOptions(order)
+  const advancedStoreId = asNumber(advanced.storeId)
+  return advancedStoreId ?? order?.storeId ?? null
+}
+
+function getOrderWarehouseId(order: OrderSummaryDto | null) {
+  return asNumber(getAdvancedOptions(order).warehouseId)
+}
+
+function getOrderBillingProviderId(order: OrderSummaryDto | null) {
+  return asNumber(getAdvancedOptions(order).billToMyOtherAccount)
+}
+
+function isResidential(order: OrderSummaryDto | null) {
+  if (!order) return false
+  if (typeof order.residential === 'boolean') return order.residential
+  return Boolean(order.sourceResidential)
+}
+
+function isExternallyFulfilledOrder(order: OrderSummaryDto | null) {
+  const rawFlag = getRawOrder(order).externallyFulfilled
+  return Boolean(rawFlag) || Boolean(order?.externalShipped)
+}
+
+function getSelectedRateProviderId(order: OrderSummaryDto | null) {
+  const selectedRate = order?.selectedRate
+  if (!selectedRate) return null
+  return selectedRate.providerAccountId ?? selectedRate.shippingProviderId ?? null
+}
+
+function getSelectedRateCost(order: OrderSummaryDto | null) {
+  const selectedRate = order?.selectedRate
+  if (!selectedRate) return null
+  return selectedRate.cost ?? selectedRate.shipmentCost ?? null
+}
+
+function getItems(order: OrderSummaryDto | null) {
+  return Array.isArray(order?.items)
+    ? order.items
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => Boolean(item) && !item.adjustment)
+    : []
+}
+
+function getUniqueSkus(order: OrderSummaryDto | null) {
+  const skus = new Set<string>()
+  getItems(order).forEach((item) => {
+    if (typeof item.sku === 'string' && item.sku) {
+      skus.add(item.sku)
+    }
+  })
+  return Array.from(skus)
+}
+
+function getTotalItemQty(order: OrderSummaryDto | null) {
+  return getItems(order).reduce((total, item) => total + (asNumber(item.quantity) ?? 1), 0)
+}
+
+function findPackageByCodeOrId(packages: PackageOption[], codeOrId: string | null | undefined) {
+  if (!codeOrId) return null
+  return packages.find((pkg) => String(pkg.packageId) === String(codeOrId) || String(pkg.packageCode ?? '') === String(codeOrId)) ?? null
+}
+
+function fmtCarrierName(rate: Pick<RateDto, 'carrierCode' | 'carrierNickname'> | null | undefined) {
+  if (!rate) return '—'
+  if (rate.carrierNickname && !rate.carrierNickname.startsWith('se-')) {
+    return rate.carrierNickname
+  }
+  return CARRIER_NAMES[rate.carrierCode] ?? rate.carrierCode?.toUpperCase() ?? '—'
+}
+
+function fmtServiceName(serviceCode: string | null | undefined, serviceName?: string | null) {
+  if (serviceCode && SERVICE_NAMES[serviceCode]) return SERVICE_NAMES[serviceCode]
+  if (serviceName) return serviceName
+  return serviceCode ? serviceCode.replace(/_/g, ' ') : '—'
+}
+
+function formatRateTotal(rate: Pick<RateDto, 'shipmentCost' | 'otherCost'> | OrderSelectedRateDto) {
+  const shipmentCost = typeof rate.shipmentCost === 'number' ? rate.shipmentCost : 0
+  const otherCost = typeof rate.otherCost === 'number' ? rate.otherCost : 0
+  return shipmentCost + otherCost
+}
+
+function buildAddressText(shipTo: ReturnType<typeof getOrderShipTo>) {
+  return [
+    shipTo.street1,
+    shipTo.street2,
+    `${shipTo.city || ''}, ${shipTo.state || ''} ${shipTo.postalCode || ''}`.trim(),
+    shipTo.country || 'US',
+  ]
+    .filter(Boolean)
+    .join('\n') || '—'
+}
+
+function shippedRateMarkup(order: OrderSummaryDto, accounts: CarrierAccountDto[]) {
+  if (isExternallyFulfilledOrder(order)) {
+    return (
+      <span
+        style={{
+          fontSize: '11px',
+          color: 'var(--text3)',
+          background: 'var(--surface3)',
+          border: '1px solid var(--border2)',
+          borderRadius: '4px',
+          padding: '3px 8px',
+        }}
+      >
+        📦 Ext. label — purchased externally
+      </span>
+    )
+  }
+
+  if (order.label?.cost != null) {
+    const accountLabel = order.label.shippingProviderId
+      ? accounts.find((account) => account.shippingProviderId === order.label?.shippingProviderId)?._label
+      : null
+
+    return (
+      <>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--green-dark)' }}>
+          ${Number(order.label.cost).toFixed(2)}
+        </span>
+        <span style={{ fontSize: '10.5px', color: 'var(--text3)', marginLeft: '6px' }}>
+          {accountLabel ?? fmtCarrierName({ carrierCode: order.label.carrierCode ?? '', carrierNickname: null })} · {fmtServiceName(order.label.serviceCode)}
+        </span>
+      </>
+    )
+  }
+
+  if (order.selectedRate) {
+    return (
+      <>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--green-dark)' }}>
+          ${formatRateTotal(order.selectedRate).toFixed(2)}
+        </span>
+        <span style={{ fontSize: '10.5px', color: 'var(--text3)', marginLeft: '6px' }}>
+          {order.selectedRate.providerAccountNickname ?? fmtCarrierName({ carrierCode: order.selectedRate.carrierCode ?? '', carrierNickname: null })} · {fmtServiceName(order.selectedRate.serviceCode, order.selectedRate.serviceName)}
+        </span>
+      </>
+    )
+  }
+
+  if (order.shippingAmount) {
+    return (
+      <>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--green-dark)' }}>
+          ${Number(order.shippingAmount).toFixed(2)}
+        </span>
+        <span style={{ fontSize: '10.5px', color: 'var(--text3)', marginLeft: '6px' }}>
+          {fmtCarrierName({ carrierCode: order.carrierCode ?? '', carrierNickname: null })} · {fmtServiceName(order.serviceCode)}
+        </span>
+      </>
+    )
+  }
+
+  return (
+    <span
+      style={{
+        fontSize: '11px',
+        color: '#dc2626',
+        background: '#fef2f2',
+        border: '1px solid #fecaca',
+        borderRadius: '4px',
+        padding: '3px 8px',
+      }}
+    >
+      ⚠️ No shipment data
+    </span>
+  )
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let message = response.statusText
+    try {
+      const payload = await response.json()
+      if (payload && typeof payload.error === 'string') {
+        message = payload.error
+      }
+    } catch {
+      // Ignore JSON parse failures for error bodies.
+    }
+    throw new Error(message || `HTTP ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
+function RateBrowserModal({
+  open,
+  rates,
+  loading,
+  onClose,
+  onSelect,
+}: {
+  open: boolean
+  rates: RateDto[]
+  loading: boolean
+  onClose: () => void
+  onSelect: (rate: RateDto) => void
+}) {
+  if (!open) return null
+
+  const sortedRates = [...rates].sort((a, b) => formatRateTotal(a) - formatRateTotal(b))
+
+  return (
+    <div
+      id="rateBrowserModal"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9200,
+        background: 'rgba(0,0,0,.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: '900px',
+          maxWidth: '95vw',
+          maxHeight: '85vh',
+          overflow: 'hidden',
+          borderRadius: '12px',
+          border: '1px solid var(--border2)',
+          background: 'var(--surface)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text)' }}>Browse Rates</div>
+          <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{loading ? 'Refreshing…' : `${sortedRates.length} options`}</div>
+          <button className="panel-close" style={{ marginLeft: 'auto', display: 'flex' }} onClick={onClose}>✕</button>
+        </div>
+        <div id="rb-rates" style={{ overflowY: 'auto', padding: '10px 12px 14px' }}>
+          {!sortedRates.length && !loading ? (
+            <div style={{ padding: '18px', textAlign: 'center', fontSize: '12px', color: 'var(--text3)' }}>No rates available</div>
+          ) : (
+            sortedRates.map((rate) => (
+              <button
+                key={`${rate.shippingProviderId}-${rate.serviceCode}-${rate.shipmentCost}`}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  padding: '10px 12px',
+                  marginBottom: '6px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+                onClick={() => onSelect(rate)}
+              >
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700 }}>{fmtCarrierName(rate)} · {fmtServiceName(rate.serviceCode, rate.serviceName)}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
+                    {rate.deliveryDays ? `${rate.deliveryDays} day${rate.deliveryDays === 1 ? '' : 's'}` : 'ETA unavailable'}
+                  </div>
+                </div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--green-dark)' }}>${formatRateTotal(rate).toFixed(2)}</div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function OrderPanel({ orderId, orderSnapshot, orderIds, onOpenOrder, onClose, onRefresh }: OrderPanelProps) {
+  const { order, loading, error, refetch: refetchOrder } = useOrderDetail(orderId)
+  const { accounts } = useShippingAccounts()
+  const { locations } = useLocations()
   const { showToast } = useToast()
 
-  // Dims / weight inputs
-  const [weightLbs, setWeightLbs] = useState('')
-  const [dimW, setDimW] = useState('')
-  const [dimH, setDimH] = useState('')
-  const [dimD, setDimD] = useState('')
+  const [packages, setPackages] = useState<PackageOption[]>([])
+  const [storeAccounts, setStoreAccounts] = useState<CarrierAccountDto[] | null>(null)
+  const [productDefaults, setProductDefaults] = useState<ProductDefaultsDto | null>(null)
 
-  // Options
-  const [residential, setResidential] = useState(false)
-  const [insurance, setInsurance] = useState(false)
+  const [shippingCollapsed, setShippingCollapsed] = useState(false)
+  const [itemsCollapsed, setItemsCollapsed] = useState(false)
+  const [recipientCollapsed, setRecipientCollapsed] = useState(false)
 
-  // Rates
-  const [availableRates, setAvailableRates] = useState<any[]>([])
-  const [selectedRate, setSelectedRate] = useState<any | null>(null)
+  const [selectedLocationId, setSelectedLocationId] = useState('')
+  const [selectedShipAccountId, setSelectedShipAccountId] = useState('')
+  const [selectedService, setSelectedService] = useState('')
+  const [selectedPackageId, setSelectedPackageId] = useState('')
+  const [packageDimsLabel, setPackageDimsLabel] = useState('')
+  const [confirmation, setConfirmation] = useState('delivery')
+  const [insuranceType, setInsuranceType] = useState('none')
+  const [insuranceValue, setInsuranceValue] = useState('0.00')
+  const [weightLb, setWeightLb] = useState('0')
+  const [weightOz, setWeightOz] = useState('0')
+  const [length, setLength] = useState('')
+  const [width, setWidth] = useState('')
+  const [height, setHeight] = useState('')
 
-  // Label state
-  const [labelNumber, setLabelNumber] = useState<string | null>(null)
-  const [labelId, setLabelId] = useState<string | null>(null)
-  const [labelUrl, setLabelUrl] = useState<string | null>(null)
-  const [creatingLabel, setCreatingLabel] = useState(false)
-  const [voidingLabel, setVoidingLabel] = useState(false)
-  const [reprinting, setReprinting] = useState(false)
+  const [panelRates, setPanelRates] = useState<RateDto[]>([])
+  const [selectedRate, setSelectedRate] = useState<RateDto | null>(null)
+  const [rateLoading, setRateLoading] = useState(false)
+  const [rateMessage, setRateMessage] = useState('—')
+  const [deliveryMessage, setDeliveryMessage] = useState('Delivery: —')
+  const [rateBrowserOpen, setRateBrowserOpen] = useState(false)
 
-  // Packages list
-  const [packages, setPackages] = useState<any[]>([])
-  const [selectedPackageId, setSelectedPackageId] = useState<string>('')
+  const [actionMenu, setActionMenu] = useState<'batch' | 'print' | 'external' | null>(null)
+  const [workingAction, setWorkingAction] = useState<string | null>(null)
+  const [savingDefaults, setSavingDefaults] = useState(false)
+  const rateTimerRef = useRef<number | null>(null)
+  const menuRootRef = useRef<HTMLDivElement | null>(null)
+  const skipNextAutoFetchRef = useRef(false)
 
-  // Mark shipped external modal
-  const [showExternalModal, setShowExternalModal] = useState(false)
-  const [externalSource, setExternalSource] = useState('Manual')
+  const panelOrder = orderSnapshot ?? order
+  const displayAccounts = storeAccounts ?? accounts
+  const isShipped = panelOrder?.orderStatus !== 'awaiting_shipment'
+  const items = useMemo(() => getItems(panelOrder), [panelOrder])
+  const uniqueSkus = useMemo(() => getUniqueSkus(panelOrder), [panelOrder])
+  const totalQty = useMemo(() => getTotalItemQty(panelOrder), [panelOrder])
+  const shipTo = useMemo(() => getOrderShipTo(panelOrder), [panelOrder])
+  const addressText = useMemo(() => buildAddressText(shipTo), [shipTo])
+  const orderIndex = orderId ? orderIds.findIndex((candidateId) => candidateId === orderId) : -1
+  const prevId = orderIndex > 0 ? orderIds[orderIndex - 1] : null
+  const nextId = orderIndex >= 0 && orderIndex < orderIds.length - 1 ? orderIds[orderIndex + 1] : null
 
-  // Rate browser
-  const [showRateBrowser, setShowRateBrowser] = useState(false)
+  const serviceOptions = useMemo(() => {
+    const account = displayAccounts.find((carrier) => String(carrier.shippingProviderId) === selectedShipAccountId)
+    const staticOptions = account ? [...(CARRIER_SERVICES[account.code] ?? [])] : []
+    const dynamicOptions = panelRates
+      .filter((rate) => !selectedShipAccountId || String(rate.shippingProviderId ?? '') === selectedShipAccountId)
+      .map((rate) => ({
+        code: rate.serviceCode,
+        label: fmtServiceName(rate.serviceCode, rate.serviceName),
+      }))
 
-  // Rate debounce timer
-  const rateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const merged = new Map<string, { code: string; label: string }>()
+    ;[...staticOptions, ...dynamicOptions].forEach((option) => {
+      if (!merged.has(option.code)) {
+        merged.set(option.code, option)
+      }
+    })
 
-  // Load packages on mount
+    return Array.from(merged.values())
+  }, [displayAccounts, panelRates, selectedShipAccountId])
+
+  const hasSavedWeight = Boolean(productDefaults && productDefaults.weightOz > 0)
+  const hasSavedDims = Boolean(productDefaults && productDefaults.length > 0 && productDefaults.width > 0 && productDefaults.height > 0)
+  const savedPackage = useMemo(() => {
+    if (!productDefaults) return null
+    return findPackageByCodeOrId(packages, productDefaults.defaultPackageCode ?? productDefaults.packageCode ?? null)
+  }, [packages, productDefaults])
+
   useEffect(() => {
-    fetch('/api/packages')
-      .then(r => r.json())
-      .then(data => setPackages(Array.isArray(data) ? data : data.packages || []))
-      .catch(() => {})
+    const handleClickAway = (event: MouseEvent) => {
+      if (menuRootRef.current && !menuRootRef.current.contains(event.target as Node)) {
+        setActionMenu(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickAway)
+    return () => document.removeEventListener('mousedown', handleClickAway)
   }, [])
 
-  // When order loads, populate dims from order data + check for SKU defaults
   useEffect(() => {
-    if (!order) return
+    let cancelled = false
 
-    // Set dims from order
-    const dims = (order as any).rateDims
-    if (dims) {
-      setDimW(String(dims.width || dims.length || ''))
-      setDimH(String(dims.height || ''))
-      setDimD(String(dims.length || dims.depth || ''))
-    }
-
-    // Set weight (convert oz to lbs)
-    if (order.weight?.value) {
-      const oz = order.weight.value
-      setWeightLbs(String((oz / 16).toFixed(2)))
-    }
-
-    // Set residential
-    if ((order as any).residential != null) {
-      setResidential(!!(order as any).residential)
-    }
-
-    // Load existing label if order already shipped
-    if ((order as any).label) {
-      setLabelNumber((order as any).label.trackingNumber || null)
-      setLabelId((order as any).label.labelId || null)
-      setLabelUrl((order as any).label.labelUrl || null)
-    }
-
-    // Try to load SKU defaults
-    const sku = (order.items as any)?.[0]?.sku
-    if (sku) {
-      fetch(`/api/products/${encodeURIComponent(sku)}/defaults`)
-        .then(r => r.ok ? r.json() : null)
-        .then(defaults => {
-          if (!defaults) return
-          if (defaults.weight) setWeightLbs(String((defaults.weight / 16).toFixed(2)))
-          if (defaults.dims) {
-            setDimW(String(defaults.dims.w || defaults.dims.width || ''))
-            setDimH(String(defaults.dims.h || defaults.dims.height || ''))
-            setDimD(String(defaults.dims.d || defaults.dims.depth || defaults.dims.length || ''))
-          }
-        })
-        .catch(() => {})
-    }
-  }, [order?.orderId])
-
-  // Fetch rates when dims/weight/residential change (debounced)
-  const triggerRateFetch = useCallback(() => {
-    if (rateTimerRef.current) clearTimeout(rateTimerRef.current)
-    rateTimerRef.current = setTimeout(async () => {
-      const zip = order?.shipTo?.postalCode
-      const wt = parseFloat(weightLbs) || 0
-      if (!zip || !wt) return
-
-      const storeId = (order as any)?.storeId || null
-      const dims = (dimW || dimH || dimD)
-        ? { w: parseFloat(dimW) || 0, h: parseFloat(dimH) || 0, d: parseFloat(dimD) || 0 }
-        : null
-
-      const rates = await fetchRates(storeId, zip, wt, dims, insurance, residential)
-      setAvailableRates(rates)
-      if (rates.length > 0 && !selectedRate) {
-        setSelectedRate(rates[0])
+    void (async () => {
+      try {
+        const response = await fetch('/api/packages')
+        const payload = await readJson<PackageOption[] | { packages?: PackageOption[] }>(response)
+        if (!cancelled) {
+          setPackages(Array.isArray(payload) ? payload : payload.packages ?? [])
+        }
+      } catch {
+        if (!cancelled) {
+          setPackages([])
+        }
       }
-    }, 500)
-  }, [order, weightLbs, dimW, dimH, dimD, insurance, residential, fetchRates, selectedRate])
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
-    triggerRateFetch()
-    return () => { if (rateTimerRef.current) clearTimeout(rateTimerRef.current) }
-  }, [weightLbs, dimW, dimH, dimD, insurance, residential, order?.orderId])
+    let cancelled = false
+    const storeId = getOrderStoreId(panelOrder)
 
-  // Apply preset
-  const applyPreset = (name: string) => {
-    const p = PRESETS[name]
-    if (!p) return
-    setDimW(String(p.w))
-    setDimH(String(p.h))
-    setDimD(String(p.d))
-    if (p.weight > 0) setWeightLbs(String(p.weight))
-  }
-
-  // Apply package dims
-  const applyPackage = (pkgId: string) => {
-    setSelectedPackageId(pkgId)
-    if (!pkgId) return
-    const pkg = packages.find((p: any) => String(p.packageId || p.id) === pkgId)
-    if (!pkg) return
-    if (pkg.length) setDimW(String(pkg.length))
-    if (pkg.height) setDimH(String(pkg.height))
-    if (pkg.width) setDimD(String(pkg.width))
-  }
-
-  // Create label
-  const handleCreateLabel = async () => {
-    if (!orderId || !selectedRate) {
-      showToast('⚠ Please select a rate first', 'error')
+    if (!storeId) {
+      setStoreAccounts(null)
       return
     }
-    setCreatingLabel(true)
-    try {
-      const wt = parseFloat(weightLbs) || 0
-      const payload: Record<string, unknown> = {
-        orderId,
-        storeId: (order as any)?.storeId,
-        serviceId: selectedRate.serviceId || selectedRate.serviceCode,
-        serviceCode: selectedRate.serviceCode,
-        carrierCode: selectedRate.carrierCode,
-        carrierAccountId: selectedRate.accountId || selectedRate.shippingProviderId,
-        shippingProviderId: selectedRate.shippingProviderId || selectedRate.accountId,
-        weight: wt,
-        weightOz: wt * 16,
-        insurance,
-        residential,
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/carriers-for-store?storeId=${storeId}`)
+        const payload = await readJson<{ carriers?: CarrierAccountDto[] }>(response)
+        if (!cancelled) {
+          setStoreAccounts(Array.isArray(payload.carriers) ? payload.carriers : null)
+        }
+      } catch {
+        if (!cancelled) {
+          setStoreAccounts(null)
+        }
       }
-      if (dimW || dimH || dimD) {
-        payload.dims = { w: parseFloat(dimW) || 0, h: parseFloat(dimH) || 0, d: parseFloat(dimD) || 0 }
-        payload.length = parseFloat(dimW) || 0
-        payload.width = parseFloat(dimD) || 0
-        payload.height = parseFloat(dimH) || 0
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [orderId, panelOrder?.storeId, panelOrder?.raw, orderSnapshot])
+
+  useEffect(() => {
+    if (!panelOrder) return
+
+    const rawDims = getOrderDimensions(panelOrder)
+    const totalWeightOz = panelOrder.weight?.value ?? 0
+    const initialLb = Math.floor(totalWeightOz / 16)
+    const initialOz = totalWeightOz % 16
+    const bestRate = panelOrder.bestRate
+    const shipAccountId = bestRate?.shippingProviderId ?? getOrderBillingProviderId(panelOrder) ?? getSelectedRateProviderId(panelOrder) ?? null
+    const requestedService = bestRate?.serviceCode ?? getOrderRequestedService(panelOrder) ?? panelOrder.selectedRate?.serviceCode ?? ''
+    const confirmationValue = getOrderConfirmation(panelOrder)
+
+    setSelectedLocationId(String(getOrderWarehouseId(panelOrder) ?? locations.find((location) => location.isDefault)?.locationId ?? ''))
+    setSelectedShipAccountId(shipAccountId ? String(shipAccountId) : '')
+    setSelectedService(requestedService)
+    setConfirmation(confirmationValue && confirmationValue !== 'none' ? confirmationValue : 'delivery')
+    setInsuranceType('none')
+    setInsuranceValue(Number(panelOrder.orderTotal ?? 0).toFixed(2))
+    setWeightLb(String(initialLb))
+    setWeightOz(String(Number(initialOz.toFixed(0))))
+    setLength(rawDims.length ? String(rawDims.length) : '')
+    setWidth(rawDims.width ? String(rawDims.width) : '')
+    setHeight(rawDims.height ? String(rawDims.height) : '')
+    setRateMessage(bestRate ? `${fmtCarrierName(bestRate)} · ${fmtServiceName(bestRate.serviceCode, bestRate.serviceName)} · $${formatRateTotal(bestRate).toFixed(2)}` : '—')
+    setDeliveryMessage(panelOrder.label?.shipDate ? `Shipped: ${new Date(panelOrder.label.shipDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}` : bestRate?.estimatedDelivery ? `Delivery: ${new Date(bestRate.estimatedDelivery).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : bestRate?.deliveryDays ? `Delivery: ${bestRate.deliveryDays} business day${bestRate.deliveryDays === 1 ? '' : 's'}` : 'Delivery: —')
+    setPanelRates(bestRate ? [bestRate] : [])
+    setSelectedRate(bestRate ?? null)
+    setSelectedPackageId('')
+    setPackageDimsLabel('')
+    setActionMenu(null)
+    setProductDefaults(null)
+    skipNextAutoFetchRef.current = true
+  }, [panelOrder, locations])
+
+  useEffect(() => {
+    let cancelled = false
+    const sku = uniqueSkus.length === 1 ? uniqueSkus[0] : null
+    if (!sku) {
+      setProductDefaults(null)
+      return
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/products/by-sku/${encodeURIComponent(sku)}`)
+        const payload = await readJson<ProductDefaultsDto>(response)
+        if (cancelled) return
+        setProductDefaults(payload)
+
+        const currentTotalOz = (Number(weightLb) * 16) + Number(weightOz)
+        if (!currentTotalOz && payload.weightOz > 0) {
+          const orderTotalWeight = Number((payload.weightOz * Math.max(totalQty, 1)).toFixed(2))
+          setWeightLb(String(Math.floor(orderTotalWeight / 16)))
+          setWeightOz(String(Number((orderTotalWeight % 16).toFixed(0))))
+        }
+        if (!Number(length) && !Number(width) && !Number(height) && payload.length > 0 && payload.width > 0 && payload.height > 0) {
+          setLength(String(payload.length))
+          setWidth(String(payload.width))
+          setHeight(String(payload.height))
+        }
+      } catch {
+        if (!cancelled) {
+          setProductDefaults(null)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [height, length, orderId, totalQty, uniqueSkus, weightLb, weightOz, width])
+
+  useEffect(() => {
+    if (savedPackage && !selectedPackageId) {
+      setSelectedPackageId(String(savedPackage.packageId))
+      setPackageDimsLabel(`${savedPackage.length} × ${savedPackage.width} × ${savedPackage.height} in`)
+    }
+  }, [savedPackage, selectedPackageId])
+
+  useEffect(() => {
+    if (!panelOrder || savedPackage || selectedPackageId || !Number(length) || !Number(width) || !Number(height) || !packages.length) {
+      return
+    }
+
+    const matchedPackage = packages.find((pkg) => Number(pkg.length) === Number(length) && Number(pkg.width) === Number(width) && Number(pkg.height) === Number(height))
+    if (!matchedPackage) {
+      return
+    }
+
+    setSelectedPackageId(String(matchedPackage.packageId))
+    setPackageDimsLabel(`${matchedPackage.length} × ${matchedPackage.width} × ${matchedPackage.height} in`)
+    void persistSelectedPackage(String(matchedPackage.packageId))
+  }, [height, length, packages, panelOrder, savedPackage, selectedPackageId, width])
+
+  useEffect(() => {
+    if (!selectedService && serviceOptions.length > 0) {
+      setSelectedService(serviceOptions[0].code)
+    }
+  }, [selectedService, serviceOptions])
+
+  const totalOz = (Number(weightLb) * 16) + Number(weightOz)
+  const hasDims = Number(length) > 0 && Number(width) > 0 && Number(height) > 0
+
+  const refreshAll = async () => {
+    await refetchOrder()
+    await onRefresh?.()
+  }
+
+  const fetchPanelRates = async (options?: { keepManualSelection?: boolean; forceLive?: boolean }) => {
+    if (!panelOrder || isShipped) return
+
+    const zip = (shipTo.postalCode ?? '').replace(/\D/g, '').slice(0, 5)
+    if (!zip) {
+      setRateMessage('No ZIP')
+      setDeliveryMessage('Delivery: —')
+      return
+    }
+    if (!totalOz) {
+      setRateMessage('— add weight')
+      setDeliveryMessage('Delivery: —')
+      return
+    }
+    if (!hasDims) {
+      setRateMessage('— add dims')
+      setDeliveryMessage('Delivery: —')
+      return
+    }
+
+    setRateLoading(true)
+    setRateMessage('Loading rates…')
+
+    const storeId = getOrderStoreId(panelOrder)
+    const storedBestRate = panelOrder.bestRate
+
+    if (storedBestRate && !options?.forceLive) {
+      setPanelRates([storedBestRate])
+      setSelectedRate(storedBestRate)
+      if (storedBestRate.shippingProviderId && !selectedShipAccountId) {
+        setSelectedShipAccountId(String(storedBestRate.shippingProviderId))
+      }
+      if (storedBestRate.serviceCode && !selectedService) {
+        setSelectedService(storedBestRate.serviceCode)
+      }
+      setRateMessage(`${fmtCarrierName(storedBestRate)} · ${fmtServiceName(storedBestRate.serviceCode, storedBestRate.serviceName)} · $${formatRateTotal(storedBestRate).toFixed(2)}`)
+      if (storedBestRate.estimatedDelivery) {
+        setDeliveryMessage(`Delivery: ${new Date(storedBestRate.estimatedDelivery).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`)
+      } else if (storedBestRate.deliveryDays) {
+        setDeliveryMessage(`Delivery: ${storedBestRate.deliveryDays} business day${storedBestRate.deliveryDays === 1 ? '' : 's'}`)
+      }
+      setRateLoading(false)
+      return
+    }
+
+    let rates: RateDto[] = []
+
+    try {
+      const cacheUrl = new URL('/api/rates/cached', window.location.origin)
+      cacheUrl.searchParams.set('wt', String(Math.round(totalOz)))
+      cacheUrl.searchParams.set('zip', zip)
+      cacheUrl.searchParams.set('l', String(Number(length)))
+      cacheUrl.searchParams.set('w', String(Number(width)))
+      cacheUrl.searchParams.set('h', String(Number(height)))
+      cacheUrl.searchParams.set('residential', isResidential(panelOrder) ? 'true' : 'false')
+      if (storeId) {
+        cacheUrl.searchParams.set('storeId', String(storeId))
       }
 
-      const response = await fetch('/api/labels/create-label', {
+      const cacheResponse = await fetch(cacheUrl.toString())
+      if (cacheResponse.ok) {
+        const cachePayload = await cacheResponse.json() as { rates?: RateDto[] }
+        if (Array.isArray(cachePayload.rates) && cachePayload.rates.length > 0) {
+          rates = cachePayload.rates
+        }
+      }
+    } catch {
+      // Cache misses fall through to live rates.
+    }
+
+    if (!rates.length) {
+      const liveResponse = await fetch('/api/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromPostalCode: '90248',
+          toPostalCode: zip,
+          toCountry: 'US',
+          weight: { value: totalOz, units: 'ounces' },
+          dimensions: { units: 'inches', length: Number(length), width: Number(width), height: Number(height) },
+          residential: isResidential(panelOrder),
+          orderId: panelOrder.orderId,
+          storeId,
+        }),
+      })
+      rates = await readJson<RateDto[]>(liveResponse)
+    }
+
+    setPanelRates(rates)
+
+    if (!rates.length) {
+      setSelectedRate(null)
+      setRateMessage('No rates found')
+      setDeliveryMessage('Delivery: —')
+      setRateLoading(false)
+      return
+    }
+
+    let nextRate =
+      (selectedService
+        ? rates.find((rate) => rate.serviceCode === selectedService && (!selectedShipAccountId || String(rate.shippingProviderId ?? '') === selectedShipAccountId))
+        : null) ??
+      (selectedShipAccountId
+        ? [...rates]
+            .filter((rate) => String(rate.shippingProviderId ?? '') === selectedShipAccountId)
+            .sort((left, right) => formatRateTotal(left) - formatRateTotal(right))[0]
+        : null) ??
+      [...rates].sort((left, right) => formatRateTotal(left) - formatRateTotal(right))[0] ??
+      null
+
+    if (!nextRate) {
+      setSelectedRate(null)
+      setRateMessage('Rate unavailable for selected service')
+      setDeliveryMessage('Delivery: —')
+      setRateLoading(false)
+      return
+    }
+
+    if (!options?.keepManualSelection) {
+      if (nextRate.shippingProviderId && String(nextRate.shippingProviderId) !== selectedShipAccountId) {
+          setSelectedShipAccountId(String(nextRate.shippingProviderId))
+        }
+      if (nextRate.serviceCode && nextRate.serviceCode !== selectedService) {
+        setSelectedService(nextRate.serviceCode)
+      }
+    }
+
+    setSelectedRate(nextRate)
+    setRateMessage(`${fmtCarrierName(nextRate)} · ${fmtServiceName(nextRate.serviceCode, nextRate.serviceName)} · $${formatRateTotal(nextRate).toFixed(2)}`)
+
+    if (nextRate.estimatedDelivery) {
+      setDeliveryMessage(`Delivery: ${new Date(nextRate.estimatedDelivery).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`)
+    } else if (nextRate.deliveryDays) {
+      setDeliveryMessage(`Delivery: ${nextRate.deliveryDays} business day${nextRate.deliveryDays === 1 ? '' : 's'}`)
+    } else {
+      setDeliveryMessage('Delivery: —')
+    }
+
+    setRateLoading(false)
+  }
+
+  useEffect(() => {
+    if (rateTimerRef.current) {
+      window.clearTimeout(rateTimerRef.current)
+    }
+
+    if (!panelOrder || isShipped) return
+
+    if (skipNextAutoFetchRef.current) {
+      skipNextAutoFetchRef.current = false
+      return
+    }
+
+    rateTimerRef.current = window.setTimeout(() => {
+      void fetchPanelRates({ keepManualSelection: Boolean(selectedService), forceLive: true })
+    }, 400)
+
+    return () => {
+      if (rateTimerRef.current) {
+        window.clearTimeout(rateTimerRef.current)
+      }
+    }
+  }, [orderId, selectedService, selectedShipAccountId, weightLb, weightOz, length, width, height, panelOrder?.residential, panelOrder?.sourceResidential, isShipped])
+
+  const applyPreset = (name: keyof typeof PRESETS) => {
+    const preset = PRESETS[name]
+    setWeightLb(String(preset.lb))
+    setWeightOz(String(preset.oz))
+    setLength(String(preset.len))
+    setWidth(String(preset.wid))
+    setHeight(String(preset.hgt))
+    setSelectedPackageId('__custom__')
+    setPackageDimsLabel('')
+  }
+
+  const persistSelectedPackage = async (packageId: string) => {
+    if (!orderId) return
+
+    try {
+      await fetch(`/api/orders/${orderId}/selected-package-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packageId }),
+      })
+    } catch {
+      // Best-effort only.
+    }
+  }
+
+  const applyPackagePreset = async (packageId: string) => {
+    setSelectedPackageId(packageId)
+    if (!packageId || packageId === '__custom__') {
+      setPackageDimsLabel('')
+      if (packageId) {
+        await persistSelectedPackage(packageId)
+      }
+      return
+    }
+
+    const selectedPackage = packages.find((pkg) => String(pkg.packageId) === packageId)
+    if (!selectedPackage) return
+
+    setLength(String(selectedPackage.length || ''))
+    setWidth(String(selectedPackage.width || ''))
+    setHeight(String(selectedPackage.height || ''))
+    setPackageDimsLabel(`${selectedPackage.length} × ${selectedPackage.width} × ${selectedPackage.height} in`)
+    await persistSelectedPackage(packageId)
+  }
+
+  const resolveLabelPayload = () => {
+    if (!panelOrder) throw new Error('No order selected')
+
+    const packageValue = selectedPackageId
+    if (!packageValue) throw new Error('Select a package before creating a label')
+    if (!selectedShipAccountId) throw new Error('Select a carrier account')
+    if (!selectedService) throw new Error('Select a shipping service')
+    if (!totalOz) throw new Error('Enter shipment weight')
+
+    const selectedAccount = displayAccounts.find((account) => String(account.shippingProviderId) === selectedShipAccountId)
+    if (!selectedAccount) throw new Error('Could not resolve carrier account')
+
+    const selectedLocation = locations.find((location) => String(location.locationId) === selectedLocationId)
+    const selectedPackage = packageValue && packageValue !== '__custom__'
+      ? packages.find((pkg) => String(pkg.packageId) === packageValue)
+      : null
+
+    const shipFrom = selectedLocation ? {
+      name: selectedLocation.name,
+      company: selectedLocation.company || '',
+      street1: selectedLocation.street1 || '',
+      street2: selectedLocation.street2 || '',
+      city: selectedLocation.city || '',
+      state: selectedLocation.state || '',
+      postalCode: selectedLocation.postalCode || '',
+      country: selectedLocation.country || 'US',
+      phone: selectedLocation.phone || '',
+    } : undefined
+
+    return {
+      orderId: panelOrder.orderId,
+      orderNumber: panelOrder.orderNumber ?? undefined,
+      carrierCode: selectedAccount.code,
+      serviceCode: selectedService,
+      packageCode: selectedPackage?.source === 'ss_carrier'
+        ? (selectedPackage.packageCode || 'package')
+        : 'package',
+      customPackageId: selectedPackage?.source !== 'ss_carrier' ? selectedPackage?.packageId ?? null : null,
+      shippingProviderId: Number(selectedShipAccountId),
+      weightOz: totalOz,
+      length: Number(length) || 0,
+      width: Number(width) || 0,
+      height: Number(height) || 0,
+      confirmation: confirmation === 'none' ? 'delivery' : confirmation,
+      shipTo,
+      ...(shipFrom ? { shipFrom } : {}),
+    }
+  }
+
+  const handleCreateLabel = async (mode: 'print' | 'queue' | 'test') => {
+    if (!panelOrder) return
+
+    const previousLabelWindow = mode === 'print' ? window.open('about:blank', '_blank') : null
+    if (mode === 'print' && (!previousLabelWindow || previousLabelWindow.closed || typeof previousLabelWindow.closed === 'undefined')) {
+      showToast('Popup blocker prevented opening the label tab', 'error')
+      return
+    }
+
+    try {
+      setWorkingAction(mode)
+      const payload = {
+        ...resolveLabelPayload(),
+        testLabel: mode === 'test',
+      }
+
+      const createResponse = await fetch('/api/labels/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      const labelData = await readJson<{
+        shipmentId: number
+        trackingNumber: string | null
+        labelUrl: string | null
+      }>(createResponse)
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(errText || response.statusText)
+      if (mode === 'queue') {
+        const primaryItem = items[0]
+        const queuePayload = {
+          order_id: String(panelOrder.orderId),
+          order_number: panelOrder.orderNumber ?? String(panelOrder.orderId),
+          client_id: Number(panelOrder.clientId ?? 1),
+          label_url: labelData.labelUrl ?? '',
+          sku_group_id: uniqueSkus.length === 1 ? `SKU:${uniqueSkus[0]}` : `ORDER:${panelOrder.orderId}`,
+          primary_sku: typeof primaryItem?.sku === 'string' ? primaryItem.sku : null,
+          item_description: typeof primaryItem?.name === 'string' ? primaryItem.name : null,
+          order_qty: totalQty || 1,
+          multi_sku_data: uniqueSkus.length > 1
+            ? items.map((item) => ({
+                sku: typeof item.sku === 'string' ? item.sku : '',
+                description: typeof item.name === 'string' ? item.name : '',
+                qty: asNumber(item.quantity) ?? 1,
+              }))
+            : null,
+        }
+
+        const queueResponse = await fetch('/api/queue/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(queuePayload),
+        })
+        await readJson(queueResponse)
       }
 
-      const data = await response.json()
-      setLabelNumber(data.trackingNumber || data.tracking || null)
-      setLabelId(data.labelId || null)
-      setLabelUrl(data.labelUrl || null)
-      showToast('✅ Label created: ' + (data.trackingNumber || 'OK'), 'success')
-      onRefresh?.()
-
-      // Auto-download PDF
-      if (data.labelUrl) {
-        const a = document.createElement('a')
-        a.href = data.labelUrl
-        a.download = `label-${data.trackingNumber || orderId}.pdf`
-        a.target = '_blank'
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+      if (mode === 'print' && previousLabelWindow) {
+        if (labelData.labelUrl) {
+          previousLabelWindow.location.href = labelData.labelUrl
+        } else {
+          previousLabelWindow.close()
+        }
       }
-    } catch (err: any) {
-      showToast('❌ ' + (err.message || 'Failed to create label'), 'error')
-    } finally {
-      setCreatingLabel(false)
-    }
-  }
 
-  // Void label
-  const handleVoidLabel = async () => {
-    if (!labelId) return
-    if (!confirm('Void this label?')) return
-    setVoidingLabel(true)
-    try {
-      const response = await fetch('/api/labels/void-label', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labelId }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      setLabelNumber(null)
-      setLabelId(null)
-      setLabelUrl(null)
-      showToast('✅ Label voided', 'success')
-      onRefresh?.()
-    } catch (err: any) {
-      showToast('❌ ' + err.message, 'error')
-    } finally {
-      setVoidingLabel(false)
-    }
-  }
-
-  // Reprint
-  const handleReprint = async () => {
-    if (!labelId) return
-    setReprinting(true)
-    try {
-      const response = await fetch('/api/labels/reprint-label', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labelId }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      const data = await response.json()
-      showToast('✅ Reprinting...', 'success')
-      if (data.labelUrl) {
-        window.open(data.labelUrl, '_blank')
+      const trackingLabel = labelData.trackingNumber ? `: ${labelData.trackingNumber}` : ''
+      if (mode === 'test') {
+        showToast(`Test label created${trackingLabel}`, 'success')
+      } else if (mode === 'queue') {
+        showToast(`Label created and queued${trackingLabel}`, 'success')
+      } else {
+        showToast(`Label created${trackingLabel}`, 'success')
       }
-    } catch (err: any) {
-      showToast('❌ ' + err.message, 'error')
+
+      if (mode === 'test') {
+        await refreshAll()
+      } else {
+        await onRefresh?.()
+        onClose()
+      }
+    } catch (error) {
+      if (previousLabelWindow) {
+        previousLabelWindow.close()
+      }
+      showToast(error instanceof Error ? error.message : 'Failed to create label', 'error')
     } finally {
-      setReprinting(false)
+      setWorkingAction(null)
+      setActionMenu(null)
     }
   }
 
-  // Generate return label
-  const handleReturnLabel = async () => {
-    if (!orderId) return
+  const handleToggleResidential = async () => {
+    if (!panelOrder) return
+
+    const nextResidential = panelOrder.residential == null ? true : panelOrder.residential ? false : null
+    const label = nextResidential == null ? 'auto' : nextResidential ? 'residential' : 'commercial'
+
     try {
-      const response = await fetch('/api/labels/generate-return-label', {
+      setWorkingAction('residential')
+      await fetch(`/api/orders/${panelOrder.orderId}/residential`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, labelId }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      const data = await response.json()
-      showToast('✅ Return label generated', 'success')
-      if (data.labelUrl) window.open(data.labelUrl, '_blank')
-    } catch (err: any) {
-      showToast('❌ ' + err.message, 'error')
+        body: JSON.stringify({ residential: nextResidential }),
+      }).then(readJson)
+      showToast(`Address type set to ${label}`, 'success')
+      await refreshAll()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update residential status', 'error')
+    } finally {
+      setWorkingAction(null)
     }
   }
 
-  // Mark shipped external
-  const handleMarkShippedExternal = async () => {
-    if (!orderId) return
+  const handleMarkShippedExternal = async (source: string) => {
+    if (!panelOrder) return
+
     try {
-      const response = await fetch('/api/orders/mark-shipped-external', {
+      setWorkingAction('external')
+      await fetch(`/api/orders/${panelOrder.orderId}/shipped-external`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, source: externalSource }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      setShowExternalModal(false)
-      showToast('✅ Marked as shipped', 'success')
-      onRefresh?.()
-    } catch (err: any) {
-      showToast('❌ ' + err.message, 'error')
+        body: JSON.stringify({ flag: 1, source }),
+      }).then(readJson)
+      showToast(`Marked shipped via ${source}`, 'success')
+      await onRefresh?.()
+      onClose()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to mark shipped externally', 'error')
+    } finally {
+      setActionMenu(null)
+      setWorkingAction(null)
     }
   }
 
-  // Save SKU defaults
   const handleSaveDefaults = async () => {
-    const sku = (order?.items as any)?.[0]?.sku
-    if (!sku) { showToast('No SKU to save defaults for', 'error'); return }
+    if (!panelOrder || uniqueSkus.length !== 1) {
+      showToast('Saving SKU defaults requires a single-SKU order', 'error')
+      return
+    }
+
+    const perUnitOz = totalQty > 0 ? Number((totalOz / totalQty).toFixed(2)) : totalOz
+    const payload: Record<string, unknown> = {
+      sku: uniqueSkus[0],
+      weightOz: perUnitOz,
+      length: Number(length) || 0,
+      width: Number(width) || 0,
+      height: Number(height) || 0,
+    }
+
+    if (selectedPackageId && selectedPackageId !== '__custom__') {
+      payload.packageCode = selectedPackageId
+    }
+
     try {
-      const response = await fetch('/api/products/save-defaults', {
+      setSavingDefaults(true)
+      await fetch('/api/products/save-defaults', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sku,
-          weight: (parseFloat(weightLbs) || 0) * 16,
-          dims: { w: parseFloat(dimW) || 0, h: parseFloat(dimH) || 0, d: parseFloat(dimD) || 0 },
-        }),
+        body: JSON.stringify(payload),
+      }).then(readJson)
+      showToast(`Saved defaults for ${uniqueSkus[0]}`, 'success')
+      setProductDefaults({
+        sku: uniqueSkus[0],
+        weightOz: perUnitOz,
+        length: Number(length) || 0,
+        width: Number(width) || 0,
+        height: Number(height) || 0,
+        defaultPackageCode: selectedPackageId && selectedPackageId !== '__custom__' ? selectedPackageId : null,
       })
-      if (!response.ok) throw new Error(await response.text())
-      showToast(`✅ Defaults saved for ${sku}`, 'success')
-    } catch (err: any) {
-      showToast('❌ ' + err.message, 'error')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save SKU defaults', 'error')
+    } finally {
+      setSavingDefaults(false)
     }
   }
 
-  // Send to print queue
-  const handleSendToQueue = () => {
-    if (orderId && onSendToQueue) {
-      onSendToQueue(orderId)
-      showToast('Added to print queue', 'success')
+  const handleVoidLabel = async () => {
+    if (!panelOrder?.label?.shipmentId) {
+      showToast('No label found to void', 'error')
+      return
+    }
+    if (!window.confirm(`Void label for order ${panelOrder.orderNumber}?`)) {
+      return
+    }
+
+    try {
+      setWorkingAction('void')
+      await fetch(`/api/labels/${panelOrder.label.shipmentId}/void`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).then(readJson)
+      showToast('Label voided and refund requested', 'success')
+      await onRefresh?.()
+      onClose()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to void label', 'error')
+    } finally {
+      setWorkingAction(null)
+      setActionMenu(null)
     }
   }
 
-  if (!orderId || (!order && !orderLoading && !orderError)) {
+  const handleReturnLabel = async () => {
+    if (!panelOrder?.label?.shipmentId) {
+      showToast('No shipment found for this order', 'error')
+      return
+    }
+
+    try {
+      setWorkingAction('return')
+      const payload = await fetch(`/api/labels/${panelOrder.label.shipmentId}/return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Customer Return' }),
+      }).then(readJson<{ returnTrackingNumber: string }>)
+      showToast(`Return label generated: ${payload.returnTrackingNumber}`, 'success')
+      await refreshAll()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to create return label', 'error')
+    } finally {
+      setWorkingAction(null)
+      setActionMenu(null)
+    }
+  }
+
+  const handleReprintLabel = async () => {
+    if (!panelOrder) return
+
+    const labelWindow = window.open('about:blank', '_blank')
+    if (!labelWindow || labelWindow.closed || typeof labelWindow.closed === 'undefined') {
+      showToast('Popup blocker prevented opening the label tab', 'error')
+      return
+    }
+
+    try {
+      setWorkingAction('reprint')
+      const payload = await fetch(`/api/labels/${panelOrder.orderId}/retrieve`).then(readJson<{ labelUrl: string; trackingNumber: string | null }>)
+      labelWindow.location.href = payload.labelUrl
+      showToast(`Label opened${payload.trackingNumber ? `: ${payload.trackingNumber}` : ''}`, 'success')
+    } catch (error) {
+      labelWindow.close()
+      showToast(error instanceof Error ? error.message : 'Failed to retrieve label', 'error')
+    } finally {
+      setWorkingAction(null)
+      setActionMenu(null)
+    }
+  }
+
+  if (!orderId || (!panelOrder && loading === false && !error)) {
     return (
       <div className="order-panel">
         <div className="panel-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)', flexDirection: 'column', gap: '12px' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
-            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text2)', marginBottom: '4px' }}>No order selected</div>
-            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '16px' }}>Click any row to view details</div>
-            <div style={{ fontSize: '11px', color: 'var(--text4)', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
-              <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>↑↓</kbd> Navigate rows</div>
-              <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>Enter</kbd> Select</div>
-              <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>Esc</kbd> Close</div>
+            <div style={{ fontSize: '36px', marginBottom: '14px', opacity: 0.5 }}>📋</div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text2)', marginBottom: '8px' }}>No order selected</div>
+            <div style={{ fontSize: '12px', lineHeight: 1.5, marginBottom: '20px' }}>Click any row to view details</div>
+            <div style={{ textAlign: 'left', fontSize: '11px', lineHeight: 2, color: 'var(--text4)', borderTop: '1px solid var(--border)', paddingTop: '14px', width: '100%', maxWidth: '180px' }}>
+              <div><kbd style={{ background: 'var(--surface3)', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', border: '1px solid var(--border2)' }}>↑↓</kbd> Navigate rows</div>
+              <div><kbd style={{ background: 'var(--surface3)', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', border: '1px solid var(--border2)' }}>Enter</kbd> Select / deselect</div>
+              <div><kbd style={{ background: 'var(--surface3)', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', border: '1px solid var(--border2)' }}>Esc</kbd> Deselect &amp; close</div>
+              <div><kbd style={{ background: 'var(--surface3)', padding: '1px 5px', borderRadius: '3px', fontSize: '10px', border: '1px solid var(--border2)' }}>⌘C</kbd> Copy order #</div>
             </div>
           </div>
         </div>
@@ -375,9 +1267,9 @@ export default function OrderPanel({ orderId, onClose, onRefresh, onSendToQueue 
     )
   }
 
-  if (orderLoading) {
+  if (loading) {
     return (
-      <div className="order-panel">
+      <div className="order-panel open">
         <div className="panel-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '8px' }}>
           <div className="spinner"></div>
           <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Loading order…</div>
@@ -386,709 +1278,436 @@ export default function OrderPanel({ orderId, onClose, onRefresh, onSendToQueue 
     )
   }
 
-  if (orderError || !order) {
+  if (!panelOrder || error) {
     return (
-      <div className="order-panel">
+      <div className="order-panel open">
         <div className="panel-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-          <div style={{ fontSize: '13px', color: 'var(--text2)', textAlign: 'center' }}>
-            ⚠️ {orderError?.message || 'Failed to load order'}
-          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text2)', textAlign: 'center' }}>⚠ {error?.message ?? 'Failed to load order'}</div>
         </div>
       </div>
     )
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '5px 7px',
-    fontSize: '12px',
-    border: '1px solid var(--border2)',
-    borderRadius: '4px',
-    backgroundColor: 'var(--surface)',
-    color: 'var(--text)',
-    boxSizing: 'border-box',
-  }
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '10px',
-    fontWeight: '700',
-    color: 'var(--text3)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.4px',
-    marginBottom: '3px',
-  }
-
-  const sectionLabel: React.CSSProperties = {
-    fontSize: '11px',
-    fontWeight: '700',
-    color: 'var(--text3)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.4px',
-    marginBottom: '6px',
-  }
-
   return (
     <div className={`order-panel${orderId ? ' open' : ''}`}>
       <div className="panel-inner">
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border)', marginBottom: '10px' }}>
-          <div>
-            <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text)' }}>{order.orderNumber}</div>
-            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
-              {new Date(order.orderDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </div>
-          </div>
+        <div className="panel-topbar" ref={menuRootRef}>
           <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text3)', padding: '4px 8px', lineHeight: '1' }}
+            onClick={() => prevId && onOpenOrder(prevId)}
+            style={{ background: 'none', border: 'none', cursor: prevId ? 'pointer' : 'default', color: prevId ? 'var(--text2)' : 'var(--text4)', fontSize: '14px', padding: '2px 4px', borderRadius: '4px' }}
+            title="Previous order"
+            disabled={!prevId}
           >
-            ✕
+            ‹
           </button>
+          <button
+            onClick={() => nextId && onOpenOrder(nextId)}
+            style={{ background: 'none', border: 'none', cursor: nextId ? 'pointer' : 'default', color: nextId ? 'var(--text2)' : 'var(--text4)', fontSize: '14px', padding: '2px 4px', borderRadius: '4px' }}
+            title="Next order"
+            disabled={!nextId}
+          >
+            ›
+          </button>
+
+          <div className="panel-ordnum">
+            <span
+              className="od-order-link"
+              title="Open in ShipStation"
+              onClick={() => window.open(`https://ship.shipstation.com/orders/${panelOrder.orderId}`, '_blank', 'noopener')}
+            >
+              {panelOrder.orderNumber}
+            </span>{' '}
+            <span style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text3)' }}>
+              {orderIndex >= 0 ? `${orderIndex + 1}/${orderIds.length}` : ''}
+            </span>
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <button className="panel-topbar-btn" onClick={() => setActionMenu((current) => current === 'batch' ? null : 'batch')}>Batch ▾</button>
+            {actionMenu === 'batch' ? (
+              <div style={menuStyle}>
+                <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderRadius: 0, justifyContent: 'flex-start' }} onClick={async () => {
+                  await navigator.clipboard.writeText(panelOrder.orderNumber ?? String(panelOrder.orderId))
+                  setActionMenu(null)
+                  showToast('Order number copied', 'success')
+                }}>
+                  📋 Copy order #
+                </button>
+                <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border)', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => {
+                  window.open(`https://ship.shipstation.com/orders/${panelOrder.orderId}`, '_blank', 'noopener')
+                  setActionMenu(null)
+                }}>
+                  ↗ Open in ShipStation
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <button className="panel-topbar-btn" onClick={() => setActionMenu((current) => current === 'print' ? null : 'print')}>Print ▾</button>
+            {actionMenu === 'print' ? (
+              <div style={menuStyle}>
+                {!isShipped ? (
+                  <>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => void handleCreateLabel('print')}>
+                      🖨️ Create + Print
+                    </button>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border)', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => void handleCreateLabel('queue')}>
+                      📥 Send to Queue
+                    </button>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border)', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => void handleCreateLabel('test')}>
+                      🧪 Create Test Label
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => void handleReprintLabel()}>
+                      🖨️ Reprint Label
+                    </button>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border)', borderRadius: 0, justifyContent: 'flex-start' }} onClick={() => void handleReturnLabel()}>
+                      ↩️ Return Label
+                    </button>
+                    <button className="panel-topbar-btn" style={{ width: '100%', border: 'none', borderTop: '1px solid var(--border)', borderRadius: 0, justifyContent: 'flex-start', color: '#b45309' }} onClick={() => void handleVoidLabel()}>
+                      ✕ Void Label
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <a className="panel-topbar-btn" href={`https://ship.shipstation.com/orders/${panelOrder.orderId}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', fontSize: '10px', color: 'var(--text3)' }} title="Open in ShipStation">
+            ↗ SS
+          </a>
+
+          {!isShipped ? (
+            <div style={{ position: 'relative' }}>
+              <button className="panel-topbar-btn" style={{ color: '#b45309', borderColor: '#fbbf24' }} onClick={() => setActionMenu((current) => current === 'external' ? null : 'external')}>
+                ✈ Mark as Shipped
+              </button>
+              {actionMenu === 'external' ? (
+                <div style={menuStyle}>
+                  {EXTERNAL_SOURCES.map((source, index) => (
+                    <button
+                      key={source}
+                      className="panel-topbar-btn"
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        borderTop: index ? '1px solid var(--border)' : 'none',
+                        borderRadius: 0,
+                        justifyContent: 'flex-start',
+                      }}
+                      onClick={() => void handleMarkShippedExternal(source)}
+                    >
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <button className="panel-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* Ship To */}
-        {order.shipTo && (
-          <div style={{ marginBottom: '12px' }}>
-            <div style={sectionLabel}>Ship To</div>
-            <div style={{ fontSize: '12px' }}>
-              <div style={{ fontWeight: '600', color: 'var(--text)' }}>{order.shipTo.name}</div>
-              <div style={{ color: 'var(--text2)', marginTop: '2px', fontSize: '11px' }}>
-                {order.shipTo.city}, {order.shipTo.state} {order.shipTo.postalCode}
+        <div className="panel-body">
+          <div className={`panel-section${shippingCollapsed ? ' collapsed' : ''}`} id="sec-shipping">
+            <div className="panel-section-header" onClick={() => setShippingCollapsed((collapsed) => !collapsed)}>
+              <span className="panel-section-arrow">▶</span>
+              <span className="panel-section-title">Shipping</span>
+              <div className="panel-section-icons">
+                <span className="panel-section-icon" title="Settings">⚙</span>
+                <span className="panel-section-icon" title="Grid">⊞</span>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Store/Client Info */}
-        {(order as any).clientName && (
-          <div style={{ marginBottom: '12px' }}>
-            <div style={sectionLabel}>Store</div>
-            <div style={{ fontSize: '12px', color: 'var(--text)' }}>{(order as any).clientName}</div>
-          </div>
-        )}
+            <div className="ship-req">
+              Requested: <span className="ship-req-link">{(getOrderRequestedService(panelOrder) || 'Standard').replace(/_/g, ' ')}</span>
+              {!panelOrder.carrierCode ? <span style={{ marginLeft: '4px' }}>(unmapped)</span> : null}
+            </div>
 
-        {/* Items */}
-        {order.items && order.items.length > 0 && (
-          <div style={{ marginBottom: '12px' }}>
-            <div style={sectionLabel}>Items ({order.items.length})</div>
-            {order.items.slice(0, 3).map((item: any, idx: number) => (
-              <div key={idx} style={{ fontSize: '11px', padding: '4px 6px', backgroundColor: 'var(--surface2)', borderRadius: '4px', marginBottom: '3px' }}>
-                <div style={{ fontWeight: '600', color: 'var(--text)' }}>{item.name || 'Unnamed'}</div>
-                <div style={{ color: 'var(--text3)', marginTop: '1px' }}>
-                  {item.sku} · Qty: {item.quantity}
+            <div className="panel-section-body">
+              <div className="ship-field-row">
+                <span className="ship-field-label">Ship From</span>
+                <div className="ship-field-value">
+                  <select className="ship-select" id="p-location" style={{ flex: 1 }} value={selectedLocationId} onChange={(event) => setSelectedLocationId(event.target.value)} disabled={isShipped}>
+                    {locations.map((location) => (
+                      <option key={location.locationId} value={location.locationId}>{location.name}</option>
+                    ))}
+                  </select>
+                  <button className="ship-icon-btn" title="Manage locations" onClick={() => showToast('Locations view migration is outside this slice', 'info')}>📍</button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Package Presets */}
-        <div style={{ marginBottom: '10px' }}>
-          <div style={sectionLabel}>Package Presets</div>
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {Object.keys(PRESETS).map(name => (
-              <button
-                key={name}
-                onClick={() => applyPreset(name)}
-                style={{
-                  padding: '3px 8px',
-                  fontSize: '10px',
-                  border: '1px solid var(--border2)',
-                  borderRadius: '3px',
-                  backgroundColor: 'var(--surface2)',
-                  cursor: 'pointer',
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        </div>
+              <div className="ship-field-row">
+                <span className="ship-field-label">Ship Acct</span>
+                <div className="ship-field-value">
+                  <select className="ship-select" id="p-shipacct" style={{ flex: 1 }} value={selectedShipAccountId} onChange={(event) => setSelectedShipAccountId(event.target.value)} disabled={isShipped}>
+                    <option value="">— Select Account —</option>
+                    {displayAccounts.map((account) => (
+                      <option key={account.shippingProviderId} value={account.shippingProviderId}>{account._label || account.nickname || account.code}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-        {/* Package Picker */}
-        {packages.length > 0 && (
-          <div style={{ marginBottom: '10px' }}>
-            <label style={labelStyle}>Package Library</label>
-            <select
-              value={selectedPackageId}
-              onChange={e => applyPackage(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">Select package…</option>
-              {packages.map((p: any) => (
-                <option key={p.packageId || p.id} value={String(p.packageId || p.id)}>
-                  {p.name} ({p.length || p.l}×{p.height || p.h}×{p.width || p.w})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              <div className="ship-field-row">
+                <span className="ship-field-label">Service</span>
+                <div className="ship-field-value">
+                  <select className="ship-select" id="p-service" style={{ flex: 1 }} value={selectedService} onChange={(event) => setSelectedService(event.target.value)} disabled={isShipped}>
+                    <option value="">Select Service</option>
+                    {serviceOptions.map((option) => (
+                      <option key={option.code} value={option.code}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-        {/* Weight & Dims */}
-        <div style={{ marginBottom: '12px', padding: '10px', backgroundColor: 'var(--surface2)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Weight & Dimensions</div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '6px' }}>
-            <div>
-              <label style={labelStyle}>Weight (lbs)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={weightLbs}
-                onChange={e => setWeightLbs(e.target.value)}
-                placeholder="0.00"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Width (in)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={dimW}
-                onChange={e => setDimW(e.target.value)}
-                placeholder="0.0"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Height (in)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={dimH}
-                onChange={e => setDimH(e.target.value)}
-                placeholder="0.0"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Depth (in)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={dimD}
-                onChange={e => setDimD(e.target.value)}
-                placeholder="0.0"
-                style={inputStyle}
-              />
-            </div>
-          </div>
+              <div className="ship-field-row">
+                <span className="ship-field-label">Weight <span id="p-wt-badge" title="Weight saved for this SKU" style={{ fontSize: '10px', fontWeight: 700, color: 'var(--green,#16a34a)', marginLeft: '3px', display: hasSavedWeight ? 'inline' : 'none' }}>✓</span></span>
+                <div className="ship-field-value">
+                  <input type="number" className="ship-input ship-input-sm" id="p-wtlb" min="0" step="1" value={weightLb} onChange={(event) => setWeightLb(event.target.value)} disabled={isShipped} />
+                  <span className="ship-input-unit">lb</span>
+                  <input type="number" className="ship-input ship-input-sm" id="p-wtoz" min="0" max="15" step="1" value={weightOz} onChange={(event) => setWeightOz(event.target.value)} disabled={isShipped} />
+                  <span className="ship-input-unit">oz</span>
+                </div>
+              </div>
 
-          {/* Toggles */}
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={residential} onChange={e => setResidential(e.target.checked)} />
-              Residential
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={insurance} onChange={e => setInsurance(e.target.checked)} />
-              Insurance
-            </label>
-          </div>
-        </div>
+              <div className="ship-field-row">
+                <span className="ship-field-label">Size <span id="p-dims-badge" title="Dims saved for this SKU" style={{ fontSize: '10px', fontWeight: 700, color: 'var(--green,#16a34a)', marginLeft: '3px', display: hasSavedDims ? 'inline' : 'none' }}>✓</span></span>
+                <div className="ship-field-value" style={{ gap: '3px', flexWrap: 'wrap' }}>
+                  <input type="number" className="ship-input ship-input-sm" id="p-len" min="0" step="0.1" placeholder="0" value={length} onChange={(event) => setLength(event.target.value)} disabled={isShipped} />
+                  <span className="ship-input-unit">L</span>
+                  <input type="number" className="ship-input ship-input-sm" id="p-wid" min="0" step="0.1" placeholder="0" value={width} onChange={(event) => setWidth(event.target.value)} disabled={isShipped} />
+                  <span className="ship-input-unit">W</span>
+                  <input type="number" className="ship-input ship-input-sm" id="p-hgt" min="0" step="0.1" placeholder="0" value={height} onChange={(event) => setHeight(event.target.value)} disabled={isShipped} />
+                  <span className="ship-input-unit">H (in)</span>
+                </div>
+              </div>
 
-        {/* Available Rates */}
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{ ...sectionLabel, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>Rates</span>
-            {ratesLoading && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>loading…</span>}
-            <button
-              onClick={() => setShowRateBrowser(true)}
-              style={{
-                marginLeft: 'auto',
-                fontSize: '10px',
-                padding: '2px 7px',
-                border: '1px solid var(--border2)',
-                borderRadius: '3px',
-                background: 'var(--surface2)',
-                cursor: 'pointer',
-                color: 'var(--text2)',
-              }}
-            >
-              Browse all
-            </button>
-          </div>
+              <div className="ship-field-row" style={{ borderBottom: 'none', paddingBottom: '2px' }}>
+                <span className="ship-field-label">Package <span id="sku-saved-badge" title="Package saved for this SKU" style={{ fontSize: '10px', fontWeight: 700, color: 'var(--green,#16a34a)', marginLeft: '3px', display: savedPackage ? 'inline' : 'none' }}>✓</span></span>
+                <div className="ship-field-value">
+                  <select className="ship-select" id="p-package" style={{ flex: 1 }} value={selectedPackageId} onChange={(event) => void applyPackagePreset(event.target.value)} disabled={isShipped}>
+                    <option value="">— Select Package —</option>
+                    {packages
+                      .filter((pkg) => pkg.source !== 'ss_carrier')
+                      .map((pkg) => (
+                        <option key={pkg.packageId} value={pkg.packageId}>{pkg.name}</option>
+                      ))}
+                    {packages.some((pkg) => pkg.source === 'ss_carrier') ? (
+                      <optgroup label="Carrier Packages">
+                        {packages
+                          .filter((pkg) => pkg.source === 'ss_carrier')
+                          .map((pkg) => (
+                            <option key={pkg.packageId} value={pkg.packageId}>{pkg.name.replace(/^\[(USPS|UPS|FedEx)\]\s*/, '')}</option>
+                          ))}
+                      </optgroup>
+                    ) : null}
+                    <option value="__custom__">Custom dims…</option>
+                  </select>
+                  <button className="ship-icon-btn" title="Manage packages" onClick={() => showToast('Packages view migration is outside this slice', 'info')}>📐</button>
+                </div>
+              </div>
 
-          {availableRates.length === 0 && !ratesLoading ? (
-            <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '8px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: '4px' }}>
-              Enter weight to fetch rates
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '130px', overflowY: 'auto' }}>
-              {availableRates.slice(0, 8).map((rate, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedRate(rate)}
-                  style={{
-                    padding: '5px 8px',
-                    backgroundColor: selectedRate === rate ? 'var(--ss-blue)' : 'var(--surface2)',
-                    color: selectedRate === rate ? '#fff' : 'var(--text)',
-                    border: '1px solid ' + (selectedRate === rate ? 'var(--ss-blue)' : 'var(--border)'),
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all 0.1s',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: '600' }}>
-                      {carrierLabel(rate.carrier || rate.carrierCode || '')} {rate.service || rate.serviceName || ''}
-                    </span>
-                    <span style={{ fontWeight: '700' }}>${(rate.price || 0).toFixed(2)}</span>
-                  </div>
-                  {rate.deliveryDays && (
-                    <div style={{ fontSize: '10px', opacity: 0.8, marginTop: '1px' }}>
-                      {rate.deliveryDays} day{rate.deliveryDays !== 1 ? 's' : ''}
+              <div id="p-package-dims" style={{ padding: '0 0 6px 98px', fontSize: '10px', fontWeight: 600, color: 'var(--green,#16a34a)', borderBottom: '1px solid var(--border)', display: packageDimsLabel ? 'block' : 'none' }}>
+                {packageDimsLabel}
+              </div>
+
+              {!isShipped ? (
+                <div style={{ padding: '4px 0', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => setRateBrowserOpen(true)} style={{ fontSize: '11.5px', gap: '4px' }}>🔍 Browse Rates</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => void fetchPanelRates({ keepManualSelection: Boolean(selectedService) })} style={{ fontSize: '11.5px', gap: '4px' }}>🔄 Refresh Rates</button>
+                  {Object.keys(PRESETS).map((presetName) => (
+                    <button key={presetName} className="btn btn-ghost btn-sm" style={{ fontSize: '10.5px' }} onClick={() => applyPreset(presetName as keyof typeof PRESETS)}>
+                      {presetName}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {!isShipped ? (
+                <>
+                  <div className="ship-field-row">
+                    <span className="ship-field-label">Confirmation</span>
+                    <div className="ship-field-value">
+                      <select className="ship-select" id="p-confirm" value={confirmation} onChange={(event) => setConfirmation(event.target.value)}>
+                        <option value="none">None</option>
+                        <option value="delivery">Delivery</option>
+                        <option value="signature">Signature</option>
+                        <option value="adult_signature">Adult Signature</option>
+                        <option value="direct_signature">Direct Signature</option>
+                      </select>
                     </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+                  </div>
 
-        {/* Create Label */}
-        {!labelNumber ? (
-          <div style={{ marginBottom: '10px' }}>
-            <button
-              onClick={handleCreateLabel}
-              disabled={creatingLabel || !selectedRate}
-              style={{
-                width: '100%',
-                padding: '9px',
-                backgroundColor: selectedRate ? 'var(--ss-blue)' : 'var(--surface2)',
-                color: selectedRate ? '#fff' : 'var(--text3)',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontWeight: '700',
-                cursor: selectedRate && !creatingLabel ? 'pointer' : 'not-allowed',
-                opacity: creatingLabel ? 0.7 : 1,
-              }}
-            >
-              {creatingLabel ? '⏳ Creating…' : '🖨️ Create Label'}
-            </button>
-          </div>
-        ) : (
-          <div style={{ marginBottom: '10px', padding: '10px', backgroundColor: 'var(--surface2)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-            <div style={sectionLabel}>Label Created</div>
-            <div style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--ss-blue)', fontWeight: '600', marginBottom: '8px', wordBreak: 'break-all' }}>
-              {labelNumber}
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {labelUrl && (
-                <a
-                  href={labelUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    flex: 1,
-                    padding: '5px',
-                    backgroundColor: 'var(--ss-blue)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    textAlign: 'center',
-                    textDecoration: 'none',
-                    display: 'block',
-                  }}
-                >
-                  📄 View
-                </a>
-              )}
-              <button
-                onClick={handleReprint}
-                disabled={reprinting}
-                style={{
-                  flex: 1,
-                  padding: '5px',
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--text)',
-                  border: '1px solid var(--border2)',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-              >
-                {reprinting ? '⏳' : '🖨️ Reprint'}
-              </button>
-              <button
-                onClick={handleVoidLabel}
-                disabled={voidingLabel}
-                style={{
-                  flex: 1,
-                  padding: '5px',
-                  backgroundColor: '#fef2f2',
-                  color: '#dc2626',
-                  border: '1px solid #fca5a5',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-              >
-                {voidingLabel ? '⏳' : '✕ Void'}
-              </button>
-            </div>
-          </div>
-        )}
+                  <div className="ship-field-row">
+                    <span className="ship-field-label">Insurance</span>
+                    <div className="ship-field-value" style={{ gap: '5px', flexWrap: 'wrap' }}>
+                      <select className="ship-select" id="p-insure" style={{ flex: 1 }} value={insuranceType} onChange={(event) => setInsuranceType(event.target.value)}>
+                        <option value="none">None</option>
+                        <option value="carrier">Carrier (up to $100)</option>
+                        <option value="shipsurance">Shipsurance</option>
+                      </select>
+                      <input type="number" className="ship-input ship-input-sm" id="p-insure-val" min="0" step="0.01" value={insuranceValue} onChange={(event) => setInsuranceValue(event.target.value)} placeholder="$0.00" style={{ width: '68px', display: insuranceType === 'none' ? 'none' : 'inline-flex' }} title="Insured value" />
+                    </div>
+                  </div>
+                </>
+              ) : null}
 
-        {/* Actions */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '10px' }}>
-          <button
-            onClick={handleReturnLabel}
-            style={{
-              padding: '6px',
-              backgroundColor: 'var(--surface2)',
-              color: 'var(--text)',
-              border: '1px solid var(--border2)',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            🔄 Generate Return Label
-          </button>
-          <button
-            onClick={() => setShowExternalModal(true)}
-            style={{
-              padding: '6px',
-              backgroundColor: 'var(--surface2)',
-              color: 'var(--text)',
-              border: '1px solid var(--border2)',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            📋 Mark Shipped External
-          </button>
-          {onSendToQueue && (
-            <button
-              onClick={handleSendToQueue}
-              style={{
-                padding: '6px',
-                backgroundColor: '#f0fdf4',
-                color: '#16a34a',
-                border: '1px solid #bbf7d0',
-                borderRadius: '4px',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              📥 Send to Print Queue
-            </button>
-          )}
-          <button
-            onClick={handleSaveDefaults}
-            style={{
-              padding: '6px',
-              backgroundColor: 'var(--surface2)',
-              color: 'var(--text2)',
-              border: '1px solid var(--border2)',
-              borderRadius: '4px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            💾 Save Dims as SKU Defaults
-          </button>
-        </div>
-
-        {/* Mark Shipped External Modal */}
-        {showExternalModal && (
-          <div
-            style={{
-              position: 'fixed', inset: 0, zIndex: 9100,
-              backgroundColor: 'rgba(0,0,0,.5)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-            onClick={() => setShowExternalModal(false)}
-          >
-            <div
-              style={{
-                backgroundColor: 'var(--surface)',
-                borderRadius: '10px',
-                padding: '20px',
-                width: '320px',
-                boxShadow: 'var(--shadow-lg)',
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '12px' }}>Mark as Shipped Externally</div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>Shipping Source</label>
-                <select
-                  value={externalSource}
-                  onChange={e => setExternalSource(e.target.value)}
-                  style={inputStyle}
-                >
-                  <option value="eBay">eBay</option>
-                  <option value="Amazon">Amazon</option>
-                  <option value="Manual">Manual</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setShowExternalModal(false)}
-                  style={{ padding: '7px 14px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleMarkShippedExternal}
-                  style={{ padding: '7px 14px', background: 'var(--ss-blue)', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer' }}
-                >
-                  Mark Shipped
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Rate Browser Modal */}
-        {showRateBrowser && order && (
-          <RateBrowserInline
-            order={order}
-            weight={parseFloat(weightLbs) || 0}
-            dims={dimW ? { w: parseFloat(dimW) || 0, h: parseFloat(dimH) || 0, d: parseFloat(dimD) || 0 } : null}
-            insurance={insurance}
-            residential={residential}
-            onSelect={rate => {
-              setSelectedRate(rate)
-              setShowRateBrowser(false)
-            }}
-            onClose={() => setShowRateBrowser(false)}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Inline Rate Browser Modal ─────────────────────────────────────────────────
-
-interface RateBrowserInlineProps {
-  order: any
-  weight: number
-  dims: { w: number; h: number; d: number } | null
-  insurance: boolean
-  residential: boolean
-  onSelect: (rate: any) => void
-  onClose: () => void
-}
-
-function RateBrowserInline({ order, weight, dims, insurance, residential, onSelect, onClose }: RateBrowserInlineProps) {
-  const { fetchRates, loading } = useRates()
-  const [rates, setRates] = useState<any[]>([])
-  const [sortKey, setSortKey] = useState<'price' | 'deliveryDays'>('price')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [filterCarrier, setFilterCarrier] = useState('')
-  const [highlighted, setHighlighted] = useState(0)
-
-  useEffect(() => {
-    const zip = order?.shipTo?.postalCode
-    if (!zip || !weight) return
-    const storeId = order?.storeId || null
-    fetchRates(storeId, zip, weight, dims, insurance, residential).then(r => {
-      setRates(r)
-    })
-  }, [])
-
-  const carriers = [...new Set(rates.map(r => r.carrier || r.carrierCode || ''))]
-
-  const sorted = [...rates]
-    .filter(r => !filterCarrier || (r.carrier || r.carrierCode) === filterCarrier)
-    .sort((a, b) => {
-      const av = sortKey === 'price' ? (a.price || 0) : (a.deliveryDays || 99)
-      const bv = sortKey === 'price' ? (b.price || 0) : (b.deliveryDays || 99)
-      return sortDir === 'asc' ? av - bv : bv - av
-    })
-
-  const handleSort = (key: 'price' | 'deliveryDays') => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
-  }
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowDown') setHighlighted(h => Math.min(h + 1, sorted.length - 1))
-      if (e.key === 'ArrowUp') setHighlighted(h => Math.max(h - 1, 0))
-      if (e.key === 'Enter' && sorted[highlighted]) onSelect(sorted[highlighted])
-    }
-    window.addEventListener('keydown', handler)
-    return () => {
-      window.removeEventListener('keydown', handler)
-    }
-  }, [sorted, highlighted, onClose, onSelect])
-
-  const thStyle: React.CSSProperties = {
-    padding: '8px 10px',
-    fontSize: '10px',
-    fontWeight: '700',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.4px',
-    color: 'var(--text3)',
-    borderBottom: '2px solid var(--border)',
-    background: 'var(--surface2)',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  }
-
-  return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9200,
-        backgroundColor: 'rgba(0,0,0,.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          backgroundColor: 'var(--surface)',
-          borderRadius: '10px',
-          width: '700px',
-          maxWidth: '95vw',
-          maxHeight: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: 'var(--shadow-lg)',
-          overflow: 'hidden',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ padding: '14px 16px', borderBottom: '2px solid var(--ss-blue)', display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-          <div style={{ fontSize: '16px', fontWeight: '800', flex: 1 }}>
-            💰 Rate Browser — {order.orderNumber}
-          </div>
-          <select
-            value={filterCarrier}
-            onChange={e => setFilterCarrier(e.target.value)}
-            style={{ padding: '4px 8px', fontSize: '11px', border: '1px solid var(--border2)', borderRadius: '4px', background: 'var(--surface2)', color: 'var(--text)' }}
-          >
-            <option value="">All Carriers</option>
-            {carriers.map(c => (
-              <option key={c} value={c}>{c.toUpperCase()}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => {
-              const zip = order?.shipTo?.postalCode
-              if (zip && weight) {
-                fetchRates(order?.storeId || null, zip, weight, dims, insurance, residential).then(r => setRates(r))
-              }
-            }}
-            style={{ padding: '4px 10px', fontSize: '11px', border: '1px solid var(--border2)', borderRadius: '4px', background: 'var(--surface2)', cursor: 'pointer', color: 'var(--text)' }}
-          >
-            ↻ Refresh
-          </button>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--text3)' }}>✕</button>
-        </div>
-
-        {/* Table */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>
-              <div className="spinner"></div>
-              <div style={{ marginTop: '8px', fontSize: '12px' }}>Fetching rates…</div>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Carrier</th>
-                  <th style={thStyle}>Service</th>
-                  <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort('price')}>
-                    Price {sortKey === 'price' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                  </th>
-                  <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSort('deliveryDays')}>
-                    Est. Delivery {sortKey === 'deliveryDays' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                  </th>
-                  <th style={thStyle}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((rate, idx) => (
-                  <tr
-                    key={idx}
-                    onClick={() => onSelect(rate)}
-                    style={{
-                      cursor: 'pointer',
-                      backgroundColor: idx === highlighted ? 'var(--ss-blue-bg)' : 'transparent',
-                    }}
-                    onMouseEnter={() => setHighlighted(idx)}
-                  >
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: '12px', fontWeight: '600' }}>
-                      {carrierLabel(rate.carrier || rate.carrierCode || '')}
-                    </td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
-                      {rate.service || rate.serviceName || ''}
-                    </td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: '12px', fontWeight: '700', color: 'var(--green)' }}>
-                      ${(rate.price || 0).toFixed(2)}
-                    </td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', fontSize: '11px', color: 'var(--text2)' }}>
-                      {rate.deliveryDays ? `${rate.deliveryDays} day${rate.deliveryDays !== 1 ? 's' : ''}` : '—'}
-                    </td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
-                      <button
-                        onClick={e => { e.stopPropagation(); onSelect(rate) }}
-                        style={{
-                          padding: '3px 10px',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          background: 'var(--ss-blue)',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Select
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {sorted.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
-                      No rates found
-                    </td>
-                  </tr>
+              <div className="ship-rate-row">
+                <span style={{ fontSize: '11.5px', color: 'var(--text2)', fontWeight: 500, width: '90px', flexShrink: 0 }}>Rate</span>
+                {isShipped ? (
+                  shippedRateMarkup(panelOrder, displayAccounts)
+                ) : (
+                  <>
+                    <span className="ship-rate-val" id="panel-rate-val">
+                      {rateLoading ? <span style={{ color: 'var(--text3)', fontSize: '11px' }}>Loading rates…</span> : rateMessage}
+                    </span>
+                    <span style={{ flex: 1 }}></span>
+                    <span className="ship-scout" title="Scout review">
+                      🔄 <span id="panel-scout-label">{rateLoading ? 'Loading…' : 'Scout Review'}</span>
+                    </span>
+                  </>
                 )}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
 
-        <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
-          {sorted.length} rate{sorted.length !== 1 ? 's' : ''} · Click row or press Enter to select · Esc to close
+              {!isShipped ? (
+                <button className={`save-sku-btn${savingDefaults ? ' saving' : ''}`} id="saveSkuBtn" onClick={() => void handleSaveDefaults()} title="Save weight, dims & package as defaults for this SKU">
+                  💾 Save weights and dims as SKU defaults
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {!isShipped ? (
+            <div className="create-label-wrap" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button className="create-label-btn" id="createLabelBtn" style={{ flex: 1 }} onClick={() => void handleCreateLabel('print')} disabled={Boolean(workingAction)}>
+                {workingAction === 'print' ? '⏳ Creating…' : '🖨️ Create + Print Label'} <span className="create-label-caret">▾</span>
+              </button>
+              <button className="create-label-btn" id="sendToQueueBtn" style={{ flex: 1, background: '#16a34a' }} onClick={() => void handleCreateLabel('queue')} disabled={Boolean(workingAction)}>
+                {workingAction === 'queue' ? '⏳ Creating…' : '📥 Send to Queue'}
+              </button>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: '10.5px', color: 'var(--text3)', padding: '4px 7px' }} onClick={() => void handleCreateLabel('test')} disabled={Boolean(workingAction)}>
+                {workingAction === 'test' ? '⏳' : 'Test'}
+              </button>
+            </div>
+          ) : null}
+
+          {isShipped && panelOrder.label?.trackingNumber ? (
+            <div className="delivery-row" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>📦 Tracking:</span>
+              <span
+                style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text)', fontWeight: 600, cursor: 'pointer' }}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(panelOrder.label?.trackingNumber ?? '')
+                  showToast('Tracking copied', 'success')
+                }}
+                title="Click to copy"
+              >
+                {panelOrder.label.trackingNumber}
+              </span>
+              <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto', fontSize: '10.5px' }} onClick={() => void handleReprintLabel()}>
+                🖨️ Reprint
+              </button>
+            </div>
+          ) : null}
+
+          <div className="delivery-row" id="panel-delivery-row">{deliveryMessage}</div>
+
+          <div className={`panel-section${itemsCollapsed ? ' collapsed' : ''}`} id="sec-items">
+            <div className="panel-section-header" onClick={() => setItemsCollapsed((collapsed) => !collapsed)}>
+              <span className="panel-section-arrow">▶</span>
+              <span className="panel-section-title">Items</span>
+              <div className="panel-section-icons">
+                <span className="panel-section-icon">★</span>
+                <span className="panel-section-icon">⊞</span>
+              </div>
+            </div>
+            <div className="panel-section-body">
+              {items.map((item, index) => {
+                const imageUrl = typeof item.imageUrl === 'string' ? item.imageUrl : null
+                const quantity = asNumber(item.quantity) ?? 1
+                const unitPrice = asNumber(item.unitPrice) ?? 0
+                return (
+                  <div className="item-row" key={`${panelOrder.orderId}-${index}`}>
+                    <div className="item-img">
+                      {imageUrl ? <img src={imageUrl} style={{ width: '42px', height: '42px', borderRadius: '5px', objectFit: 'cover' }} alt="" /> : '📦'}
+                    </div>
+                    <div className="item-info">
+                      <div className="item-name">{typeof item.name === 'string' ? item.name : 'Unknown Item'}</div>
+                      <div className="item-sku">SKU: {typeof item.sku === 'string' ? item.sku : '—'}</div>
+                      <div className="item-price-row">${unitPrice.toFixed(2)}&nbsp;&times;&nbsp;{quantity}&nbsp;=&nbsp;<strong>${(unitPrice * quantity).toFixed(2)}</strong></div>
+                    </div>
+                    <div className="item-qty">{quantity}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className={`panel-section${recipientCollapsed ? ' collapsed' : ''}`} id="sec-recipient">
+            <div className="panel-section-header" onClick={() => setRecipientCollapsed((collapsed) => !collapsed)}>
+              <span className="panel-section-arrow">▶</span>
+              <span className="panel-section-title">Recipient</span>
+              <div className="panel-section-icons">
+                <span className="panel-section-icon">⊞</span>
+              </div>
+            </div>
+            <div className="panel-section-body">
+              <div className="recip-header">
+                <span className="recip-title">Ship To</span>
+                <span className="recip-edit" onClick={async () => {
+                  await navigator.clipboard.writeText(addressText)
+                  showToast('Address copied', 'success')
+                }} title="Copy address">📋</span>
+                <span className="recip-edit" onClick={() => showToast('Recipient editing is outside this slice', 'info')}>Edit</span>
+              </div>
+              <div className="recip-name">{shipTo.name || '—'}</div>
+              <div className="recip-addr">{addressText}</div>
+              {shipTo.phone ? <div style={{ fontSize: '12px', color: 'var(--text2)', marginTop: '3px' }}>{shipTo.phone}</div> : null}
+              <div id="panel-addr-type" style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px', marginBottom: '2px' }}>
+                {isResidential(panelOrder) ? '🏠 Residential' : '🏢 Commercial'} {panelOrder.residential != null ? '(manual)' : '(auto)'} —{' '}
+                <a href="#" onClick={(event) => {
+                  event.preventDefault()
+                  void handleToggleResidential()
+                }} style={{ color: 'var(--ss-blue)' }}>
+                  {workingAction === 'residential' ? 'saving…' : 'change'}
+                </a>
+              </div>
+              <div className="recip-validated">
+                🏠 Address Validated
+                <span className="recip-revert" onClick={() => showToast('Address re-validation is outside this slice', 'info')}>Revert</span>
+              </div>
+              <div className="recip-tax">
+                Tax Information: <span style={{ color: 'var(--text3)' }}>0 Tax IDs added</span>
+                <span className="recip-tax-add" onClick={() => showToast('Tax ID editing is outside this slice', 'info')}>Add</span>
+              </div>
+              <div className="recip-sold" style={{ marginTop: '7px', paddingTop: '7px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--text3)', marginBottom: '4px' }}>Sold To</div>
+                <div className="recip-sold-name">{getOrderCustomerUsername(panelOrder) || shipTo.name || '—'}</div>
+                {panelOrder.customerEmail ? <div style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{panelOrder.customerEmail}</div> : null}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      <RateBrowserModal
+        open={rateBrowserOpen}
+        rates={panelRates}
+        loading={rateLoading}
+        onClose={() => setRateBrowserOpen(false)}
+        onSelect={(rate) => {
+          if (rate.shippingProviderId) {
+            setSelectedShipAccountId(String(rate.shippingProviderId))
+          }
+          setSelectedService(rate.serviceCode)
+          setSelectedRate(rate)
+          setRateBrowserOpen(false)
+        }}
+      />
     </div>
   )
 }

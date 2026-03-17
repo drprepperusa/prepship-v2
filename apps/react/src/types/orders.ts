@@ -1,6 +1,5 @@
 /**
- * PrepShip V3 - Orders Domain Types
- * Ported from V2 with full TypeScript type safety
+ * React-side order domain types used by the incremental parity migration.
  */
 
 export interface OrderItem {

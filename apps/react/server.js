@@ -78,7 +78,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`PrepShip V3 running on http://localhost:${PORT}`);
+  console.log(`PrepShip React preview running on http://localhost:${PORT}`);
   console.log(`Serving from: ${distDir}`);
   console.log(`API proxy: /api/* → ${API_BASE}`);
 });

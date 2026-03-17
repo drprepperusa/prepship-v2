@@ -1,5 +1,5 @@
 /**
- * useRates Hook - 3-tier Rate Fetching Pipeline
+ * useRates hook for the React parity app.
  * 
  * Tier 1: Memory cache (in-session)
  * Tier 2: Bulk cached endpoint (/api/rates/cached/bulk)
@@ -11,7 +11,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { OrderDTO, RatesMap, RateGroup } from '../types/orders';
+import type { RateDto } from '@prepshipv2/contracts/rates/contracts';
+import type { OrderDTO, RatesMap, RateGroup, Rate } from '../types/orders';
 import { groupOrdersByRateKey } from '../utils/rates';
 import { useAbortSignal } from './useAbortSignal';
 import { apiClient } from '../api/client';
@@ -26,6 +27,19 @@ const BATCH_SIZE = 2;
 const BATCH_DELAY = 200; // ms between batches
 const LIVE_RETRY_COUNT = 2;
 const LIVE_RETRY_DELAY = 1500; // ms
+
+function normalizeRate(rate: RateDto): Rate {
+  return {
+    shipmentId: undefined,
+    shippingProviderId: Number(rate.shippingProviderId ?? 0),
+    carrierCode: rate.carrierCode,
+    serviceCode: rate.serviceCode,
+    serviceName: rate.serviceName,
+    amount: Number((rate.shipmentCost ?? 0) + (rate.otherCost ?? 0)),
+    estimatedDeliveryDays: rate.deliveryDays ?? undefined,
+    surcharges: undefined,
+  }
+}
 
 export function useRatesV3(orders: OrderDTO[]): UseRatesState {
   const [rates, setRates] = useState<RatesMap>({});
@@ -204,8 +218,9 @@ export function useRatesV3(orders: OrderDTO[]): UseRatesState {
                   );
 
                   if (liveRates && liveRates.length > 0) {
-                    memCacheRef.current[g.key] = liveRates;
-                    results[g.key] = liveRates;
+                    const normalizedRates = liveRates.map(normalizeRate)
+                    memCacheRef.current[g.key] = normalizedRates;
+                    results[g.key] = normalizedRates;
                     return;
                   }
                 }

@@ -1,73 +1,47 @@
-# React + TypeScript + Vite
+# `apps/react`
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This app is the incremental React migration target for PrepShip V2.
 
-Currently, two official plugins are available:
+It is not the canonical frontend yet, and it is not a redesign track. The behavioral and visual reference remains:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- V1 `../prepship/prepship/public/index.html`
+- V1 `../prepship/prepship/public/js/*`
+- the copied parity frontend in `apps/web`
 
-## React Compiler
+## Current Intent
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- migrate feature-by-feature behind V2 API/contracts
+- preserve V1 information architecture and operator workflow
+- avoid inventing replacement layouts while parity work is still in progress
 
-## Expanding the ESLint configuration
+## Current Status
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- the React app boots and builds with `npm --prefix apps/react run build`
+- the Order Panel is being migrated with parity-first behavior
+- other views still contain mixed migration quality and should be treated as in-progress unless explicitly verified against V1
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Commands
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev:react
+npm --prefix apps/react run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The local static preview/proxy server is:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+node apps/react/server.js
 ```
+
+Default ports:
+
+- React dev server: Vite default unless overridden
+- React static/proxy server: `4012`
+- API server: `4010`
+
+## Working Rules
+
+- compare UI changes against V1 before treating them as finished
+- prefer reusing existing CSS tokens and class structure over introducing a new visual language
+- if a React feature diverges from `apps/web`, assume the React version is wrong until proven otherwise
+- when React behavior is incomplete, document the gap instead of masking it with substitute UX

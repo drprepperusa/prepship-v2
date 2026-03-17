@@ -3,7 +3,7 @@
  * Cache key generation, rate grouping, price display
  */
 
-import { OrderDTO, RateGroup, OrderDimensions, Rate } from '../types/orders';
+import type { OrderDTO, RateGroup, OrderDimensions, Rate } from '../types/orders';
 import { isResidential, getOrderStoreId, getOrderWeight, getOrderZip, getOrderDimensions } from './orders';
 
 /**

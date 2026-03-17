@@ -220,7 +220,7 @@ export class ApiClient {
     });
   }
 
-  // Bulk cached rates endpoint (V3)
+  // Bulk cached rates endpoint used by the React parity app
   async fetchRatesCachedBulk(groups: any[], options?: { signal?: AbortSignal }): Promise<any> {
     return this.request<any>("POST", "/rates/cached/bulk", {
       body: { groups },
@@ -228,7 +228,7 @@ export class ApiClient {
     });
   }
 
-  // Live rates endpoint (V3)
+  // Live rates endpoint used by the React parity app
   async fetchRatesLive(request: any, options?: { signal?: AbortSignal }): Promise<RateDto[]> {
     return this.request<RateDto[]>("POST", "/rates", {
       body: request,
@@ -236,7 +236,7 @@ export class ApiClient {
     });
   }
 
-  // Get product bulk (V3)
+  // Bulk product defaults lookup used by the React parity app
   async getProductBulk(skus: string[], options?: { signal?: AbortSignal }): Promise<Record<string, any>> {
     const query = skus.map(encodeURIComponent).join(",");
     return this.request<Record<string, any>>("GET", `/products/bulk?skus=${query}`, {

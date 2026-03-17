@@ -5,6 +5,12 @@ Audit source:
 - `apps/web/public/index.html`
 - `apps/web/public/js/*`
 
+Scope note:
+
+- this audit is for the copied V1-style frontend in `apps/web`
+- `apps/react` should converge on the same backend contract surface as parity work lands, but it is not the source document for this audit
+- React migration tasks should treat this matrix as a compatibility floor, not permission to invent alternate workflows
+
 Status meanings:
 
 - `satisfied`: implemented in V2 and exercised by tests

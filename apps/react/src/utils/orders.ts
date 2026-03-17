@@ -3,7 +3,7 @@
  * Age calculation, residential detection, SKU grouping, etc.
  */
 
-import { OrderDTO, OrderDimensions } from '../types/orders';
+import type { OrderDTO, OrderDimensions } from '../types/orders';
 
 export function ageHours(createdAt: string): number {
   const now = Date.now();

@@ -37,6 +37,7 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 
 - `apps/api` HTTP API and composition root
 - `apps/web` V1-parity web app that should preserve the current V1 UI/UX while swapping in V2 API client usage
+- `apps/react` parity-first React migration app; use V1 and `apps/web` as the visual/behavioral source of truth, not as a redesign opportunity
 - `apps/worker` background job host, currently disabled by default
 - `packages/contracts` request/response DTOs
 - `packages/shared` config, DI, and SQLite utilities
@@ -44,7 +45,7 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 
 ## Frontend Validation Hardening
 
-The copied V1 frontend in `apps/web` is still DOM-driven and not fully typed at runtime. To reduce DTO drift bugs without forcing a React rewrite, V2 now includes a browser-side validation boundary for high-risk API responses.
+The copied V1 frontend in `apps/web` is still DOM-driven and not fully typed at runtime. To reduce DTO drift bugs without forcing the copied frontend to be rewritten before parity, V2 now includes a browser-side validation boundary for high-risk API responses.
 
 V2 now also has stricter API ingress validation for migrated routes. Malformed JSON request bodies and invalid numeric/boolean request input are rejected with `400` responses instead of being silently coerced into defaults or bubbling out as `500`s.
 
@@ -60,6 +61,23 @@ Current notes and next targets:
 
 - `docs/frontend-validation-hardening.md`
 - `docs/frontend-api-audit.md`
+
+## React Migration
+
+`apps/react` is an incremental migration target, not the canonical frontend and not a redesign track.
+
+Current rules:
+
+- preserve V1 visual design, view structure, and operator workflow unless a task explicitly asks for UI change
+- treat `apps/web` plus V1 `public/index.html` and `public/js/*` as the parity reference while React work is in progress
+- route data through V2 APIs/contracts rather than copying legacy backend coupling into React
+- migrate feature-by-feature; the current React slice with the strongest parity focus is the Order Panel
+
+Operationally:
+
+- run the copied parity frontend with `npm run dev:web`
+- run the React migration app with `npm run dev:react`
+- prefer documenting parity gaps explicitly rather than silently inventing replacement UI behavior
 
 ## Configuration
 

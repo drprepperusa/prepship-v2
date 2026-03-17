@@ -1,4 +1,4 @@
-import { Rate } from '../../types/orders';
+import type { Rate } from '../../types/orders';
 import { getExpedited } from '../../utils/orders';
 
 interface ExpediateCellProps {
