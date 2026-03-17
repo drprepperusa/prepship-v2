@@ -10,6 +10,8 @@ import RateShopView from './components/Views/RateShopView'
 import AnalysisView from './components/Views/AnalysisView'
 import SettingsView from './components/Views/SettingsView'
 import BillingView from './components/Views/BillingView'
+import OrderPanel from './components/OrderPanel/OrderPanel'
+import BatchPanel from './components/BatchPanel/BatchPanel'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing'
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -19,6 +21,8 @@ function App() {
   const [currentStatus, setCurrentStatus] = useState<OrderStatus>('awaiting_shipment')
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [panelOrderId, setPanelOrderId] = useState<number | null>(null)
+  const [showBatchPanel, setShowBatchPanel] = useState(false)
 
   const handleShowView = (view: ViewType) => {
     setCurrentView(view)
@@ -29,8 +33,12 @@ function App() {
     setCurrentStatus(status)
   }
 
-  const handleOpenPanel = () => {
-    // TODO: implement right panel
+  const handleOpenPanel = (orderId: number) => {
+    setPanelOrderId(orderId)
+  }
+
+  const handleClosePanel = () => {
+    setPanelOrderId(null)
   }
 
   const renderView = () => {
@@ -73,11 +81,26 @@ function App() {
           currentStatus={currentStatus}
           selectedOrdersCount={selectedOrders.size}
           onClearSelection={() => setSelectedOrders(new Set())}
+          onShowBatchPanel={() => setShowBatchPanel(true)}
           mobileMenuOpen={mobileMenuOpen}
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         
-        {renderView()}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {renderView()}
+          </div>
+          {currentView === 'orders' && panelOrderId && (
+            <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
+          )}
+        </div>
+
+        {showBatchPanel && selectedOrders.size > 0 && (
+          <BatchPanel 
+            selectedOrderIds={Array.from(selectedOrders)} 
+            onClose={() => setShowBatchPanel(false)}
+          />
+        )}
       </div>
     </div>
   )

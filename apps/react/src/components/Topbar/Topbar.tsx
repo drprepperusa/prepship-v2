@@ -9,6 +9,7 @@ interface TopbarProps {
   currentStatus: OrderStatus
   selectedOrdersCount: number
   onClearSelection: () => void
+  onShowBatchPanel: () => void
   mobileMenuOpen: boolean
   onToggleMobileMenu: () => void
 }
@@ -28,7 +29,8 @@ export default function Topbar({
   currentView, 
   currentStatus,
   selectedOrdersCount, 
-  onClearSelection, 
+  onClearSelection,
+  onShowBatchPanel,
   onToggleMobileMenu 
 }: TopbarProps) {
   const [syncText, setSyncText] = useState('Synced')
@@ -80,7 +82,7 @@ export default function Topbar({
         <div className="batch-bar">
           <span>{selectedOrdersCount} selected</span>
           <div className="batch-btns">
-            <button className="batch-btn" onClick={() => {}}>🗂️ Batch</button>
+            <button className="batch-btn" onClick={onShowBatchPanel}>🗂️ Batch</button>
             <button className="batch-btn" onClick={() => {}}>🖨️ Print</button>
             <button className="batch-btn" onClick={onClearSelection}>✕</button>
           </div>

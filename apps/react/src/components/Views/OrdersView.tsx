@@ -98,7 +98,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   }
 
   return (
-    <div id="view-orders" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <div className="filterbar">
         <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
           <input
@@ -143,18 +143,22 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
         <button className="btn btn-ghost btn-sm">📥 Export CSV</button>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        <OrdersTable
-          status={status}
-          orders={filteredOrders}
-          selectedOrders={selectedOrders}
-          onSelectOrder={handleSelectOrder}
-          onSelectAll={handleSelectAll}
-          onOpenPanel={onOpenPanel}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={handleSort}
-        />
+      <div className="content-split" style={{ flex: 1, overflow: 'hidden' }}>
+        <div className="orders-section">
+          <div className="orders-wrap">
+            <OrdersTable
+              status={status}
+              orders={filteredOrders}
+              selectedOrders={selectedOrders}
+              onSelectOrder={handleSelectOrder}
+              onSelectAll={handleSelectAll}
+              onOpenPanel={onOpenPanel}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={handleSort}
+            />
+          </div>
+        </div>
       </div>
     </div>
   )
