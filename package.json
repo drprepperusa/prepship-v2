@@ -10,6 +10,7 @@
   "scripts": {
     "dev:api": "node --experimental-strip-types apps/api/src/main.ts",
     "dev:web": "node --experimental-strip-types apps/web/src/main.ts",
+    "dev:react": "cd apps/react && vite",
     "dev:worker": "node --experimental-strip-types apps/worker/src/main.ts",
     "test": "node --experimental-strip-types --test apps/api/test/*.test.ts apps/web/test/*.test.ts"
   },

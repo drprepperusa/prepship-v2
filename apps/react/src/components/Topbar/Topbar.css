@@ -1,0 +1,24 @@
+/* Topbar-specific styles */
+.zoom-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  padding: 5px 0;
+  z-index: 200;
+  min-width: 130px;
+}
+
+.zoom-opt {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.zoom-opt:hover {
+  background: var(--bg2);
+}

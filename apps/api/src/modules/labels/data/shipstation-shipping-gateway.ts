@@ -137,7 +137,9 @@ export class ShipstationShippingGateway implements ShippingGateway {
       const error = new Error(`ShipStation v2 API error: ${response.status}`) as Error & { details?: string; statusCode?: number };
       error.details = details.slice(0, 500);
       error.statusCode = response.status;
-      console.error("[ShipStation] Error response:", details);
+      console.error("[ShipStation] ❌ ERROR RESPONSE (HTTP " + response.status + ")");
+      console.error("[ShipStation] Full error body:", details);
+      console.error("[ShipStation] Request body that failed:", JSON.stringify(body, null, 2));
       throw error;
     }
 

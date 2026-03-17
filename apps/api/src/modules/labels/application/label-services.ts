@@ -195,9 +195,14 @@ export class LabelServices {
     // NOTE: ShipStation v2 API does NOT support per-request test labels (unlike v1 API which had testLabel field)
     // Test mode in v2 must be configured at the account/carrier level in ShipStation dashboard
     // The testLabel flag here is used locally to skip order status updates, but does not affect ShipStation API call
+    
+    // Look up the correct carrierId from the mapping table (do NOT use "se-" prefix for v2 API)
+    const carrierAccount = CARRIER_ACCOUNTS_V2.find((c) => c.shippingProviderId === body.shippingProviderId);
+    const carrierId = carrierAccount?.carrierId ?? `se-${body.shippingProviderId}`; // Fallback to old format if not found
+    
     const created = await this.gateway.createLabel({
       apiKeyV2,
-      carrierId: `se-${body.shippingProviderId}`,
+      carrierId,
       serviceCode: body.serviceCode,
       packageCode: body.packageCode || "package",
       weightOz: effectiveWeightOz,
