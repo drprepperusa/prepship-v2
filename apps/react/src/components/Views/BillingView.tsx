@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useToast } from '../../hooks/useToast'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,23 +62,6 @@ interface PkgPriceDto {
   length: number | null
   width: number | null
   height: number | null
-}
-
-// ── Toast ────────────────────────────────────────────────────────────────────
-
-let _toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(msg: string) {
-  let el = document.getElementById('react-toast')
-  if (!el) {
-    el = document.createElement('div')
-    el.id = 'react-toast'
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;max-width:420px;box-shadow:0 4px 20px rgba(0,0,0,.3);transition:opacity .3s'
-    document.body.appendChild(el)
-  }
-  el.innerHTML = msg
-  el.style.opacity = '1'
-  if (_toastTimer) clearTimeout(_toastTimer)
-  _toastTimer = setTimeout(() => { if (el) el.style.opacity = '0' }, 4000)
 }
 
 // ── Column definitions for detail table ──────────────────────────────────────
@@ -146,6 +130,7 @@ function getPresetRange(preset: string) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function BillingView() {
+  const { showToast } = useToast()
   const today = new Date()
   const defaultFrom = new Date(today); defaultFrom.setDate(defaultFrom.getDate() - 90)
   const [from, setFrom] = useState(defaultFrom.toISOString().slice(0, 10))
@@ -294,7 +279,7 @@ export default function BillingView() {
             {generating ? '⏳ Generating…' : '⚡ Generate Invoices'}
           </button>
           {generateStatus && <span style={{ fontSize: 12, color: 'var(--green-dark, #15803d)', fontWeight: 600 }}>{generateStatus}</span>}
-          <RefRateControls from={from} to={to} />
+          <RefRateControls from={from} to={to} showToast={showToast} />
         </div>
 
         {/* Summary table */}
@@ -390,10 +375,10 @@ export default function BillingView() {
         )}
 
         {/* Billing Config */}
-        <BillingConfigSection configs={configs} onSaved={loadConfigs} />
+        <BillingConfigSection configs={configs} onSaved={loadConfigs} showToast={showToast} />
 
         {/* Package Price Matrix */}
-        <PkgPriceMatrix configs={configs} packages={packages} />
+        <PkgPriceMatrix configs={configs} packages={packages} showToast={showToast} />
       </div>
     </div>
   )
@@ -490,7 +475,7 @@ function DetailTable({ rows, loading, colVis }: { rows: BillingDetailDto[]; load
 
 // ── Billing Config Section ────────────────────────────────────────────────────
 
-function BillingConfigSection({ configs, onSaved }: { configs: BillingConfigDto[]; onSaved: () => void }) {
+function BillingConfigSection({ configs, onSaved, showToast }: { configs: BillingConfigDto[]; onSaved: () => void; showToast: (msg: string) => void }) {
   // Local editable state per client
   const [edits, setEdits] = useState<Record<number, Partial<BillingConfigDto>>>({})
 
@@ -598,7 +583,7 @@ function BillingConfigSection({ configs, onSaved }: { configs: BillingConfigDto[
 
 // ── Package Price Matrix ──────────────────────────────────────────────────────
 
-function PkgPriceMatrix({ configs, packages }: { configs: BillingConfigDto[]; packages: PackageDto[] }) {
+function PkgPriceMatrix({ configs, packages, showToast }: { configs: BillingConfigDto[]; packages: PackageDto[]; showToast: (msg: string) => void }) {
   const [selectedClientId, setSelectedClientId] = useState<string>('')
   const [prices, setPrices] = useState<Record<number, { price: number; is_custom: number }>>({})
   const [loadedClient, setLoadedClient] = useState<string>('')
@@ -715,7 +700,7 @@ function PkgPriceMatrix({ configs, packages }: { configs: BillingConfigDto[]; pa
 
 // ── Ref Rate Controls ─────────────────────────────────────────────────────────
 
-function RefRateControls({ from, to }: { from: string; to: string }) {
+function RefRateControls({ from, to, showToast }: { from: string; to: string; showToast: (msg: string) => void }) {
   const [fetching, setFetching] = useState(false)
   const [fetchStatus, setFetchStatus] = useState('')
   const [backfilling, setBackfilling] = useState(false)

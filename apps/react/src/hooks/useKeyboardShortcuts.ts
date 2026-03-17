@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 
 interface KeyboardShortcutsOptions {
   selectedOrderIds?: number[]
@@ -10,6 +10,21 @@ interface KeyboardShortcutsOptions {
 
 export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { selectedOrderIds = [], orders = [], onOpenPrintQueue, onCloseAll, onConfirm } = options
+  const confirmBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  // Update ref when modal confirm button appears
+  useEffect(() => {
+    const updateConfirmBtnRef = () => {
+      confirmBtnRef.current = document.querySelector('.modal-confirm-btn') as HTMLButtonElement
+    }
+    
+    const observer = new MutationObserver(updateConfirmBtnRef)
+    observer.observe(document.body, { childList: true, subtree: true })
+    
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement
@@ -44,9 +59,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
     // Enter: Confirm action
     if (e.key === 'Enter' && !ctrl && !e.shiftKey) {
-      const activeModal = document.querySelector('.modal-confirm-btn') as HTMLButtonElement
-      if (activeModal) {
-        activeModal.click()
+      if (confirmBtnRef.current) {
+        confirmBtnRef.current.click()
         e.preventDefault()
       }
       onConfirm?.()

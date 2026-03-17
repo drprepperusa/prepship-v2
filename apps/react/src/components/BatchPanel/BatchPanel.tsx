@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useToast } from '../../hooks/useToast'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,23 +33,6 @@ interface BatchPanelProps {
   orders?: Order[]
   onClose: () => void
   onRefresh?: () => void
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-let _toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(msg: string) {
-  let el = document.getElementById('react-toast')
-  if (!el) {
-    el = document.createElement('div')
-    el.id = 'react-toast'
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;max-width:420px;box-shadow:0 4px 20px rgba(0,0,0,.3);transition:opacity .3s'
-    document.body.appendChild(el)
-  }
-  el.innerHTML = msg
-  el.style.opacity = '1'
-  if (_toastTimer) clearTimeout(_toastTimer)
-  _toastTimer = setTimeout(() => { if (el) el.style.opacity = '0' }, 4000)
 }
 
 // ── Service name map ───────────────────────────────────────────────────────────
@@ -113,6 +97,7 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
   // Don't render if < 2 orders selected
   if (selectedOrderIds.length < 2) return null
 
+  const { showToast } = useToast()
   const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.orderId))
 
   const totalUnits = selectedOrders.reduce((s, o) =>

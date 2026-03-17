@@ -14,6 +14,7 @@ import ManifestsView from './components/Views/ManifestsView'
 import BatchPanel from './components/BatchPanel/BatchPanel'
 import PrintQueuePanel from './components/PrintQueue/PrintQueuePanel'
 import { QueueProvider, useQueue } from './components/PrintQueue/QueueContext'
+import { ToastProvider } from './contexts/ToastContext'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
@@ -157,9 +158,11 @@ function AppInner() {
 
 function App() {
   return (
-    <QueueProvider>
-      <AppInner />
-    </QueueProvider>
+    <ToastProvider>
+      <QueueProvider>
+        <AppInner />
+      </QueueProvider>
+    </ToastProvider>
   )
 }
 

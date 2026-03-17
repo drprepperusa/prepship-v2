@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useToast } from '../../hooks/useToast'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,23 +89,6 @@ interface PackageDto {
 
 type TabId = 'stock' | 'receive' | 'clients' | 'history'
 
-// ── Toast ────────────────────────────────────────────────────────────────────
-
-let _toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(msg: string) {
-  let el = document.getElementById('react-toast')
-  if (!el) {
-    el = document.createElement('div')
-    el.id = 'react-toast'
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;max-width:420px;box-shadow:0 4px 20px rgba(0,0,0,.3);transition:opacity .3s'
-    document.body.appendChild(el)
-  }
-  el.innerHTML = msg
-  el.style.opacity = '1'
-  if (_toastTimer) clearTimeout(_toastTimer)
-  _toastTimer = setTimeout(() => { if (el) el.style.opacity = '0' }, 4000)
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtWeight(oz: number): string {
@@ -125,6 +109,7 @@ function getDateRangeLast30() {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function InventoryView() {
+  const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<TabId>('stock')
   const [clients, setClients] = useState<ClientDto[]>([])
   const [stockData, setStockData] = useState<InventoryItem[]>([])
@@ -232,16 +217,17 @@ export default function InventoryView() {
             parentSkus={parentSkus}
             setParentSkus={setParentSkus}
             onReload={refresh}
+            showToast={showToast}
           />
         )}
         {activeTab === 'receive' && (
-          <ReceiveTab clients={clients} onReload={refresh} />
+          <ReceiveTab clients={clients} onReload={refresh} showToast={showToast} />
         )}
         {activeTab === 'clients' && (
-          <ClientsTab clients={clients} onReload={() => { loadClients(); refresh() }} />
+          <ClientsTab clients={clients} onReload={() => { loadClients(); refresh() }} showToast={showToast} />
         )}
         {activeTab === 'history' && (
-          <HistoryTab clients={clients} />
+          <HistoryTab clients={clients} showToast={showToast} />
         )}
       </div>
     </div>
@@ -257,6 +243,7 @@ function StockTab({
   parentSkus,
   setParentSkus,
   onReload,
+  showToast,
 }: {
   stockData: InventoryItem[]
   clients: ClientDto[]
@@ -264,6 +251,7 @@ function StockTab({
   parentSkus: ParentSkuDto[]
   setParentSkus: (ps: ParentSkuDto[]) => void
   onReload: () => void
+  showToast: (msg: string) => void
 }) {
   const [search, setSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('')
@@ -362,6 +350,7 @@ function StockTab({
               // handled inline
             }}
             onReload={onReload}
+            showToast={showToast}
           />
         ))
       )}
@@ -372,6 +361,7 @@ function StockTab({
           sku={adjustModal.sku}
           onClose={() => setAdjustModal(null)}
           onDone={onReload}
+          showToast={showToast}
         />
       )}
 
@@ -383,6 +373,7 @@ function StockTab({
           clients={clients}
           onClose={() => setEditModal(null)}
           onDone={() => { setEditModal(null); onReload() }}
+          showToast={showToast}
         />
       )}
 
@@ -406,6 +397,7 @@ function ClientStockGroup({
   onOpenDrawer,
   onBulkSave,
   onReload,
+  showToast,
 }: {
   group: { name: string; rows: InventoryItem[] }
   bulkDimsMode: boolean
@@ -414,6 +406,7 @@ function ClientStockGroup({
   onOpenDrawer: (id: number) => void
   onBulkSave: () => Promise<void>
   onReload: () => void
+  showToast: (msg: string) => void
 }) {
   const bulkRefs = useRef<Record<number, { weightOz: HTMLInputElement | null; length: HTMLInputElement | null; width: HTMLInputElement | null; height: HTMLInputElement | null }>>({})
 
@@ -563,7 +556,7 @@ function ClientStockGroup({
 
 // ── Adjust Modal ──────────────────────────────────────────────────────────────
 
-function AdjustModal({ invSkuId, sku, onClose, onDone }: { invSkuId: number; sku: string; onClose: () => void; onDone: () => void }) {
+function AdjustModal({ invSkuId, sku, onClose, onDone, showToast }: { invSkuId: number; sku: string; onClose: () => void; onDone: () => void; showToast: (msg: string) => void }) {
   const today = new Date().toISOString().slice(0, 10)
   const [type, setType] = useState<'receive' | 'return' | 'damage' | 'adjust'>('receive')
   const [sign, setSign] = useState<1 | -1>(1)
@@ -656,7 +649,7 @@ function AdjustModal({ invSkuId, sku, onClose, onDone }: { invSkuId: number; sku
 // ── Edit SKU Modal ────────────────────────────────────────────────────────────
 
 function EditSkuModal({
-  sku, packages, parentSkus, clients, onClose, onDone,
+  sku, packages, parentSkus, clients, onClose, onDone, showToast,
 }: {
   sku: InventoryItem
   packages: PackageDto[]
@@ -664,6 +657,7 @@ function EditSkuModal({
   clients: ClientDto[]
   onClose: () => void
   onDone: () => void
+  showToast: (msg: string) => void
 }) {
   const [weight, setWeight] = useState(String(sku.weightOz || 0))
   const [minStock, setMinStock] = useState(String(sku.minStock || 0))
@@ -944,7 +938,7 @@ interface ReceiveRow {
   qty: string
 }
 
-function ReceiveTab({ clients, onReload }: { clients: ClientDto[]; onReload: () => void }) {
+function ReceiveTab({ clients, onReload, showToast }: { clients: ClientDto[]; onReload: () => void; showToast: (msg: string) => void }) {
   const [clientId, setClientId] = useState('')
   const [rows, setRows] = useState<ReceiveRow[]>([{ id: Date.now(), sku: '', name: '', qty: '' }])
   const [note, setNote] = useState('')
@@ -1047,7 +1041,7 @@ function ReceiveTab({ clients, onReload }: { clients: ClientDto[]; onReload: () 
 
 // ── Clients Tab ───────────────────────────────────────────────────────────────
 
-function ClientsTab({ clients, onReload }: { clients: ClientDto[]; onReload: () => void }) {
+function ClientsTab({ clients, onReload, showToast }: { clients: ClientDto[]; onReload: () => void; showToast: (msg: string) => void }) {
   const [showForm, setShowForm] = useState(false)
   const [editClient, setEditClient] = useState<ClientDto | null>(null)
   const [name, setName] = useState('')
@@ -1174,7 +1168,7 @@ function ClientsTab({ clients, onReload }: { clients: ClientDto[]; onReload: () 
 
 // ── History Tab ───────────────────────────────────────────────────────────────
 
-function HistoryTab({ clients }: { clients: ClientDto[] }) {
+function HistoryTab({ clients, showToast }: { clients: ClientDto[]; showToast: (msg: string) => void }) {
   const range = getDateRangeLast30()
   const [clientId, setClientId] = useState('')
   const [type, setType] = useState('')

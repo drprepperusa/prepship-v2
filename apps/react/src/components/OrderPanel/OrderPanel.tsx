@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useOrderDetail, useShippingAccounts } from '../../hooks'
 import { useRates } from '../../hooks/useRates'
+import { useToast } from '../../hooks/useToast'
 
 interface OrderPanelProps {
   orderId: number | null
@@ -34,27 +35,11 @@ function carrierLabel(code: string) {
   return code.toUpperCase()
 }
 
-let _toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
-  let el = document.getElementById('panel-toast')
-  if (!el) {
-    el = document.createElement('div')
-    el.id = 'panel-toast'
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;max-width:420px;box-shadow:0 4px 20px rgba(0,0,0,.3);transition:opacity .3s;pointer-events:none'
-    document.body.appendChild(el)
-  }
-  el.textContent = msg
-  el.style.background = type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#1e293b'
-  el.style.color = '#fff'
-  el.style.opacity = '1'
-  if (_toastTimer) clearTimeout(_toastTimer)
-  _toastTimer = setTimeout(() => { if (el) el.style.opacity = '0' }, 4000)
-}
-
 export default function OrderPanel({ orderId, onClose, onRefresh, onSendToQueue }: OrderPanelProps) {
   const { order, loading: orderLoading, error: orderError } = useOrderDetail(orderId)
   const { accounts, loading: accountsLoading } = useShippingAccounts()
   const { fetchRates, loading: ratesLoading } = useRates()
+  const { showToast } = useToast()
 
   // Dims / weight inputs
   const [weightLbs, setWeightLbs] = useState('')
@@ -954,7 +939,9 @@ function RateBrowserInline({ order, weight, dims, insurance, residential, onSele
       if (e.key === 'Enter' && sorted[highlighted]) onSelect(sorted[highlighted])
     }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    return () => {
+      window.removeEventListener('keydown', handler)
+    }
   }, [sorted, highlighted, onClose, onSelect])
 
   const thStyle: React.CSSProperties = {
