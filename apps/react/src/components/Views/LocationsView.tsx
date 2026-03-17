@@ -1,48 +1,62 @@
 import { useState } from 'react'
-
-interface Location {
-  id: number
-  name: string
-  company: string
-  address: string
-  city: string
-  state: string
-  zip: string
-  isDefault: boolean
-}
+import { useLocations } from '../../hooks'
+import type { LocationDto, SaveLocationInput } from '@prepshipv2/contracts/locations/contracts'
 
 export default function LocationsView() {
-  const [locations, setLocations] = useState<Location[]>([])
-  const [loading, setLoading] = useState(false)
+  const { locations, loading, error, addLocation, deleteLocation } = useLocations()
   const [showForm, setShowForm] = useState(false)
-  const [formData, setFormData] = useState({
-    id: 0,
+  const [formData, setFormData] = useState<SaveLocationInput>({
     name: '',
     company: '',
-    address: '',
+    street1: '',
     city: '',
     state: '',
-    zip: '',
+    postalCode: '',
     isDefault: false,
   })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<Error | null>(null)
 
   const handleAddLocation = () => {
     setFormData({
-      id: 0,
       name: '',
       company: '',
-      address: '',
+      street1: '',
       city: '',
       state: '',
-      zip: '',
+      postalCode: '',
       isDefault: false,
     })
+    setSaveError(null)
     setShowForm(true)
   }
 
   const handleSaveLocation = async () => {
-    // TODO: implement save
-    setShowForm(false)
+    if (!formData.name || !formData.street1 || !formData.city || !formData.state || !formData.postalCode) {
+      setSaveError(new Error('Please fill in all fields'))
+      return
+    }
+
+    setSaving(true)
+    setSaveError(null)
+
+    try {
+      await addLocation(formData)
+      setShowForm(false)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err : new Error('Failed to save location'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteLocation = async (locationId: number) => {
+    if (!confirm('Delete this location?')) return
+    try {
+      await deleteLocation(locationId)
+    } catch (err) {
+      console.error('Failed to delete location:', err)
+    }
   }
 
   return (
@@ -61,6 +75,12 @@ export default function LocationsView() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '18px' }}>
+        {error && (
+          <div style={{ padding: '12px', backgroundColor: 'rgba(255,0,0,0.1)', border: '1px solid rgba(255,0,0,0.3)', borderRadius: '4px', marginBottom: '16px', color: 'var(--text2)', fontSize: '12px' }}>
+            ⚠️ {error.message}
+          </div>
+        )}
+
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <div className="spinner"></div>
@@ -81,7 +101,7 @@ export default function LocationsView() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
             {locations.map(loc => (
-              <div key={loc.id} style={{
+              <div key={loc.locationId} style={{
                 padding: '14px',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
@@ -94,30 +114,27 @@ export default function LocationsView() {
                   )}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text2)', lineHeight: '1.6' }}>
-                  <div>{loc.company}</div>
-                  <div>{loc.address}</div>
-                  <div>{loc.city}, {loc.state} {loc.zip}</div>
+                  {loc.company && <div>{loc.company}</div>}
+                  <div>{loc.street1}</div>
+                  {loc.street2 && <div>{loc.street2}</div>}
+                  <div>{loc.city}, {loc.state} {loc.postalCode}</div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                  <button style={{
-                    flex: 1,
-                    padding: '5px',
-                    fontSize: '11px',
-                    border: '1px solid var(--border2)',
-                    borderRadius: '4px',
-                    backgroundColor: 'var(--surface)',
-                    cursor: 'pointer',
-                  }}>Edit</button>
-                  <button style={{
-                    flex: 1,
-                    padding: '5px',
-                    fontSize: '11px',
-                    border: '1px solid var(--border2)',
-                    borderRadius: '4px',
-                    backgroundColor: 'var(--surface)',
-                    cursor: 'pointer',
-                    color: 'var(--red)',
-                  }}>Delete</button>
+                  <button
+                    onClick={() => handleDeleteLocation(loc.locationId)}
+                    style={{
+                      flex: 1,
+                      padding: '5px',
+                      fontSize: '11px',
+                      border: '1px solid var(--border2)',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--surface)',
+                      cursor: 'pointer',
+                      color: '#e74c3c',
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
@@ -146,13 +163,55 @@ export default function LocationsView() {
           }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--text)' }}>Add Location</h3>
             
+            {saveError && (
+              <div style={{ padding: '10px', backgroundColor: 'rgba(255,0,0,0.1)', border: '1px solid rgba(255,0,0,0.3)', borderRadius: '4px', marginBottom: '16px', color: '#e74c3c', fontSize: '12px' }}>
+                {saveError.message}
+              </div>
+            )}
+            
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-              <input type="text" placeholder="Location Name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
-              <input type="text" placeholder="Company" value={formData.company} onChange={(e) => setFormData({...formData, company: e.target.value})} style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
-              <input type="text" placeholder="Street Address" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
-              <input type="text" placeholder="City" value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})} style={{ padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
-              <input type="text" placeholder="State" value={formData.state} onChange={(e) => setFormData({...formData, state: e.target.value})} style={{ padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
-              <input type="text" placeholder="ZIP" value={formData.zip} onChange={(e) => setFormData({...formData, zip: e.target.value})} style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px' }} />
+              <input 
+                type="text" 
+                placeholder="Location Name *" 
+                value={formData.name} 
+                onChange={(e) => setFormData({...formData, name: e.target.value})} 
+                style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
+              <input 
+                type="text" 
+                placeholder="Company" 
+                value={formData.company} 
+                onChange={(e) => setFormData({...formData, company: e.target.value})} 
+                style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
+              <input 
+                type="text" 
+                placeholder="Street Address *" 
+                value={formData.street1} 
+                onChange={(e) => setFormData({...formData, street1: e.target.value})} 
+                style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
+              <input 
+                type="text" 
+                placeholder="City *" 
+                value={formData.city} 
+                onChange={(e) => setFormData({...formData, city: e.target.value})} 
+                style={{ padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
+              <input 
+                type="text" 
+                placeholder="State *" 
+                value={formData.state} 
+                onChange={(e) => setFormData({...formData, state: e.target.value})} 
+                style={{ padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
+              <input 
+                type="text" 
+                placeholder="ZIP *" 
+                value={formData.postalCode} 
+                onChange={(e) => setFormData({...formData, postalCode: e.target.value})} 
+                style={{ gridColumn: '1 / -1', padding: '8px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)' }} 
+              />
             </div>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '16px', fontSize: '12px', color: 'var(--text2)' }}>
@@ -167,15 +226,17 @@ export default function LocationsView() {
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button 
                 onClick={() => setShowForm(false)}
+                disabled={saving}
                 style={{ padding: '8px 16px', backgroundColor: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '4px', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button 
                 onClick={handleSaveLocation}
-                style={{ padding: '8px 16px', backgroundColor: 'var(--ss-blue)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                disabled={saving}
+                style={{ padding: '8px 16px', backgroundColor: 'var(--ss-blue)', color: '#fff', border: 'none', borderRadius: '4px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: '600', opacity: saving ? 0.6 : 1 }}
               >
-                💾 Save Location
+                {saving ? '⏳ Saving…' : '💾 Save Location'}
               </button>
             </div>
           </div>

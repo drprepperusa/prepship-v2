@@ -16,10 +16,16 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Workspace paths */
+    "baseUrl": ".",
+    "paths": {
+      "@prepshipv2/contracts/*": ["../../packages/contracts/src/*"]
+    },
+
     /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true

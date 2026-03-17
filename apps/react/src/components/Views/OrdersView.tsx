@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
+import { useOrders } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
+import type { OrderSummaryDto } from '@prepshipv2/contracts/orders/contracts'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 
@@ -23,43 +25,71 @@ interface OrdersViewProps {
   onOpenPanel: (orderId: number) => void
 }
 
+// Convert OrderSummaryDto to table Order format
+function convertToTableOrder(dto: OrderSummaryDto): Order {
+  return {
+    orderId: dto.orderId,
+    orderNumber: dto.orderNumber || '',
+    orderDate: dto.orderDate || new Date().toISOString(),
+    shipTo: dto.shipTo || { name: '', city: '', state: '' },
+    items: Array.isArray(dto.items) ? (dto.items as any[]).map(i => ({
+      sku: i.sku || '',
+      name: i.name || '',
+      quantity: i.quantity || 1,
+    })) : [],
+    weight: dto.weight || undefined,
+    carrierCode: dto.carrierCode || undefined,
+    serviceCode: dto.serviceCode || undefined,
+    trackingNumber: dto.label?.trackingNumber || undefined,
+    orderTotal: dto.orderTotal || undefined,
+  }
+}
+
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel }: OrdersViewProps) {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [filteredOrders, setFilteredOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
   const [searchText, setSearchText] = useState('')
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
-  useEffect(() => {
-    fetchOrders()
-  }, [status])
+  // Use the hook to fetch orders from the API
+  const { orders, loading, error, refetch } = useOrders(status, {
+    pageSize: 100, // Load more orders at once for better filtering
+  })
 
-  useEffect(() => {
+  // Filter and sort orders locally
+  const filteredOrders = useMemo(() => {
     let filtered = orders
     if (searchText.trim()) {
       const query = searchText.toLowerCase()
       filtered = orders.filter(o =>
-        o.orderNumber.toLowerCase().includes(query) ||
+        o.orderNumber?.toLowerCase().includes(query) ||
         o.shipTo?.name?.toLowerCase().includes(query) ||
-        o.items.some(i => i.sku?.toLowerCase().includes(query) || i.name?.toLowerCase().includes(query))
+        o.clientName?.toLowerCase().includes(query)
       )
     }
-    setFilteredOrders(filtered)
-  }, [orders, searchText])
 
-  const fetchOrders = async () => {
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/orders?status=${status}`)
-      const data = await response.json()
-      setOrders(data.orders || [])
-    } catch (error) {
-      console.error('Failed to fetch orders:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+    // Sort
+    const sorted = [...filtered].sort((a, b) => {
+      let aVal: any = a[sortKey as keyof typeof a]
+      let bVal: any = b[sortKey as keyof typeof b]
+
+      if (sortKey === 'date') {
+        aVal = new Date(a.orderDate || 0).getTime()
+        bVal = new Date(b.orderDate || 0).getTime()
+      } else if (sortKey === 'weight') {
+        aVal = a.weight?.value || 0
+        bVal = b.weight?.value || 0
+      }
+
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return sorted
+  }, [orders, searchText, sortKey, sortDir])
+
+  // Convert for table display
+  const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -97,13 +127,29 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     )
   }
 
+  if (error) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)' }}>
+        <div style={{ fontSize: '13px', marginBottom: '8px' }}>⚠️ Failed to load orders</div>
+        <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '12px' }}>{error.message}</div>
+        <button 
+          onClick={() => refetch()} 
+          className="btn btn-sm"
+          style={{ backgroundColor: 'var(--ss-blue)', color: '#fff' }}
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <div className="filterbar">
         <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
           <input
             type="text"
-            placeholder="Search orders, SKUs, names…"
+            placeholder="Search orders, client, names…"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{ paddingRight: '26px', width: '100%' }}
@@ -127,14 +173,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           )}
         </div>
         <select className="filter-sel" style={{ marginLeft: '8px' }}>
-          <option value="">All SKUs</option>
-        </select>
-        <select className="filter-sel">
-          <option value="">All Dates</option>
-          <option value="this-month">This Month</option>
-          <option value="last-month">Last Month</option>
-          <option value="last-30" selected>Last 30 Days</option>
-          <option value="last-90">Last 90 Days</option>
+          <option value="">All Stores</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)} style={{ marginLeft: 'auto' }}>
           Select All
