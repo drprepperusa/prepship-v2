@@ -429,7 +429,7 @@ export default function OrderPanel({ orderId, onClose, onRefresh, onSendToQueue 
   }
 
   return (
-    <div className="order-panel">
+    <div className={`order-panel${orderId ? ' open' : ''}`}>
       <div className="panel-inner">
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid var(--border)', marginBottom: '10px' }}>
