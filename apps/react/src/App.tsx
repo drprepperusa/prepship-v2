@@ -27,10 +27,15 @@ function App() {
   const handleShowView = (view: ViewType) => {
     setCurrentView(view)
     setMobileMenuOpen(false)
+    // Clear panel selection when switching away from orders
+    if (view !== 'orders') {
+      setPanelOrderId(null)
+    }
   }
 
   const handleSelectStatus = (status: OrderStatus) => {
     setCurrentStatus(status)
+    setCurrentView('orders') // Always switch to orders view
   }
 
   const handleOpenPanel = (orderId: number) => {
