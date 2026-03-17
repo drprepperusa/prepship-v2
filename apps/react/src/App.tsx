@@ -16,6 +16,7 @@ import PrintQueuePanel from './components/PrintQueue/PrintQueuePanel'
 import { QueueProvider, useQueue } from './components/PrintQueue/QueueContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { MarkupsProvider } from './contexts/MarkupsContext'
+import { StoresProvider } from './contexts/StoresContext'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
@@ -160,11 +161,13 @@ function AppInner() {
 function App() {
   return (
     <ToastProvider>
-      <MarkupsProvider>
-        <QueueProvider>
-          <AppInner />
-        </QueueProvider>
-      </MarkupsProvider>
+      <StoresProvider>
+        <MarkupsProvider>
+          <QueueProvider>
+            <AppInner />
+          </QueueProvider>
+        </MarkupsProvider>
+      </StoresProvider>
     </ToastProvider>
   )
 }

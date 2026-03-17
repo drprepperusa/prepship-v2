@@ -9,6 +9,7 @@
 import { useReducer, useCallback, useEffect, useRef } from 'react'
 import { useToast } from '../../hooks/useToast'
 import { useMarkups } from '../../contexts/MarkupsContext'
+import { useStores } from '../../contexts/StoresContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
   const [state, dispatch] = useReducer(batchReducer, initialBatchState)
   const { showToast } = useToast()
   const { markups, applyMarkup } = useMarkups()
+  const { selectedStoreId } = useStores()
   const abortRef = useRef<AbortController | null>(null)
 
   // Don't render if < 2 orders
@@ -371,6 +373,8 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
             primary_sku: primaryItem?.sku || null,
             item_description: primaryItem?.name || null,
             order_qty: o.items?.filter(i => !i.adjustment).reduce((s, i) => s + i.quantity, 0) || 1,
+            store_id: selectedStoreId || null,
+            client_id: selectedStoreId ?? 1,
           }),
           signal,
         })

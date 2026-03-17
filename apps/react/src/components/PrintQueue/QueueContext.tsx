@@ -8,6 +8,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
+import { useStores } from '../../contexts/StoresContext'
 
 export interface QueueItem {
   queueId: string
@@ -88,11 +89,13 @@ export function QueueProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastCountRef = useRef<number>(-1)
+  const { selectedStoreId } = useStores()
 
-  // Hydrate from DB on mount — client_id=1 is the default; future versions can pass clientId prop
-  const refreshQueue = useCallback(async (clientId = 1) => {
+  // Hydrate from DB on mount — uses selectedStoreId from context
+  const refreshQueue = useCallback(async (clientId?: number) => {
+    const cid = clientId ?? selectedStoreId ?? 1
     try {
-      const res = await fetch(`/api/queue?client_id=${clientId}`)
+      const res = await fetch(`/api/queue?client_id=${cid}`)
       if (!res.ok) return
       const data = await res.json()
       const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || data.orders || [])
@@ -101,7 +104,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
     } catch {
       // Fall back to localStorage (already loaded in initial state)
     }
-  }, [])
+  }, [selectedStoreId])
 
   // Mount: load from DB
   useEffect(() => {
@@ -119,8 +122,9 @@ export function QueueProvider({ children }: { children: ReactNode }) {
     }
 
     const poll = async () => {
+      const cid = selectedStoreId ?? 1
       try {
-        const res = await fetch('/api/queue?client_id=1')
+        const res = await fetch(`/api/queue?client_id=${cid}`)
         if (!res.ok) return
         const data = await res.json()
         const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || data.orders || [])
@@ -140,7 +144,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
         pollTimerRef.current = null
       }
     }
-  }, [isOpen])
+  }, [isOpen, selectedStoreId])
 
   const addToQueue = useCallback(async (item: Omit<QueueItem, 'queueId' | 'status' | 'addedAt'>) => {
     const newItem: QueueItem = {
@@ -160,6 +164,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
 
     // Persist to DB
     try {
+      const cid = selectedStoreId ?? 1
       await fetch('/api/queue/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,10 +177,11 @@ export function QueueProvider({ children }: { children: ReactNode }) {
           order_qty: item.quantity || 1,
           store_id: item.storeId || null,
           notes: item.notes || null,
+          client_id: cid,
         }),
       })
       // Refresh to get server-assigned ID
-      await refreshQueue()
+      await refreshQueue(cid)
     } catch {
       // localStorage already updated, continue
     }
