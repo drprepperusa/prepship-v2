@@ -563,6 +563,15 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/api/sync-status") {
+      try {
+        return jsonResponse(200, dependencies.shipmentsHandler.handleLegacySyncStatus());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(500, { error: message });
+      }
+    }
+
     if (request.method === "POST" && url.pathname === "/api/sync/trigger") {
       try {
         const body = request.headers.get("content-type")?.includes("application/json") ? await readJson() as { full?: boolean } : {};
