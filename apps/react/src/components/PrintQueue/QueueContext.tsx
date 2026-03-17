@@ -89,13 +89,13 @@ export function QueueProvider({ children }: { children: ReactNode }) {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastCountRef = useRef<number>(-1)
 
-  // Hydrate from DB on mount
-  const refreshQueue = useCallback(async () => {
+  // Hydrate from DB on mount — client_id=1 is the default; future versions can pass clientId prop
+  const refreshQueue = useCallback(async (clientId = 1) => {
     try {
-      const res = await fetch('/api/queue')
+      const res = await fetch(`/api/queue?client_id=${clientId}`)
       if (!res.ok) return
       const data = await res.json()
-      const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || [])
+      const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || data.orders || [])
       setQueue(serverItems)
       saveToLocalStorage(serverItems)
     } catch {
@@ -120,10 +120,10 @@ export function QueueProvider({ children }: { children: ReactNode }) {
 
     const poll = async () => {
       try {
-        const res = await fetch('/api/queue')
+        const res = await fetch('/api/queue?client_id=1')
         if (!res.ok) return
         const data = await res.json()
-        const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || [])
+        const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || data.orders || [])
         const pendingCount = serverItems.filter(i => i.status === 'pending').length
         if (pendingCount !== lastCountRef.current) {
           lastCountRef.current = pendingCount
