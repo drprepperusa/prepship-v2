@@ -10,12 +10,13 @@ interface SidebarProps {
   onSelectStatus: (status: OrderStatus) => void
   onShowView: (view: ViewType) => void
   mobileMenuOpen: boolean
+  onCloseMobileMenu?: () => void
   onSearch?: (query: string) => void
   onSelectStore?: (clientId: number) => void
   activeStore?: number | null
 }
 
-export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onSearch, onSelectStore, activeStore }: SidebarProps) {
+export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onCloseMobileMenu, onSearch, onSelectStore, activeStore }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<Set<OrderStatus>>(new Set(['awaiting_shipment']))
   const [statusCounts, setStatusCounts] = useState<Record<OrderStatus, number>>({
     awaiting_shipment: 0,
@@ -90,11 +91,13 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
       {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div
+          onClick={onCloseMobileMenu}
           style={{
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,.4)',
             zIndex: 999,
+            cursor: 'pointer',
           }}
         />
       )}

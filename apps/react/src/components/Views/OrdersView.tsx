@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { CarrierAccountDto, InitStoreDto } from '@prepshipv2/contracts/init/contracts'
-import { useOrdersWithDetails } from '../../hooks'
+import { useOrdersWithDetails, useStores } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
 import { ALL_COLUMNS } from '../Tables/columnDefs'
 import type { TableCarrierAccount, TableOrder } from '../Tables/orders-table-parity'
@@ -26,7 +26,7 @@ interface OrdersViewProps {
   onOpenPanel: (orderId: number) => void
   onOrdersLoaded?: (orders: any[]) => void
   searchQuery?: string
-  selectedStoreId?: number | null
+  selectedClientId?: number | null
 }
 
 function convertToTableOrder(dto: any): TableOrder {
@@ -80,7 +80,7 @@ function getDefaultColWidths(): Record<string, number> {
   return widths
 }
 
-export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedStoreId }: OrdersViewProps) {
+export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedClientId }: OrdersViewProps) {
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('last-30')
@@ -104,6 +104,8 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const [carrierAccounts, setCarrierAccounts] = useState<TableCarrierAccount[]>([])
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   const colMenuRef = useRef<HTMLDivElement>(null)
+
+  const { stores } = useStores()
 
   useEffect(() => {
     setSearchText(searchQuery || '')
@@ -268,8 +270,14 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
 
     filtered = filtered.filter((order) => orderMatchesSearch(order, searchText))
     filtered = filtered.filter((order) => orderMatchesSku(order, skuFilter))
-    if (selectedStoreId !== null && selectedStoreId !== undefined) {
-      filtered = filtered.filter((order) => order.storeId === selectedStoreId)
+    
+    // Filter by selected client's storeIds
+    if (selectedClientId !== null && selectedClientId !== undefined) {
+      const selectedClient = stores.find((s) => s.clientId === selectedClientId)
+      if (selectedClient && Array.isArray(selectedClient.storeIds)) {
+        const selectedStoreIds = new Set(selectedClient.storeIds)
+        filtered = filtered.filter((order) => order.storeId !== null && selectedStoreIds.has(order.storeId))
+      }
     }
 
     return [...filtered].sort((a, b) => {
@@ -280,7 +288,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts, selectedStoreId])
+  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts, selectedClientId, stores])
 
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
 
