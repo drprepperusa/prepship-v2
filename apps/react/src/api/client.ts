@@ -21,15 +21,10 @@ import type { ClientDto, CreateClientInput, UpdateClientInput } from "@prepshipv
 import type { InitDataDto } from "@prepshipv2/contracts/init/contracts";
 import type { CarrierAccountDto } from "@prepshipv2/contracts/init/contracts";
 
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly details?: unknown
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
+export interface ApiError {
+  status: number;
+  message: string;
+  details?: unknown;
 }
 
 export class ApiClient {
@@ -80,21 +75,25 @@ export class ApiClient {
           // Response wasn't JSON
         }
 
-        const error = new ApiError(response.status, `API request failed: ${response.statusText}`, details);
+        const error: ApiError = {
+          status: response.status,
+          message: `API request failed: ${response.statusText}`,
+          details,
+        };
         console.error(`[API ${method} ${endpoint}]`, error);
-        throw error;
+        throw new Error(error.message);
       }
 
       const data = await response.json();
       return data as T;
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof Error) {
         throw err;
       }
 
-      const error = new ApiError(0, `Network error: ${err instanceof Error ? err.message : "Unknown error"}`);
-      console.error(`[API ${method} ${endpoint}]`, error);
-      throw error;
+      const message = `Network error: ${typeof err === 'string' ? err : 'Unknown error'}`;
+      console.error(`[API ${method} ${endpoint}]`, message);
+      throw new Error(message);
     }
   }
 

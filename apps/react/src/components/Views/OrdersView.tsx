@@ -187,7 +187,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           <div className="orders-wrap">
             <OrdersTable
               status={status}
-              orders={filteredOrders}
+              orders={tableOrders}
               selectedOrders={selectedOrders}
               onSelectOrder={handleSelectOrder}
               onSelectAll={handleSelectAll}
