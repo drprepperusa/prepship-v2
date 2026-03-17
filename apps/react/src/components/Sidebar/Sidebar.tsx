@@ -29,7 +29,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
 
   const { storeCounts } = useStoreOrders(currentStatus)
   const { stores } = useStores()
-  const { useStoreVisibility, toggleStoreVisibility } = useStoreVisibilityContext()
+  const { useStoreVisibility } = useStoreVisibilityContext()
 
   useEffect(() => {
     fetchStatusCounts()
@@ -189,32 +189,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                       >
                         <span className="ss-store-name">{store.name}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className="ss-store-count">{count}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleStoreVisibility(store.clientId)
-                            }}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              padding: '2px',
-                              fontSize: '14px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              opacity: 0.7,
-                              transition: 'opacity 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
-                            title={`${useStoreVisibility(store.clientId) ? 'Hide' : 'Show'} ${store.name}`}
-                          >
-                            👁️
-                          </button>
-                        </div>
+                        <span className="ss-store-count">{count}</span>
                       </div>
                     ))}
                 </div>
