@@ -110,16 +110,19 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
             </div>
             {expandedSections.has(status) && (
               <div className="ss-stores">
-                {stores.map((store) => {
-                  // Sum counts across all storeIds for this client
-                  const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (storeCounts[sid] || 0), 0)
-                  return (
+                {stores
+                  .map((store) => {
+                    // Sum counts across all storeIds for this client
+                    const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (storeCounts[sid] || 0), 0)
+                    return { store, count }
+                  })
+                  .filter(({ count }) => count > 0) // Hide stores with 0 count (gap #4)
+                  .map(({ store, count }) => (
                     <div key={store.clientId} className="ss-store">
                       <span className="ss-store-name">{store.name}</span>
-                      <span className="ss-store-count">{count || 0}</span>
+                      <span className="ss-store-count">{count}</span>
                     </div>
-                  )
-                })}
+                  ))}
               </div>
             )}
           </div>

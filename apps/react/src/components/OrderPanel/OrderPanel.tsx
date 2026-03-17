@@ -69,7 +69,7 @@ export default function OrderPanel({ orderId, onClose }: OrderPanelProps) {
   if (!order) {
     return (
       <div className="order-panel">
-        <div className="panel-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)' }}>
+        <div className="panel-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)', flexDirection: 'column', gap: '12px' }}>
           {orderLoading ? (
             <>
               <div className="spinner"></div>
@@ -82,7 +82,16 @@ export default function OrderPanel({ orderId, onClose }: OrderPanelProps) {
               </div>
             </>
           ) : (
-            <div style={{ fontSize: '13px', textAlign: 'center' }}>Select an order to view details</div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
+              <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text2)', marginBottom: '4px' }}>No order selected</div>
+              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '16px' }}>Click any row to view details</div>
+              <div style={{ fontSize: '11px', color: 'var(--text4)', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>↑↓</kbd> Navigate rows</div>
+                <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>Enter</kbd> Select / deselect</div>
+                <div><kbd style={{ background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', padding: '1px 5px', fontSize: '10px' }}>Esc</kbd> Deselect &amp; close</div>
+              </div>
+            </div>
           )}
         </div>
       </div>

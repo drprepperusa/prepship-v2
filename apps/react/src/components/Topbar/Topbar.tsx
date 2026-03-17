@@ -33,7 +33,11 @@ export default function Topbar({
   onShowBatchPanel,
   onToggleMobileMenu 
 }: TopbarProps) {
-  const [syncText, setSyncText] = useState('Synced')
+  const [syncText, setSyncText] = useState(() => {
+    const now = new Date()
+    return `Synced ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+  })
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'error'>('idle')
   const [zoom, setZoom] = useState(100)
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
   const [colMenuOpen, setColMenuOpen] = useState(false)
@@ -45,14 +49,18 @@ export default function Topbar({
 
   const handleSync = async (full: boolean) => {
     setSyncText('Syncing…')
+    setSyncState('syncing')
     try {
       const response = await fetch(`/api/orders/sync?full=${full}`)
       if (response.ok) {
-        setSyncText('Synced')
+        const now = new Date()
+        setSyncText(`Synced ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`)
+        setSyncState('idle')
       }
     } catch (error) {
       console.error('Sync failed:', error)
-      setSyncText('Error')
+      setSyncText('Sync error')
+      setSyncState('error')
     }
   }
 
@@ -90,7 +98,7 @@ export default function Topbar({
       )}
 
       <div className="topbar-right">
-        <div className="sync-pill">
+        <div className={`sync-pill ${syncState === 'syncing' ? 'syncing' : syncState === 'error' ? 'error' : 'done'}`}>
           <span className="sync-dot"></span>
           <span>{syncText}</span>
         </div>

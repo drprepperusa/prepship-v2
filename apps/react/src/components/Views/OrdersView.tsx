@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useOrdersWithDetails } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
 import OrderPanel from '../OrderPanel/OrderPanel'
 import StatsBar from '../StatsBar/StatsBar'
-import type { OrderSummaryDto } from '@prepshipv2/contracts/orders/contracts'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 
@@ -11,6 +10,7 @@ interface Order {
   orderId: number
   orderNumber: string
   orderDate: string
+  clientName?: string
   shipTo: { name: string; city: string; state: string }
   items: Array<{ sku: string; name: string; quantity: number }>
   weight?: { value: number }
@@ -36,8 +36,9 @@ function convertToTableOrder(dto: any): Order {
     orderId: dto.orderId,
     orderNumber: dto.orderNumber || '',
     orderDate: dto.orderDate || new Date().toISOString(),
+    clientName: dto.clientName || undefined,
     shipTo: dto.shipTo || { name: '', city: '', state: '' },
-    items: Array.isArray(dto.items) ? (dto.items as any[]).map(i => ({
+    items: Array.isArray(dto.items) ? (dto.items as any[]).map((i: any) => ({
       sku: i.sku || '',
       name: i.name || '',
       quantity: i.quantity || 1,
@@ -53,36 +54,107 @@ function convertToTableOrder(dto: any): Order {
   }
 }
 
+// Compute shift window: noon PT shift. Shift day starts at 6PM and ends at 6PM next day.
+function getShiftWindow() {
+  const now = new Date()
+  // PT offset: -8 (PST) or -7 (PDT) — use America/Los_Angeles
+  const ptStr = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+  const ptNow = new Date(ptStr)
+  
+  // Shift boundary is noon PT each day (orders from noon yesterday to noon today)
+  const shiftStart = new Date(ptNow)
+  shiftStart.setHours(12, 0, 0, 0)
+  
+  // If current time is before noon, shift started yesterday noon
+  if (ptNow.getHours() < 12) {
+    shiftStart.setDate(shiftStart.getDate() - 1)
+  }
+  
+  const shiftEnd = new Date(shiftStart)
+  shiftEnd.setDate(shiftEnd.getDate() + 1)
+  
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { 
+    month: 'short', day: 'numeric', 
+    hour: 'numeric', minute: '2-digit',
+    timeZone: 'America/Los_Angeles'
+  })
+  
+  return `${fmt(shiftStart)} → ${fmt(shiftEnd)} PT`
+}
+
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel }: OrdersViewProps) {
   const [searchText, setSearchText] = useState('')
+  const [skuFilter, setSkuFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('last30')
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [rowsPerPage, setRowsPerPage] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
   const [panelOrderId, setPanelOrderId] = useState<number | null>(null)
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1)
+  const tableRef = useRef<HTMLDivElement>(null)
 
   // Use the hook to fetch orders from the API
-  const { orders, loading, error, refetch, total, pages, currentPage: apiPage, goToPage } = useOrdersWithDetails(status, {
+  const { orders, loading, error, refetch, total, pages, goToPage } = useOrdersWithDetails(status, {
     pageSize: rowsPerPage,
     page: currentPage,
   })
 
+  // Build SKU list from loaded orders
+  const skuList = useMemo(() => {
+    const set = new Set<string>()
+    orders.forEach(o => {
+      if (Array.isArray(o.items)) {
+        (o.items as any[]).forEach((i: any) => { if (i.sku) set.add(i.sku) })
+      }
+    })
+    return Array.from(set).sort()
+  }, [orders])
+
+  // Date filter cutoff
+  const dateCutoff = useMemo(() => {
+    const now = Date.now()
+    if (dateFilter === 'last30') return now - 30 * 24 * 60 * 60 * 1000
+    if (dateFilter === 'last90') return now - 90 * 24 * 60 * 60 * 1000
+    if (dateFilter === 'thisMonth') {
+      const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.getTime()
+    }
+    if (dateFilter === 'lastMonth') {
+      const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); d.setMonth(d.getMonth()-1); return d.getTime()
+    }
+    return 0 // 'all'
+  }, [dateFilter])
+
   // Filter and sort orders locally
   const filteredOrders = useMemo(() => {
-    let filtered = orders
+    let filtered = orders as any[]
+    
     if (searchText.trim()) {
       const query = searchText.toLowerCase()
-      filtered = orders.filter(o =>
+      filtered = filtered.filter((o: any) =>
         o.orderNumber?.toLowerCase().includes(query) ||
         o.shipTo?.name?.toLowerCase().includes(query) ||
         o.clientName?.toLowerCase().includes(query)
       )
     }
 
+    if (skuFilter !== 'all') {
+      filtered = filtered.filter((o: any) =>
+        Array.isArray(o.items) && (o.items as any[]).some((i: any) => i.sku === skuFilter)
+      )
+    }
+
+    if (dateCutoff > 0) {
+      filtered = filtered.filter((o: any) => {
+        const t = new Date(o.orderDate || 0).getTime()
+        return t >= dateCutoff
+      })
+    }
+
     // Sort
-    const sorted = [...filtered].sort((a, b) => {
-      let aVal: any = a[sortKey as keyof typeof a]
-      let bVal: any = b[sortKey as keyof typeof b]
+    const sorted = [...filtered].sort((a: any, b: any) => {
+      let aVal: any = a[sortKey]
+      let bVal: any = b[sortKey]
 
       if (sortKey === 'date') {
         aVal = new Date(a.orderDate || 0).getTime()
@@ -98,7 +170,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     })
 
     return sorted
-  }, [orders, searchText, sortKey, sortDir])
+  }, [orders, searchText, skuFilter, dateCutoff, sortKey, sortDir])
 
   // Convert for table display
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
@@ -124,11 +196,79 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
 
   const handleSelectAll = (selected: boolean) => {
     if (selected) {
-      setSelectedOrders(new Set(filteredOrders.map(o => o.orderId)))
+      setSelectedOrders(new Set(filteredOrders.map((o: any) => o.orderId)))
     } else {
       setSelectedOrders(new Set())
     }
   }
+
+  const handleRowsPerPageChange = (newSize: number) => {
+    setRowsPerPage(newSize)
+    setCurrentPage(1)
+  }
+
+  const handlePrevPage = async () => {
+    const newPage = Math.max(1, currentPage - 1)
+    setCurrentPage(newPage)
+    await goToPage(newPage)
+  }
+
+  const handleNextPage = async () => {
+    const newPage = Math.min(pages, currentPage + 1)
+    setCurrentPage(newPage)
+    await goToPage(newPage)
+  }
+
+  const handleOpenPanelLocal = (orderId: number) => {
+    setPanelOrderId(orderId)
+    const idx = tableOrders.findIndex(o => o.orderId === orderId)
+    if (idx >= 0) setFocusedRowIndex(idx)
+    onOpenPanel(orderId)
+  }
+
+  const handleClosePanel = () => {
+    setPanelOrderId(null)
+    setFocusedRowIndex(-1)
+  }
+
+  // ── Keyboard navigation (gap #11) ──────────────────────────────────────
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!tableOrders.length) return
+    
+    // Only handle when table area is focused
+    const active = document.activeElement
+    const tableEl = tableRef.current
+    if (!tableEl) return
+    // Allow when table or panel has focus, or when focused index is set
+    if (!tableEl.contains(active) && panelOrderId === null && focusedRowIndex < 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const next = Math.min(focusedRowIndex + 1, tableOrders.length - 1)
+      setFocusedRowIndex(next)
+      setPanelOrderId(tableOrders[next].orderId)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const prev = Math.max(focusedRowIndex - 1, 0)
+      setFocusedRowIndex(prev)
+      setPanelOrderId(tableOrders[prev].orderId)
+    } else if (e.key === 'Enter' && focusedRowIndex >= 0) {
+      e.preventDefault()
+      const order = tableOrders[focusedRowIndex]
+      if (order) {
+        setPanelOrderId(order.orderId)
+        onOpenPanel(order.orderId)
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleClosePanel()
+    }
+  }, [tableOrders, focusedRowIndex, panelOrderId, onOpenPanel])
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   if (loading) {
     return (
@@ -155,40 +295,21 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     )
   }
 
-  const handleRowsPerPageChange = (newSize: number) => {
-    setRowsPerPage(newSize)
-    setCurrentPage(1)
-  }
-
-  const handlePrevPage = async () => {
-    const newPage = Math.max(1, currentPage - 1)
-    setCurrentPage(newPage)
-    await goToPage(newPage)
-  }
-
-  const handleNextPage = async () => {
-    const newPage = Math.min(pages, currentPage + 1)
-    setCurrentPage(newPage)
-    await goToPage(newPage)
-  }
-
-  const handleOpenPanelLocal = (orderId: number) => {
-    setPanelOrderId(orderId)
-    onOpenPanel(orderId)
-  }
-
-  const handleClosePanel = () => {
-    setPanelOrderId(null)
-  }
+  const shiftWindow = getShiftWindow()
+  const firstRow = (currentPage - 1) * rowsPerPage + 1
+  const lastRow = Math.min(currentPage * rowsPerPage, total)
 
   return (
     <div id="view-orders" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {/* ── Daily Strip / Shift Window Banner (gap #5) ─────────────────── */}
       <StatsBar />
+
+      {/* ── Filter Bar (gap #3) ───────────────────────────────────────── */}
       <div className="filterbar">
         <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
           <input
             type="text"
-            placeholder="Search orders, client, names…"
+            placeholder="Search orders, SKUs, names…"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             style={{ paddingRight: '26px', width: '100%' }}
@@ -211,19 +332,43 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
             </button>
           )}
         </div>
-        <select className="filter-sel" style={{ marginLeft: '8px' }}>
-          <option value="">All Stores</option>
+
+        {/* All SKUs filter (was "All Stores") */}
+        <select
+          className="filter-sel"
+          value={skuFilter}
+          onChange={(e) => setSkuFilter(e.target.value)}
+        >
+          <option value="all">All SKUs</option>
+          {skuList.map(sku => (
+            <option key={sku} value={sku}>{sku}</option>
+          ))}
         </select>
-        <button className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)} style={{ marginLeft: 'auto' }}>
+
+        {/* Date filter — Last 30 Days default */}
+        <select
+          className="filter-sel"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+        >
+          <option value="all">All Dates</option>
+          <option value="thisMonth">This Month</option>
+          <option value="lastMonth">Last Month</option>
+          <option value="last30">Last 30 Days</option>
+          <option value="last90">Last 90 Days</option>
+        </select>
+
+        <button className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)}>
           Select All
         </button>
         <button className="btn btn-ghost btn-sm">📋 SKU Sort</button>
         <button className="btn btn-ghost btn-sm">📥 Export CSV</button>
+        <button className="btn btn-ghost btn-sm">🖨️ Picklist</button>
       </div>
 
       <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div className="orders-section">
-          <div className="orders-wrap">
+          <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
             <OrdersTable
               status={status}
               orders={tableOrders}
@@ -234,13 +379,15 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
+              focusedRowIndex={focusedRowIndex}
+              panelOrderId={panelOrderId}
             />
           </div>
 
-          {/* Pagination Bar */}
+          {/* Pagination Bar with total count (gap #9) */}
           <div className="pagination-bar">
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
-              Page {currentPage} of {pages}
+              {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
             </span>
             <button
               onClick={handlePrevPage}
@@ -250,11 +397,13 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
             >
               ← Prev
             </button>
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
+              Page {currentPage} of {pages}
+            </span>
             <button
               onClick={handleNextPage}
               disabled={currentPage >= pages}
               className="btn btn-sm btn-ghost"
-              style={{ marginLeft: '4px' }}
             >
               Next →
             </button>
@@ -271,17 +420,8 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           </div>
         </div>
 
-        {/* Order Panel - integrated into layout */}
-        {panelOrderId && (
-          <>
-            <div 
-              className="panel-backdrop"
-              onClick={handleClosePanel}
-              style={{ display: 'block', opacity: 1 }}
-            />
-            <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
-          </>
-        )}
+        {/* Right Panel — always visible (gap #2) */}
+        <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
       </div>
     </div>
   )

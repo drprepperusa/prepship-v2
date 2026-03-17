@@ -1,10 +1,32 @@
+/* StatsBar — uses design tokens from App.css */
+.stats-wrap {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* Daily Strip / Shift Window Banner (gap #5) */
+.shift-banner {
+  background: var(--ss-blue-bg);
+  border-bottom: 1px solid var(--ss-blue-border);
+  padding: 5px 14px;
+  font-size: 11.5px;
+  color: var(--ss-blue);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Stats bar — neutral gray (gap #6) */
 .stats-bar {
   display: flex;
   align-items: center;
   gap: 0;
   padding: 6px 14px;
-  background: #fef5f0;
-  border-bottom: 1px solid #fcc5b0;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow-x: auto;
 }
@@ -13,8 +35,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 6px 14px;
-  min-width: 80px;
+  padding: 0 14px;
+  min-width: 70px;
   flex-shrink: 0;
 }
 
@@ -41,7 +63,7 @@
 .stat-sep {
   width: 1px;
   height: 28px;
-  background: #f0e5dd;
+  background: var(--border);
   flex-shrink: 0;
 }
 
@@ -49,10 +71,14 @@
   color: var(--red);
 }
 
+.stat-item.stat-warn .stat-val {
+  color: var(--yellow);
+}
+
 .stat-progress {
   width: 50px;
   height: 4px;
-  background: #e8d5c8;
+  background: var(--surface3);
   border-radius: 2px;
   overflow: hidden;
   margin-bottom: 3px;
@@ -60,7 +86,7 @@
 
 .progress-bar {
   height: 100%;
-  background: #e8650a;
+  background: var(--green);
   border-radius: 2px;
   transition: width 0.3s ease;
 }
