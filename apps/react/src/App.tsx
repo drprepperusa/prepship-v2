@@ -30,6 +30,7 @@ function AppInner() {
   const [showBatchPanel, setShowBatchPanel] = useState(false)
   const [allOrders, setAllOrders] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null)
 
   const { setIsOpen: setQueueOpen } = useQueue()
 
@@ -58,6 +59,10 @@ function AppInner() {
     if (query) setCurrentView('orders')
   }
 
+  const handleSelectStore = (clientId: number) => {
+    setSelectedStoreId(prev => prev === clientId ? null : clientId)
+  }
+
   // Auto-show batch panel when 2+ orders selected
   const handleSetSelectedOrders = (orders: Set<number>) => {
     setSelectedOrders(orders)
@@ -79,6 +84,7 @@ function AppInner() {
             onOpenPanel={() => {}}
             onOrdersLoaded={setAllOrders}
             searchQuery={searchQuery}
+            selectedStoreId={selectedStoreId}
           />
         )
       case 'inventory':
@@ -104,6 +110,7 @@ function AppInner() {
             selectedOrders={selectedOrders}
             setSelectedOrders={handleSetSelectedOrders}
             onOpenPanel={() => {}}
+            selectedStoreId={selectedStoreId}
           />
         )
     }
@@ -119,6 +126,8 @@ function AppInner() {
         onShowView={handleShowView}
         mobileMenuOpen={mobileMenuOpen}
         onSearch={handleSearch}
+        onSelectStore={handleSelectStore}
+        activeStore={selectedStoreId}
       />
 
       <div className="main">

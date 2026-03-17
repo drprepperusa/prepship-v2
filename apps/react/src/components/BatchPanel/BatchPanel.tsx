@@ -364,16 +364,26 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
 
         // Step 2: Add to queue
         const primaryItem = o.items?.find(i => !i.adjustment)
+        const items = o.items?.filter(i => !i.adjustment) || []
+        const uniqueSkus = [...new Set(items.map(i => i.sku))]
+        const orderQty = items.reduce((s, i) => s + (i.quantity || 1), 0)
         const queueRes = await fetch('/api/queue/add', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             order_id: String(o.orderId),
             order_number: o.orderNumber,
             label_url: labelData.labelUrl || '',
+            sku_group_id: uniqueSkus.length === 1 ? `SKU:${uniqueSkus[0]}` : `ORDER:${o.orderId}`,
             primary_sku: primaryItem?.sku || null,
             item_description: primaryItem?.name || null,
-            order_qty: o.items?.filter(i => !i.adjustment).reduce((s, i) => s + i.quantity, 0) || 1,
-            store_id: selectedStoreId || null,
+            order_qty: orderQty,
+            multi_sku_data: uniqueSkus.length > 1
+              ? items.map((item) => ({
+                  sku: item.sku || '',
+                  description: item.name || '',
+                  qty: item.quantity || 1,
+                }))
+              : null,
             client_id: selectedStoreId ?? 1,
           }),
           signal,

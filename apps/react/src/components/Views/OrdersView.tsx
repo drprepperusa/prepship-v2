@@ -26,6 +26,7 @@ interface OrdersViewProps {
   onOpenPanel: (orderId: number) => void
   onOrdersLoaded?: (orders: any[]) => void
   searchQuery?: string
+  selectedStoreId?: number | null
 }
 
 function convertToTableOrder(dto: any): TableOrder {
@@ -79,7 +80,7 @@ function getDefaultColWidths(): Record<string, number> {
   return widths
 }
 
-export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery }: OrdersViewProps) {
+export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedStoreId }: OrdersViewProps) {
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('last-30')
@@ -267,6 +268,9 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
 
     filtered = filtered.filter((order) => orderMatchesSearch(order, searchText))
     filtered = filtered.filter((order) => orderMatchesSku(order, skuFilter))
+    if (selectedStoreId !== null && selectedStoreId !== undefined) {
+      filtered = filtered.filter((order) => order.storeId === selectedStoreId)
+    }
 
     return [...filtered].sort((a, b) => {
       const aVal = getSortValue(a, sortKey, { storeMap, carrierAccounts })
@@ -276,7 +280,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts])
+  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts, selectedStoreId])
 
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
 

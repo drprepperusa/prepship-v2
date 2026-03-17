@@ -24,6 +24,7 @@ export interface QueueItem {
   skuName?: string
   addedAt: number
   printCount?: number
+  skuGroupId?: string
 }
 
 interface QueueContextValue {
@@ -61,6 +62,7 @@ function parseServerItems(raw: unknown[]): QueueItem[] {
     skuName: item.item_description || item.skuName || undefined,
     addedAt: item.created_at ? new Date(item.created_at).getTime() : (item.addedAt || Date.now()),
     printCount: item.print_count || 0,
+    skuGroupId: item.sku_group_id || item.skuGroupId || undefined,
   }))
 }
 
@@ -172,6 +174,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
           order_id: String(item.orderId),
           order_number: item.orderNumber,
           label_url: item.labelUrl || '',
+          sku_group_id: item.skuGroupId || `SKU:${item.sku}` || `ORDER:${item.orderId}`,
           primary_sku: item.sku || null,
           item_description: item.skuName || null,
           order_qty: item.quantity || 1,

@@ -11,9 +11,11 @@ interface SidebarProps {
   onShowView: (view: ViewType) => void
   mobileMenuOpen: boolean
   onSearch?: (query: string) => void
+  onSelectStore?: (clientId: number) => void
+  activeStore?: number | null
 }
 
-export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onSearch }: SidebarProps) {
+export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onSearch, onSelectStore, activeStore }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<Set<OrderStatus>>(new Set(['awaiting_shipment']))
   const [statusCounts, setStatusCounts] = useState<Record<OrderStatus, number>>({
     awaiting_shipment: 0,
@@ -175,7 +177,12 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                     })
                     .filter(({ count }) => count > 0)
                     .map(({ store, count }) => (
-                      <div key={store.clientId} className="ss-store">
+                      <div 
+                        key={store.clientId} 
+                        className={`ss-store ${activeStore === store.clientId ? 'selected' : ''}`}
+                        onClick={() => onSelectStore?.(store.clientId)}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <span className="ss-store-name">{store.name}</span>
                         <span className="ss-store-count">{count}</span>
                       </div>
