@@ -31,9 +31,22 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
 
   const fetchStatusCounts = async () => {
     try {
-      const response = await fetch('/api/orders/summary')
-      const data = await response.json()
-      setStatusCounts(data.summary || statusCounts)
+      // Fetch counts for each status in parallel using the list endpoint
+      const [awaitingRes, shippedRes, cancelledRes] = await Promise.all([
+        fetch('/api/orders?orderStatus=awaiting_shipment&pageSize=1'),
+        fetch('/api/orders?orderStatus=shipped&pageSize=1'),
+        fetch('/api/orders?orderStatus=cancelled&pageSize=1'),
+      ])
+      const [awaitingData, shippedData, cancelledData] = await Promise.all([
+        awaitingRes.json(),
+        shippedRes.json(),
+        cancelledRes.json(),
+      ])
+      setStatusCounts({
+        awaiting_shipment: awaitingData.total || 0,
+        shipped: shippedData.total || 0,
+        cancelled: cancelledData.total || 0,
+      })
     } catch (error) {
       console.error('Failed to fetch status counts:', error)
     }
@@ -98,11 +111,12 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
             {expandedSections.has(status) && (
               <div className="ss-stores">
                 {stores.map((store) => {
-                  const count = storeCounts[store.clientId] || 0
+                  // Sum counts across all storeIds for this client
+                  const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (storeCounts[sid] || 0), 0)
                   return (
                     <div key={store.clientId} className="ss-store">
                       <span className="ss-store-name">{store.name}</span>
-                      <span className="ss-store-count">{count}</span>
+                      <span className="ss-store-count">{count || 0}</span>
                     </div>
                   )
                 })}

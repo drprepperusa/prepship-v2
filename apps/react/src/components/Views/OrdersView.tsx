@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useOrdersWithDetails } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
+import OrderPanel from '../OrderPanel/OrderPanel'
 import StatsBar from '../StatsBar/StatsBar'
 import type { OrderSummaryDto } from '@prepshipv2/contracts/orders/contracts'
 
@@ -58,6 +59,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [rowsPerPage, setRowsPerPage] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
+  const [panelOrderId, setPanelOrderId] = useState<number | null>(null)
 
   // Use the hook to fetch orders from the API
   const { orders, loading, error, refetch, total, pages, currentPage: apiPage, goToPage } = useOrdersWithDetails(status, {
@@ -170,8 +172,17 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     await goToPage(newPage)
   }
 
+  const handleOpenPanelLocal = (orderId: number) => {
+    setPanelOrderId(orderId)
+    onOpenPanel(orderId)
+  }
+
+  const handleClosePanel = () => {
+    setPanelOrderId(null)
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div id="view-orders" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <StatsBar />
       <div className="filterbar">
         <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
@@ -210,7 +221,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
         <button className="btn btn-ghost btn-sm">📥 Export CSV</button>
       </div>
 
-      <div className="content-split" style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div className="orders-section">
           <div className="orders-wrap">
             <OrdersTable
@@ -219,46 +230,58 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
               selectedOrders={selectedOrders}
               onSelectOrder={handleSelectOrder}
               onSelectAll={handleSelectAll}
-              onOpenPanel={onOpenPanel}
+              onOpenPanel={handleOpenPanelLocal}
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
             />
           </div>
-        </div>
-      </div>
 
-      {/* Pagination Bar */}
-      <div className="pagination-bar">
-        <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
-          Page {currentPage} of {pages}
-        </span>
-        <button
-          onClick={handlePrevPage}
-          disabled={currentPage === 1}
-          className="btn btn-sm btn-ghost"
-          style={{ marginLeft: '8px' }}
-        >
-          ← Prev
-        </button>
-        <button
-          onClick={handleNextPage}
-          disabled={currentPage >= pages}
-          className="btn btn-sm btn-ghost"
-          style={{ marginLeft: '4px' }}
-        >
-          Next →
-        </button>
-        <select
-          value={rowsPerPage}
-          onChange={(e) => handleRowsPerPageChange(Number(e.target.value))}
-          className="filter-sel"
-          style={{ marginLeft: 'auto' }}
-        >
-          <option value={25}>25 rows</option>
-          <option value={50}>50 rows</option>
-          <option value={100}>100 rows</option>
-        </select>
+          {/* Pagination Bar */}
+          <div className="pagination-bar">
+            <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
+              Page {currentPage} of {pages}
+            </span>
+            <button
+              onClick={handlePrevPage}
+              disabled={currentPage === 1}
+              className="btn btn-sm btn-ghost"
+              style={{ marginLeft: '8px' }}
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={handleNextPage}
+              disabled={currentPage >= pages}
+              className="btn btn-sm btn-ghost"
+              style={{ marginLeft: '4px' }}
+            >
+              Next →
+            </button>
+            <select
+              value={rowsPerPage}
+              onChange={(e) => handleRowsPerPageChange(Number(e.target.value))}
+              className="filter-sel"
+              style={{ marginLeft: 'auto' }}
+            >
+              <option value={25}>25 rows</option>
+              <option value={50}>50 rows</option>
+              <option value={100}>100 rows</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Order Panel - integrated into layout */}
+        {panelOrderId && (
+          <>
+            <div 
+              className="panel-backdrop"
+              onClick={handleClosePanel}
+              style={{ display: 'block', opacity: 1 }}
+            />
+            <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
+          </>
+        )}
       </div>
     </div>
   )

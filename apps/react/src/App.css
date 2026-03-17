@@ -286,6 +286,7 @@ th.col-drag-over{background:var(--ss-blue-bg)!important;box-shadow:inset 2px 0 0
   display:flex;flex-direction:column;
   position:relative;
   max-height:100%;
+  min-width:var(--panel-w);
 }
 .panel-inner{
   width:var(--panel-w);

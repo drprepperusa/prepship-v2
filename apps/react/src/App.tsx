@@ -10,7 +10,6 @@ import RateShopView from './components/Views/RateShopView'
 import AnalysisView from './components/Views/AnalysisView'
 import SettingsView from './components/Views/SettingsView'
 import BillingView from './components/Views/BillingView'
-import OrderPanel from './components/OrderPanel/OrderPanel'
 import BatchPanel from './components/BatchPanel/BatchPanel'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing'
@@ -21,16 +20,11 @@ function App() {
   const [currentStatus, setCurrentStatus] = useState<OrderStatus>('awaiting_shipment')
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set())
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [panelOrderId, setPanelOrderId] = useState<number | null>(null)
   const [showBatchPanel, setShowBatchPanel] = useState(false)
 
   const handleShowView = (view: ViewType) => {
     setCurrentView(view)
     setMobileMenuOpen(false)
-    // Clear panel selection when switching away from orders
-    if (view !== 'orders') {
-      setPanelOrderId(null)
-    }
   }
 
   const handleSelectStatus = (status: OrderStatus) => {
@@ -38,18 +32,10 @@ function App() {
     setCurrentView('orders') // Always switch to orders view
   }
 
-  const handleOpenPanel = (orderId: number) => {
-    setPanelOrderId(orderId)
-  }
-
-  const handleClosePanel = () => {
-    setPanelOrderId(null)
-  }
-
   const renderView = () => {
     switch (currentView) {
       case 'orders':
-        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={handleOpenPanel} />
+        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={() => {}} />
       case 'inventory':
         return <InventoryView />
       case 'locations':
@@ -65,7 +51,7 @@ function App() {
       case 'billing':
         return <BillingView />
       default:
-        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={handleOpenPanel} />
+        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={() => {}} />
     }
   }
 
@@ -91,14 +77,7 @@ function App() {
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
         />
         
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {renderView()}
-          </div>
-          {currentView === 'orders' && panelOrderId && (
-            <OrderPanel orderId={panelOrderId} onClose={handleClosePanel} />
-          )}
-        </div>
+        {renderView()}
 
         {showBatchPanel && selectedOrders.size > 0 && (
           <BatchPanel 
