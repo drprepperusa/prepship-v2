@@ -18,19 +18,32 @@ export function useStoreOrders(status: string): UseStoreOrdersResult {
     setError(null);
 
     try {
-      // Fetch all orders for this status with a large page size to get store breakdown
-      const response = await apiClient.listOrders({
-        page: 1,
-        pageSize: 5000,
-        orderStatus: status,
-      });
-
       const counts: Record<number, number> = {};
-      response.orders.forEach((order) => {
-        if (order.storeId !== null) {
-          counts[order.storeId] = (counts[order.storeId] || 0) + 1;
+      let page = 1;
+      let hasMore = true;
+
+      // Fetch all pages needed to get complete store breakdown
+      // API has max pageSize of 500, so fetch sequentially until all orders are collected
+      while (hasMore) {
+        const response = await apiClient.listOrders({
+          page,
+          pageSize: 500,
+          orderStatus: status,
+        });
+
+        response.orders.forEach((order) => {
+          if (order.storeId !== null) {
+            counts[order.storeId] = (counts[order.storeId] || 0) + 1;
+          }
+        });
+
+        // Check if we've fetched all orders
+        if (response.page >= response.pages) {
+          hasMore = false;
+        } else {
+          page++;
         }
-      });
+      }
 
       setStoreCounts(counts);
     } catch (err) {
