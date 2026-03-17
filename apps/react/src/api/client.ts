@@ -40,6 +40,7 @@ export class ApiClient {
     options?: {
       body?: unknown;
       query?: Record<string, string | number | boolean | undefined>;
+      signal?: AbortSignal;
     }
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
@@ -62,6 +63,10 @@ export class ApiClient {
 
     if (options?.body) {
       fetchOptions.body = JSON.stringify(options.body);
+    }
+
+    if (options?.signal) {
+      fetchOptions.signal = options.signal;
     }
 
     try {
@@ -212,6 +217,30 @@ export class ApiClient {
   async getLiveRates(request: LiveRatesRequestDto): Promise<RateDto[]> {
     return this.request<RateDto[]>("POST", "/rates/live", {
       body: request,
+    });
+  }
+
+  // Bulk cached rates endpoint (V3)
+  async fetchRatesCachedBulk(groups: any[], options?: { signal?: AbortSignal }): Promise<any> {
+    return this.request<any>("POST", "/rates/cached/bulk", {
+      body: { groups },
+      signal: options?.signal,
+    });
+  }
+
+  // Live rates endpoint (V3)
+  async fetchRatesLive(request: any, options?: { signal?: AbortSignal }): Promise<RateDto[]> {
+    return this.request<RateDto[]>("POST", "/rates", {
+      body: request,
+      signal: options?.signal,
+    });
+  }
+
+  // Get product bulk (V3)
+  async getProductBulk(skus: string[], options?: { signal?: AbortSignal }): Promise<Record<string, any>> {
+    const query = skus.map(encodeURIComponent).join(",");
+    return this.request<Record<string, any>>("GET", `/products/bulk?skus=${query}`, {
+      signal: options?.signal,
     });
   }
 
