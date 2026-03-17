@@ -1,71 +1,122 @@
-import { useState, useEffect, useCallback } from "react";
-import { apiClient } from "../api/client";
-import type { RateDto, RateDimsDto } from "@prepshipv2/contracts/rates/contracts";
+import { useState, useCallback } from "react";
 
-export interface UseRatesOptions {
-  weightOz?: number;
-  dims?: RateDimsDto | null;
-  residential?: boolean;
-  storeId?: number | null;
+export interface RateDims {
+  length: number;
+  width: number;
+  height: number;
+}
+
+export interface RateResult {
+  carrier: string;
+  service: string;
+  price: number;
+  serviceId?: string;
+  accountId?: number;
+  carrierCode?: string;
+  serviceCode?: string;
+  deliveryDays?: number;
+  serviceName?: string;
+  shipmentCost?: number;
+  otherCost?: number;
+  shippingProviderId?: number;
 }
 
 export interface UseRatesResult {
-  rates: RateDto[];
-  bestRate: RateDto | null;
+  rates: RateResult[];
   loading: boolean;
   error: Error | null;
-  refetch: () => Promise<void>;
+  fetchRates: (
+    storeId: string | number | null,
+    toZip: string,
+    weight: number,
+    dims: { w: number; h: number; d: number } | null,
+    insurance?: boolean,
+    residential?: boolean
+  ) => Promise<RateResult[]>;
+  clearRates: () => void;
 }
 
-export function useRates(origin: string | undefined, destination: string | undefined, options: UseRatesOptions = {}): UseRatesResult {
-  const { weightOz = 0, dims = null, residential = false, storeId = null } = options;
-
-  const [rates, setRates] = useState<RateDto[]>([]);
-  const [bestRate, setBestRate] = useState<RateDto | null>(null);
+export function useRates(): UseRatesResult {
+  const [rates, setRates] = useState<RateResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchRates = useCallback(async () => {
-    // Don't fetch if we don't have destination
-    if (!destination) {
-      setRates([]);
-      setBestRate(null);
-      return;
-    }
+  const fetchRates = useCallback(
+    async (
+      storeId: string | number | null,
+      toZip: string,
+      weight: number,
+      dims: { w: number; h: number; d: number } | null,
+      insurance?: boolean,
+      residential?: boolean
+    ): Promise<RateResult[]> => {
+      if (!toZip || !weight) {
+        setRates([]);
+        return [];
+      }
 
-    setLoading(true);
+      setLoading(true);
+      setError(null);
+
+      try {
+        const payload: Record<string, unknown> = {
+          toZip,
+          weight,
+          insurance: insurance ?? false,
+          residential: residential ?? false,
+        };
+        if (storeId) payload.storeId = storeId;
+        if (dims) {
+          payload.dims = { w: dims.w, h: dims.h, d: dims.d };
+        }
+
+        const response = await fetch("/api/rates/fetch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Rate fetch failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        // API returns { rates: [...] } or just an array
+        const rawRates: any[] = Array.isArray(data) ? data : data.rates || [];
+
+        const normalized: RateResult[] = rawRates.map((r: any) => ({
+          carrier: r.carrier || r.carrierCode || "",
+          service: r.service || r.serviceName || r.serviceCode || "",
+          price: r.price ?? ((r.shipmentCost ?? 0) + (r.otherCost ?? 0)),
+          serviceId: r.serviceId || r.serviceCode,
+          accountId: r.accountId || r.shippingProviderId,
+          carrierCode: r.carrierCode || r.carrier,
+          serviceCode: r.serviceCode || r.serviceId,
+          deliveryDays: r.deliveryDays,
+          serviceName: r.serviceName || r.service,
+          shipmentCost: r.shipmentCost,
+          otherCost: r.otherCost,
+          shippingProviderId: r.shippingProviderId || r.accountId,
+        }));
+
+        setRates(normalized);
+        return normalized;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error("Failed to fetch rates");
+        setError(error);
+        console.error("[useRates]", error);
+        return [];
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  const clearRates = useCallback(() => {
+    setRates([]);
     setError(null);
+  }, []);
 
-    try {
-      // Try cached rates first
-      const cached = await apiClient.getCachedRates({
-        wt: weightOz,
-        zip: destination,
-        dims,
-        residential,
-        storeId,
-      });
-
-      setRates(cached.rates);
-      setBestRate(cached.best);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error("Failed to fetch rates");
-      setError(error);
-      console.error("[useRates]", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [destination, weightOz, dims, residential, storeId]);
-
-  useEffect(() => {
-    fetchRates();
-  }, [destination, weightOz, dims, residential, storeId, fetchRates]);
-
-  return {
-    rates,
-    bestRate,
-    loading,
-    error,
-    refetch: fetchRates,
-  };
+  return { rates, loading, error, fetchRates, clearRates };
 }

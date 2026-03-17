@@ -29,6 +29,8 @@ interface OrdersViewProps {
   selectedOrders: Set<number>
   setSelectedOrders: (orders: Set<number>) => void
   onOpenPanel: (orderId: number) => void
+  onOrdersLoaded?: (orders: any[]) => void
+  searchQuery?: string
 }
 
 // Convert OrderSummaryDto to table Order format
@@ -106,8 +108,8 @@ function loadColVis(): Record<string, boolean> {
   return defaults
 }
 
-export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel }: OrdersViewProps) {
-  const [searchText, setSearchText] = useState('')
+export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery }: OrdersViewProps) {
+  const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState('last30')
   const [sortKey, setSortKey] = useState('date')
@@ -254,6 +256,13 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
 
   // Convert for table display
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
+
+  // Expose orders to parent for BatchPanel
+  useEffect(() => {
+    if (onOrdersLoaded && tableOrders.length > 0) {
+      onOrdersLoaded(tableOrders)
+    }
+  }, [tableOrders, onOrdersLoaded])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {

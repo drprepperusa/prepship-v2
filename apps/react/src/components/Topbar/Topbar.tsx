@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import './Topbar.css'
+import { useQueue } from '../PrintQueue/QueueContext'
+import { useSyncPoller } from '../../hooks/useSyncPoller'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -12,6 +14,7 @@ interface TopbarProps {
   onShowBatchPanel: () => void
   mobileMenuOpen: boolean
   onToggleMobileMenu: () => void
+  onOpenPrintQueue?: () => void
 }
 
 const viewTitles: Record<ViewType, string> = {
@@ -26,41 +29,29 @@ const viewTitles: Record<ViewType, string> = {
   manifests: 'Manifests',
 }
 
-export default function Topbar({ 
-  currentView, 
+export default function Topbar({
+  currentView,
   currentStatus,
-  selectedOrdersCount, 
+  selectedOrdersCount,
   onClearSelection,
   onShowBatchPanel,
-  onToggleMobileMenu 
+  onToggleMobileMenu,
+  onOpenPrintQueue,
 }: TopbarProps) {
-  const [syncText, setSyncText] = useState(() => {
-    const now = new Date()
-    return `Synced ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-  })
-  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'error'>('idle')
+  const { count: queueCount, setIsOpen: setQueueOpen } = useQueue()
+  const syncStatus = useSyncPoller(true, 10000)
   const [zoom, setZoom] = useState(100)
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
 
   useEffect(() => {
-    // Set zoom level
     document.documentElement.style.fontSize = `${16 * (zoom / 100)}px`
   }, [zoom])
 
   const handleSync = async (full: boolean) => {
-    setSyncText('Syncing…')
-    setSyncState('syncing')
     try {
-      const response = await fetch(`/api/orders/sync?full=${full}`)
-      if (response.ok) {
-        const now = new Date()
-        setSyncText(`Synced ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`)
-        setSyncState('idle')
-      }
+      await fetch(`/api/orders/sync?full=${full}`)
     } catch (error) {
       console.error('Sync failed:', error)
-      setSyncText('Sync error')
-      setSyncState('error')
     }
   }
 
@@ -71,15 +62,17 @@ export default function Topbar({
     shipped: 'Shipped',
     cancelled: 'Cancelled',
   }
-  
+
   const viewTitle = currentView === 'orders' ? statusTitles[currentStatus] : viewTitles[currentView]
+
+  const syncState = syncStatus.syncing ? 'syncing' : syncStatus.error ? 'error' : 'done'
 
   return (
     <div className="topbar">
-      <button 
-        id="mobileMenuBtn" 
+      <button
+        id="mobileMenuBtn"
         onClick={onToggleMobileMenu}
-        style={{ display: window.innerWidth <= 768 ? 'flex' : 'none' }}
+        style={{ display: 'flex' }}
       >
         ☰
       </button>
@@ -100,10 +93,10 @@ export default function Topbar({
       <div className="topbar-right">
         <div className={`sync-pill ${syncState === 'syncing' ? 'syncing' : syncState === 'error' ? 'error' : 'done'}`}>
           <span className="sync-dot"></span>
-          <span>{syncText}</span>
+          <span>{syncStatus.lastSyncText}</span>
         </div>
 
-        <button 
+        <button
           className="btn btn-ghost btn-sm"
           onClick={() => handleSync(false)}
           title="Incremental sync"
@@ -111,7 +104,7 @@ export default function Topbar({
           ↻
         </button>
 
-        <button 
+        <button
           className="btn btn-ghost btn-sm"
           onClick={() => handleSync(true)}
           title="Full re-sync"
@@ -119,18 +112,42 @@ export default function Topbar({
           Full↻
         </button>
 
-        {/* Columns button is in the filter bar for orders view */}
-
         <button className="btn btn-primary btn-sm">🖨️ Labels</button>
 
-        <button className="btn btn-outline btn-sm" id="pq-toggle-btn">
+        {/* Print Queue Badge */}
+        <button
+          className="btn btn-outline btn-sm"
+          onClick={() => {
+            setQueueOpen(true)
+            onOpenPrintQueue?.()
+          }}
+          style={{ position: 'relative' }}
+          title="Print Queue (Ctrl+P)"
+        >
           🖨️ Print Queue
-          {/* <span id="pq-badge">0</span> */}
+          {queueCount > 0 && (
+            <span style={{
+              position: 'absolute',
+              top: '-6px',
+              right: '-6px',
+              background: '#dc2626',
+              color: '#fff',
+              borderRadius: '9px',
+              fontSize: '10px',
+              fontWeight: '700',
+              padding: '1px 5px',
+              lineHeight: 1.4,
+              minWidth: '16px',
+              textAlign: 'center',
+            }}>
+              {queueCount}
+            </span>
+          )}
         </button>
       </div>
 
       <div className="col-toggle-wrap">
-        <button 
+        <button
           className="btn btn-outline btn-sm"
           onClick={() => setZoomMenuOpen(!zoomMenuOpen)}
           style={{ gap: '4px', minWidth: '68px' }}
@@ -143,7 +160,7 @@ export default function Topbar({
               Zoom
             </div>
             {zoomLevels.map((level) => (
-              <div 
+              <div
                 key={level}
                 className="zoom-opt"
                 onClick={() => {
