@@ -21,7 +21,7 @@ export function useStoreOrders(status: string): UseStoreOrdersResult {
       // Fetch all orders for this status with a large page size to get store breakdown
       const response = await apiClient.listOrders({
         page: 1,
-        pageSize: 1000,
+        pageSize: 5000,
         orderStatus: status,
       });
 

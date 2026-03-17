@@ -83,7 +83,7 @@ function getDefaultColWidths(): Record<string, number> {
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedClientId }: OrdersViewProps) {
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
-  const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('last-30')
+  const [dateFilter, setDateFilter] = useState<OrdersDateFilter>(status === 'awaiting_shipment' ? '' : 'last-30')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortKey, setSortKey] = useState('date')
@@ -106,6 +106,11 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const colMenuRef = useRef<HTMLDivElement>(null)
 
   const { stores } = useStores()
+
+  // Reset date filter to sensible default when switching status tabs
+  useEffect(() => {
+    setDateFilter(status === 'awaiting_shipment' ? '' : 'last-30')
+  }, [status])
 
   useEffect(() => {
     setSearchText(searchQuery || '')
