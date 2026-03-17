@@ -1112,10 +1112,15 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "POST" && url.pathname === "/api/labels/create") {
       try {
-        return jsonResponse(200, await dependencies.labelsHandler.handleCreate(await readJson() as never));
+        const requestBody = await readJson();
+        console.log("[DEBUG] /api/labels/create request body:", JSON.stringify(requestBody, null, 2));
+        const response = await dependencies.labelsHandler.handleCreate(requestBody as never);
+        console.log("[DEBUG] /api/labels/create succeeded:", JSON.stringify(response, null, 2));
+        return jsonResponse(200, response);
       } catch (error) {
         const err = error as Error & { details?: Record<string, unknown> };
         const message = err instanceof Error ? err.message : "Unknown error";
+        console.error("[DEBUG] /api/labels/create error:", message, err.details ? JSON.stringify(err.details) : "");
         const status = isInputError(error, ["orderId and serviceCode required", "shippingProviderId required for v2 label creation", "Order weight required to create label"])
           ? 400
           : message === "Order not found"

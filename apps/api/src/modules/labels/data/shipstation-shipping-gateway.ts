@@ -121,8 +121,10 @@ export class ShipstationShippingGateway implements ShippingGateway {
       label_layout: "4x6",
       label_format: "pdf",
       label_download_type: "url",
-      ...(input.testLabel ? { test_label: true } : {}),
     };
+
+    // Debug: log request body to console
+    console.log("[ShipStation] Creating label with body:", JSON.stringify(body, null, 2));
 
     const response = await fetch(`${this.baseV2}/labels`, {
       method: "POST",
@@ -133,8 +135,9 @@ export class ShipstationShippingGateway implements ShippingGateway {
     if (!response.ok) {
       const details = await response.text();
       const error = new Error(`ShipStation v2 API error: ${response.status}`) as Error & { details?: string; statusCode?: number };
-      error.details = details.slice(0, 300);
+      error.details = details.slice(0, 500);
       error.statusCode = response.status;
+      console.error("[ShipStation] Error response:", details);
       throw error;
     }
 

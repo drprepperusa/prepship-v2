@@ -192,6 +192,9 @@ export class LabelServices {
     if (!apiKeyV2) throw new Error("No v2 API key configured for this account");
     const credentials = toV1Credentials(context.v1ApiKey, context.v1ApiSecret, this.secrets);
 
+    // NOTE: ShipStation v2 API does NOT support per-request test labels (unlike v1 API which had testLabel field)
+    // Test mode in v2 must be configured at the account/carrier level in ShipStation dashboard
+    // The testLabel flag here is used locally to skip order status updates, but does not affect ShipStation API call
     const created = await this.gateway.createLabel({
       apiKeyV2,
       carrierId: `se-${body.shippingProviderId}`,
