@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useOrdersWithDetails } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
+import { ALL_COLUMNS } from '../Tables/columnDefs'
 import OrderPanel from '../OrderPanel/OrderPanel'
 import StatsBar from '../StatsBar/StatsBar'
 
@@ -42,6 +43,7 @@ function convertToTableOrder(dto: any): Order {
       sku: i.sku || '',
       name: i.name || '',
       quantity: i.quantity || 1,
+      imageUrl: i.imageUrl || null,
     })) : [],
     weight: dto.weight || undefined,
     carrierCode: dto.carrierCode || undefined,
@@ -82,6 +84,28 @@ function getShiftWindow() {
   return `${fmt(shiftStart)} → ${fmt(shiftEnd)} PT`
 }
 
+// ── Column management helpers ────────────────────────────────────────────────
+const LS_COL_ORDER = 'prepship_col_order'
+const LS_COL_VIS = 'prepship_col_vis'
+
+function loadColOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_COL_ORDER)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return ALL_COLUMNS.map(c => c.key)
+}
+
+function loadColVis(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(LS_COL_VIS)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  const defaults: Record<string, boolean> = {}
+  ALL_COLUMNS.forEach(c => { defaults[c.key] = c.defaultVisible })
+  return defaults
+}
+
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel }: OrdersViewProps) {
   const [searchText, setSearchText] = useState('')
   const [skuFilter, setSkuFilter] = useState('all')
@@ -93,6 +117,55 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const [panelOrderId, setPanelOrderId] = useState<number | null>(null)
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1)
   const tableRef = useRef<HTMLDivElement>(null)
+
+  // Column management state
+  const [colOrder, setColOrder] = useState<string[]>(loadColOrder)
+  const [colVis, setColVis] = useState<Record<string, boolean>>(loadColVis)
+  const [colMenuOpen, setColMenuOpen] = useState(false)
+  const [dragColKey, setDragColKey] = useState<string | null>(null)
+  const colMenuRef = useRef<HTMLDivElement>(null)
+
+  // Persist column state to localStorage
+  useEffect(() => {
+    localStorage.setItem(LS_COL_ORDER, JSON.stringify(colOrder))
+  }, [colOrder])
+  useEffect(() => {
+    localStorage.setItem(LS_COL_VIS, JSON.stringify(colVis))
+  }, [colVis])
+
+  // Close col menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setColMenuOpen(false)
+      }
+    }
+    if (colMenuOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [colMenuOpen])
+
+  // Compute visible col keys in order
+  const visibleColKeys = useMemo(() => 
+    colOrder.filter(key => colVis[key]),
+    [colOrder, colVis]
+  )
+
+  // Column drag handlers
+  const handleColDragStart = (key: string) => setDragColKey(key)
+  const handleColDragOver = (e: React.DragEvent, key: string) => {
+    e.preventDefault()
+    if (!dragColKey || dragColKey === key) return
+    setColOrder(prev => {
+      const from = prev.indexOf(dragColKey)
+      const to = prev.indexOf(key)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      next.splice(from, 1)
+      next.splice(to, 0, dragColKey)
+      return next
+    })
+  }
+  const handleColDragEnd = () => setDragColKey(null)
 
   // Use the hook to fetch orders from the API
   const { orders, loading, error, refetch, total, pages, goToPage } = useOrdersWithDetails(status, {
@@ -162,6 +235,13 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       } else if (sortKey === 'weight') {
         aVal = a.weight?.value || 0
         bVal = b.weight?.value || 0
+      } else if (sortKey === 'sku') {
+        const getSkuVal = (o: any) => {
+          const item = Array.isArray(o.items) ? o.items.find((i: any) => i.sku) : null
+          return item?.sku?.toLowerCase() || ''
+        }
+        aVal = getSkuVal(a)
+        bVal = getSkuVal(b)
       }
 
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
@@ -205,6 +285,67 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const handleRowsPerPageChange = (newSize: number) => {
     setRowsPerPage(newSize)
     setCurrentPage(1)
+  }
+
+  // Export CSV — visible columns, current sort order
+  const handleExportCSV = () => {
+    const colDefs = visibleColKeys
+      .map(key => ALL_COLUMNS.find(c => c.key === key))
+      .filter(c => c && c.key !== 'select') as typeof ALL_COLUMNS
+
+    const getRowValue = (order: any, colKey: string): string => {
+      const item = Array.isArray(order.items) ? (order.items.find((i: any) => !('adjustment' in i)) || order.items[0]) : null
+      switch (colKey) {
+        case 'date': return order.orderDate ? new Date(order.orderDate).toLocaleString() : ''
+        case 'client': return order.clientName || ''
+        case 'orderNum': return order.orderNumber || ''
+        case 'customer': return order.shipTo?.name || ''
+        case 'itemname': return item?.name || ''
+        case 'sku': return item?.sku || ''
+        case 'qty': return String(item?.quantity || 1)
+        case 'weight': return order.weight?.value ? `${order.weight.value}oz` : ''
+        case 'shipto': return order.shipTo ? `${order.shipTo.city}, ${order.shipTo.state}` : ''
+        case 'carrier': return [order.carrierCode, order.serviceCode].filter(Boolean).join(' • ')
+        case 'custcarrier': return order.shippingAccountName || ''
+        case 'total': return order.orderTotal != null ? `$${order.orderTotal.toFixed(2)}` : ''
+        case 'bestrate': return order.bestRate?.cost != null ? `$${order.bestRate.cost.toFixed(2)}` : ''
+        case 'tracking': return order.trackingNumber || ''
+        default: return ''
+      }
+    }
+
+    const headers = colDefs.map(c => c.label)
+    const rows = filteredOrders.map(order =>
+      colDefs.map(c => {
+        const val = getRowValue(order, c.key)
+        // Escape CSV: wrap in quotes if contains comma, newline, or quote
+        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+          return `"${val.replace(/"/g, '""')}"`
+        }
+        return val
+      }).join(',')
+    )
+
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `prepship-orders-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // SKU sort toggle
+  const handleSkuSort = () => {
+    if (sortKey === 'sku') {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey('sku')
+      setSortDir('asc')
+    }
   }
 
   const handlePrevPage = async () => {
@@ -361,9 +502,108 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
         <button className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)}>
           Select All
         </button>
-        <button className="btn btn-ghost btn-sm">📋 SKU Sort</button>
-        <button className="btn btn-ghost btn-sm">📥 Export CSV</button>
+        {selectedOrders.size > 1 && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setSelectedOrders(new Set())}
+            style={{ color: 'var(--text3)', borderColor: 'var(--border2)' }}
+            title="Deselect all rows"
+          >
+            ✕ Deselect All ({selectedOrders.size})
+          </button>
+        )}
+        <button 
+          className={`btn btn-ghost btn-sm${sortKey === 'sku' ? ' btn-outline' : ''}`}
+          onClick={handleSkuSort}
+          title="Sort by SKU"
+          style={sortKey === 'sku' ? { color: 'var(--ss-blue)', borderColor: 'var(--ss-blue)' } : {}}
+        >
+          SKU {sortKey === 'sku' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={handleExportCSV} title="Export visible columns as CSV">
+          📥 Export CSV
+        </button>
         <button className="btn btn-ghost btn-sm">🖨️ Picklist</button>
+
+        {/* Columns dropdown */}
+        <div ref={colMenuRef} style={{ position: 'relative' }}>
+          <button 
+            className="btn btn-outline btn-sm"
+            onClick={() => setColMenuOpen(v => !v)}
+          >
+            ⊞ Columns
+          </button>
+          {colMenuOpen && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 5px)',
+              right: 0,
+              background: 'var(--surface)',
+              border: '1px solid var(--border2)',
+              borderRadius: '8px',
+              boxShadow: 'var(--shadow-lg)',
+              padding: '6px 0',
+              zIndex: 200,
+              minWidth: '200px',
+              maxHeight: '400px',
+              overflowY: 'auto',
+            }}>
+              <div style={{ padding: '5px 12px 6px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}>
+                Drag to reorder · Toggle visibility
+              </div>
+              {colOrder.map(key => {
+                const col = ALL_COLUMNS.find(c => c.key === key)
+                if (!col || col.key === 'select') return null
+                return (
+                  <div
+                    key={key}
+                    draggable
+                    onDragStart={() => handleColDragStart(key)}
+                    onDragOver={(e) => handleColDragOver(e, key)}
+                    onDragEnd={handleColDragEnd}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 12px',
+                      cursor: 'grab',
+                      fontSize: '12.5px',
+                      color: colVis[key] ? 'var(--text)' : 'var(--text3)',
+                      background: dragColKey === key ? 'var(--ss-blue-bg)' : undefined,
+                      transition: 'background .1s',
+                    }}
+                    onMouseEnter={e => { if (dragColKey !== key) (e.currentTarget as HTMLElement).style.background = 'var(--surface2)' }}
+                    onMouseLeave={e => { if (dragColKey !== key) (e.currentTarget as HTMLElement).style.background = '' }}
+                  >
+                    <span style={{ color: 'var(--text4)', fontSize: '11px', cursor: 'grab', flexShrink: 0 }}>⠿</span>
+                    <input
+                      type="checkbox"
+                      checked={!!colVis[key]}
+                      onChange={e => setColVis(prev => ({ ...prev, [key]: e.target.checked }))}
+                      style={{ width: '13px', height: '13px', cursor: 'pointer', accentColor: 'var(--ss-blue)', flexShrink: 0 }}
+                      onClick={e => e.stopPropagation()}
+                    />
+                    <span style={{ flex: 1 }}>{col.label}</span>
+                  </div>
+                )
+              })}
+              <div style={{ padding: '6px 12px 4px', borderTop: '1px solid var(--border)' }}>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => {
+                    const defaults: Record<string, boolean> = {}
+                    ALL_COLUMNS.forEach(c => { defaults[c.key] = c.defaultVisible })
+                    setColVis(defaults)
+                    setColOrder(ALL_COLUMNS.map(c => c.key))
+                  }}
+                  style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -381,6 +621,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
               onSort={handleSort}
               focusedRowIndex={focusedRowIndex}
               panelOrderId={panelOrderId}
+              visibleColKeys={visibleColKeys}
             />
           </div>
 

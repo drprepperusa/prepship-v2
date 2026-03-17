@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './Topbar.css'
 
-type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing'
+type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 
 interface TopbarProps {
@@ -23,6 +23,7 @@ const viewTitles: Record<ViewType, string> = {
   analysis: 'Analysis',
   settings: 'Settings',
   billing: 'Billing',
+  manifests: 'Manifests',
 }
 
 export default function Topbar({ 
@@ -40,7 +41,6 @@ export default function Topbar({
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'error'>('idle')
   const [zoom, setZoom] = useState(100)
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
-  const [colMenuOpen, setColMenuOpen] = useState(false)
 
   useEffect(() => {
     // Set zoom level
@@ -119,20 +119,7 @@ export default function Topbar({
           Full↻
         </button>
 
-        <div className="col-toggle-wrap">
-          <button 
-            className="btn btn-outline btn-sm"
-            onClick={() => setColMenuOpen(!colMenuOpen)}
-          >
-            ⊞ Columns
-          </button>
-          {colMenuOpen && (
-            <div className="col-dropdown">
-              <div className="col-dropdown-header">Toggle Columns</div>
-              {/* Column options */}
-            </div>
-          )}
-        </div>
+        {/* Columns button is in the filter bar for orders view */}
 
         <button className="btn btn-primary btn-sm">🖨️ Labels</button>
 

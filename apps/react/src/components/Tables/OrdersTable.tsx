@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { ALL_COLUMNS } from './columnDefs'
+export { ALL_COLUMNS } from './columnDefs'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 
@@ -8,7 +10,7 @@ interface Order {
   orderDate: string
   clientName?: string
   shipTo: { name: string; city: string; state: string }
-  items: Array<{ sku: string; name: string; quantity: number }>
+  items: Array<{ sku: string; name: string; quantity: number; imageUrl?: string | null }>
   weight?: { value: number }
   carrierCode?: string
   serviceCode?: string
@@ -31,26 +33,10 @@ interface OrdersTableProps {
   onSort?: (key: string) => void
   focusedRowIndex?: number
   panelOrderId?: number | null
+  visibleColKeys?: string[] // external column config (order + visibility)
 }
 
-// All available columns — V2 shows ~8 by default (gap #8)
-const ALL_COLUMNS = [
-  { key: 'select',      label: '',                 width: 34,  sortable: false, defaultVisible: true  },
-  { key: 'date',        label: 'Order Date',       width: 100, sortable: true,  defaultVisible: true  },
-  { key: 'client',      label: 'Client',           width: 90,  sortable: true,  defaultVisible: true  },
-  { key: 'orderNum',    label: 'Order #',          width: 120, sortable: true,  defaultVisible: true  },
-  { key: 'customer',    label: 'Recipient',        width: 130, sortable: true,  defaultVisible: true  },
-  { key: 'itemname',    label: 'Item Name',        width: 200, sortable: true,  defaultVisible: true  },
-  { key: 'sku',         label: 'SKU',              width: 90,  sortable: true,  defaultVisible: true  },
-  { key: 'qty',         label: 'Qty',              width: 40,  sortable: true,  defaultVisible: true  },
-  { key: 'weight',      label: 'Weight',           width: 80,  sortable: true,  defaultVisible: false },
-  { key: 'shipto',      label: 'Ship To',          width: 120, sortable: true,  defaultVisible: false },
-  { key: 'carrier',     label: 'Carrier',          width: 100, sortable: true,  defaultVisible: false },
-  { key: 'custcarrier', label: 'Shipping Account', width: 130, sortable: true,  defaultVisible: false },
-  { key: 'total',       label: 'Order Total',      width: 85,  sortable: true,  defaultVisible: false },
-  { key: 'bestrate',    label: 'Best Rate',        width: 80,  sortable: false, defaultVisible: true  },
-  { key: 'tracking',    label: 'Tracking #',       width: 120, sortable: false, defaultVisible: false },
-]
+// ALL_COLUMNS is imported from columnDefs.ts
 
 export default function OrdersTable({
   orders,
@@ -63,6 +49,7 @@ export default function OrdersTable({
   onSort,
   focusedRowIndex = -1,
   panelOrderId = null,
+  visibleColKeys,
 }: OrdersTableProps) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const widths: Record<string, number> = {}
@@ -70,12 +57,12 @@ export default function OrdersTable({
     return widths
   })
 
-  // Only show default-visible columns initially (gap #8)
-  const [visibleCols, setVisibleCols] = useState<Set<string>>(
-    () => new Set(ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key))
-  )
-
-  const columns = ALL_COLUMNS.filter(c => visibleCols.has(c.key))
+  // Use external column config if provided, otherwise default
+  const columns = visibleColKeys
+    ? visibleColKeys
+        .map(key => ALL_COLUMNS.find(c => c.key === key))
+        .filter(Boolean) as typeof ALL_COLUMNS
+    : ALL_COLUMNS.filter(c => c.defaultVisible)
 
   const [resizing, setResizing] = useState<{ col: string; startX: number } | null>(null)
 
@@ -145,9 +132,22 @@ export default function OrdersTable({
         return <span style={{ fontWeight: 600 }}>{order.shipTo?.name || '—'}</span>
       case 'itemname':
         return (
-          <span style={{ fontSize: '11.5px', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
-            {item?.name || '—'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', maxWidth: '200px' }}>
+            {item?.imageUrl ? (
+              <img
+                src={item.imageUrl}
+                alt=""
+                loading="lazy"
+                style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', flexShrink: 0 }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+              />
+            ) : (
+              <div style={{ width: '32px', height: '32px', borderRadius: '4px', background: 'var(--border)', flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: '11.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              {item?.name || '—'}
+            </span>
+          </div>
         )
       case 'sku':
         return <span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{item?.sku || '—'}</span>

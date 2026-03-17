@@ -10,9 +10,10 @@ import RateShopView from './components/Views/RateShopView'
 import AnalysisView from './components/Views/AnalysisView'
 import SettingsView from './components/Views/SettingsView'
 import BillingView from './components/Views/BillingView'
+import ManifestsView from './components/Views/ManifestsView'
 import BatchPanel from './components/BatchPanel/BatchPanel'
 
-type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing'
+type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 
 function App() {
@@ -50,6 +51,8 @@ function App() {
         return <SettingsView />
       case 'billing':
         return <BillingView />
+      case 'manifests':
+        return <ManifestsView />
       default:
         return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={() => {}} />
     }

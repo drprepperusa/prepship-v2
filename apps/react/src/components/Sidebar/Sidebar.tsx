@@ -3,7 +3,7 @@ import { useStoreOrders, useStores } from '../../hooks'
 import './Sidebar.css'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
-type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing'
+type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
 
 interface SidebarProps {
   currentStatus: OrderStatus
@@ -173,7 +173,10 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
           >
             <span className="sidebar-tool-icon">🧾</span> Billing
           </div>
-          <div className="sidebar-tool-item">
+          <div 
+            className="sidebar-tool-item"
+            onClick={() => onShowView('manifests')}
+          >
             <span className="sidebar-tool-icon">📋</span> Manifests
           </div>
         </div>
