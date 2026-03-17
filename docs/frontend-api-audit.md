@@ -114,6 +114,7 @@ Status meanings:
 
 ## Notes
 
+- `apps/react` Orders View has moved closer to the copied V1 structure: filter-bar parity is improved, date filtering now goes through the same V2 `/api/orders` date-range query surface, and the main V1 order-table columns are now rendered from V2 DTO data rather than a reduced React-only subset.
 - The copied V1 frontend label workflow now runs against migrated V2 label and shipment ownership endpoints while preserving the existing UI flow.
 - Frontend runtime contract validation now covers labels, orders list/polling, product defaults, package/locations/settings views, billing, inventory, app bootstrap/init, sync status, analysis, and rate-browser responses; see [frontend-validation-hardening.md](/home/tito/dev/prepshipv2/docs/frontend-validation-hardening.md).
 - API ingress validation now also rejects malformed JSON and invalid numeric/boolean request input with `400` responses instead of silently coercing bad values; see [frontend-validation-hardening.md](/home/tito/dev/prepshipv2/docs/frontend-validation-hardening.md) for the current hardening summary and linked tests.

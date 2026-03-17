@@ -71,13 +71,14 @@ Current rules:
 - preserve V1 visual design, view structure, and operator workflow unless a task explicitly asks for UI change
 - treat `apps/web` plus V1 `public/index.html` and `public/js/*` as the parity reference while React work is in progress
 - route data through V2 APIs/contracts rather than copying legacy backend coupling into React
-- migrate feature-by-feature; the current React slice with the strongest parity focus is the Order Panel
+- migrate feature-by-feature; the current React slice with the strongest parity focus is the Orders flow, especially the Orders View table/filter shell and the Order Panel
 
 Operationally:
 
 - run the copied parity frontend with `npm run dev:web`
 - run the React migration app with `npm run dev:react`
 - prefer documenting parity gaps explicitly rather than silently inventing replacement UI behavior
+- React Orders View parity has improved recently: the filter bar now follows the V1 structure more closely, and the core V1 table columns including `Ship Margin`, `Label Created`, and `Age` are now present with populated data
 
 ## Configuration
 

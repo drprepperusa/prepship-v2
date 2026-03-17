@@ -17,6 +17,8 @@ It is not the canonical frontend yet, and it is not a redesign track. The behavi
 ## Current Status
 
 - the React app boots and builds with `npm --prefix apps/react run build`
+- the Orders View filter bar now follows the V1/apps/web structure more closely, including server-backed date presets plus custom date range handling
+- the Orders table now includes the main V1 operator columns, including `Ship Margin`, `Label Created`, and `Age`, with data populated from V2 order DTOs and carrier markups
 - the Order Panel is being migrated with parity-first behavior
 - other views still contain mixed migration quality and should be treated as in-progress unless explicitly verified against V1
 
@@ -25,6 +27,7 @@ It is not the canonical frontend yet, and it is not a redesign track. The behavi
 ```bash
 npm run dev:react
 npm --prefix apps/react run build
+node --experimental-strip-types --test apps/react/test/*.test.ts
 ```
 
 The local static preview/proxy server is:

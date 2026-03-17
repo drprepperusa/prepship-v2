@@ -12,7 +12,7 @@
     "dev:web": "node --experimental-strip-types apps/web/src/main.ts",
     "dev:react": "cd apps/react && vite",
     "dev:worker": "node --experimental-strip-types apps/worker/src/main.ts",
-    "test": "node --experimental-strip-types --test apps/api/test/*.test.ts apps/web/test/*.test.ts"
+    "test": "node --experimental-strip-types --test apps/api/test/*.test.ts apps/web/test/*.test.ts apps/react/test/*.test.ts"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1"

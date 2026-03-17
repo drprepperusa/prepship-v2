@@ -19,9 +19,9 @@ export interface UseOrdersWithDetailsResult {
 
 export function useOrdersWithDetails(
   status: string,
-  options: { page?: number; pageSize?: number } = {}
+  options: { page?: number; pageSize?: number; dateStart?: string; dateEnd?: string } = {}
 ): UseOrdersWithDetailsResult {
-  const { page = 1, pageSize = 50 } = options;
+  const { page = 1, pageSize = 50, dateStart, dateEnd } = options;
 
   const [orders, setOrders] = useState<OrderWithDetails[]>([]);
   const [total, setTotal] = useState(0);
@@ -39,6 +39,8 @@ export function useOrdersWithDetails(
         page: pageNum,
         pageSize,
         orderStatus: status,
+        dateStart,
+        dateEnd,
       });
 
       // Enrich orders with additional details
@@ -46,8 +48,8 @@ export function useOrdersWithDetails(
         let shippingAccountName = "—";
         if (order.selectedRate?.providerAccountNickname) {
           shippingAccountName = order.selectedRate.providerAccountNickname;
-        } else if (order.bestRate?.serviceName) {
-          shippingAccountName = order.bestRate.serviceName;
+        } else if (order.bestRate?.carrierNickname) {
+          shippingAccountName = order.bestRate.carrierNickname;
         }
 
         return {
@@ -67,11 +69,11 @@ export function useOrdersWithDetails(
     } finally {
       setLoading(false);
     }
-  }, [status, pageSize, currentPage]);
+  }, [status, pageSize, dateStart, dateEnd, currentPage]);
 
   useEffect(() => {
     fetchOrders(1); // Reset to page 1 when filters change
-  }, [status, pageSize]);
+  }, [status, pageSize, dateStart, dateEnd]);
 
   const goToPage = useCallback(
     async (pageNum: number) => {

@@ -33,6 +33,7 @@ Run these first:
 ### Orders
 
 - order list
+  Compare the orders filter bar, date presets/custom range behavior, and core table columns such as `Best Rate`, `Ship Margin`, `Tracking #`, `Label Created`, and `Age`.
 - order detail/full view
 - daily stats
 - selected package / best-rate / residential / selected-pid overrides

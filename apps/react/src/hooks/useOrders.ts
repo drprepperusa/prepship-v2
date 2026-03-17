@@ -7,6 +7,8 @@ export interface UseOrdersOptions {
   pageSize?: number;
   storeId?: number;
   clientId?: number;
+  dateStart?: string;
+  dateEnd?: string;
 }
 
 export interface UseOrdersResult {
@@ -21,7 +23,7 @@ export interface UseOrdersResult {
 }
 
 export function useOrders(status: string, options: UseOrdersOptions = {}): UseOrdersResult {
-  const { page = 1, pageSize = 50, storeId, clientId } = options;
+  const { page = 1, pageSize = 50, storeId, clientId, dateStart, dateEnd } = options;
 
   const [orders, setOrders] = useState<OrderSummaryDto[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,6 +43,8 @@ export function useOrders(status: string, options: UseOrdersOptions = {}): UseOr
         orderStatus: status,
         storeId,
         clientId,
+        dateStart,
+        dateEnd,
       });
 
       setOrders(response.orders);
@@ -54,11 +58,11 @@ export function useOrders(status: string, options: UseOrdersOptions = {}): UseOr
     } finally {
       setLoading(false);
     }
-  }, [status, pageSize, storeId, clientId, currentPage]);
+  }, [status, pageSize, storeId, clientId, dateStart, dateEnd, currentPage]);
 
   useEffect(() => {
     fetchOrders(1); // Reset to page 1 when filters change
-  }, [status, storeId, clientId, pageSize]);
+  }, [status, storeId, clientId, pageSize, dateStart, dateEnd]);
 
   const goToPage = useCallback(
     async (pageNum: number) => {

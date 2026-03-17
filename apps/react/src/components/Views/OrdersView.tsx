@@ -1,27 +1,22 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import type { CarrierAccountDto, InitStoreDto } from '@prepshipv2/contracts/init/contracts'
 import { useOrdersWithDetails } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
 import { ALL_COLUMNS } from '../Tables/columnDefs'
+import type { TableCarrierAccount, TableOrder } from '../Tables/orders-table-parity'
+import { getSortValue } from '../Tables/orders-table-parity'
 import OrderPanel from '../OrderPanel/OrderPanel'
 import StatsBar from '../StatsBar/StatsBar'
+import { getOrdersDateRange, orderMatchesSearch, orderMatchesSku } from './orders-view-filters'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
+type OrdersDateFilter = '' | 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'custom'
 
-interface Order {
-  orderId: number
-  orderNumber: string
-  orderDate: string
-  clientName?: string
-  shipTo: { name: string; city: string; state: string }
-  items: Array<{ sku: string; name: string; quantity: number }>
-  weight?: { value: number }
-  carrierCode?: string
-  serviceCode?: string
-  trackingNumber?: string
-  orderTotal?: number
-  shippingAccountName?: string
-  bestRate?: { cost?: number; carrierCode?: string }
-  shippingAmount?: number
+interface MarkupRule {
+  carrierCode?: string | null
+  providerId?: number | null
+  markup: number
+  markupType: 'percent' | 'flat'
 }
 
 interface OrdersViewProps {
@@ -33,14 +28,17 @@ interface OrdersViewProps {
   searchQuery?: string
 }
 
-// Convert OrderSummaryDto to table Order format
-function convertToTableOrder(dto: any): Order {
+function convertToTableOrder(dto: any): TableOrder {
   return {
     orderId: dto.orderId,
+    clientId: dto.clientId ?? null,
     orderNumber: dto.orderNumber || '',
     orderDate: dto.orderDate || new Date().toISOString(),
-    clientName: dto.clientName || undefined,
-    shipTo: dto.shipTo || { name: '', city: '', state: '' },
+    orderStatus: dto.orderStatus || null,
+    clientName: dto.clientName || null,
+    customerEmail: dto.customerEmail || null,
+    storeId: dto.storeId ?? null,
+    shipTo: dto.shipTo || { name: '', city: '', state: '', postalCode: '' },
     items: Array.isArray(dto.items) ? (dto.items as any[]).map((i: any) => ({
       sku: i.sku || '',
       name: i.name || '',
@@ -54,64 +52,39 @@ function convertToTableOrder(dto: any): Order {
     orderTotal: dto.orderTotal || undefined,
     shippingAccountName: dto.shippingAccountName || undefined,
     bestRate: dto.bestRate || undefined,
+    selectedRate: dto.selectedRate || undefined,
+    label: dto.label || undefined,
+    externalShipped: dto.externalShipped || false,
     shippingAmount: dto.shippingAmount || undefined,
+    raw: dto.raw,
+    rateDims: dto.rateDims || null,
   }
 }
 
-// Compute shift window: noon PT shift. Shift day starts at 6PM and ends at 6PM next day.
-function getShiftWindow() {
-  const now = new Date()
-  // PT offset: -8 (PST) or -7 (PDT) — use America/Los_Angeles
-  const ptStr = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-  const ptNow = new Date(ptStr)
-  
-  // Shift boundary is noon PT each day (orders from noon yesterday to noon today)
-  const shiftStart = new Date(ptNow)
-  shiftStart.setHours(12, 0, 0, 0)
-  
-  // If current time is before noon, shift started yesterday noon
-  if (ptNow.getHours() < 12) {
-    shiftStart.setDate(shiftStart.getDate() - 1)
-  }
-  
-  const shiftEnd = new Date(shiftStart)
-  shiftEnd.setDate(shiftEnd.getDate() + 1)
-  
-  const fmt = (d: Date) => d.toLocaleDateString('en-US', { 
-    month: 'short', day: 'numeric', 
-    hour: 'numeric', minute: '2-digit',
-    timeZone: 'America/Los_Angeles'
-  })
-  
-  return `${fmt(shiftStart)} → ${fmt(shiftEnd)} PT`
+function getDefaultColOrder(): string[] {
+  return ALL_COLUMNS.map((column) => column.key)
 }
 
-// ── Column management helpers ────────────────────────────────────────────────
-const LS_COL_ORDER = 'prepship_col_order'
-const LS_COL_VIS = 'prepship_col_vis'
-
-function loadColOrder(): string[] {
-  try {
-    const raw = localStorage.getItem(LS_COL_ORDER)
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return ALL_COLUMNS.map(c => c.key)
-}
-
-function loadColVis(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(LS_COL_VIS)
-    if (raw) return JSON.parse(raw)
-  } catch {}
+function getDefaultColVis(): Record<string, boolean> {
   const defaults: Record<string, boolean> = {}
   ALL_COLUMNS.forEach(c => { defaults[c.key] = c.defaultVisible })
   return defaults
 }
 
+function getDefaultColWidths(): Record<string, number> {
+  const widths: Record<string, number> = {}
+  ALL_COLUMNS.forEach((column) => {
+    widths[column.key] = column.width
+  })
+  return widths
+}
+
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery }: OrdersViewProps) {
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
-  const [dateFilter, setDateFilter] = useState('last30')
+  const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('last-30')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [rowsPerPage, setRowsPerPage] = useState(25)
@@ -120,22 +93,116 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1)
   const tableRef = useRef<HTMLDivElement>(null)
 
-  // Column management state
-  const [colOrder, setColOrder] = useState<string[]>(loadColOrder)
-  const [colVis, setColVis] = useState<Record<string, boolean>>(loadColVis)
+  const [colOrder, setColOrder] = useState<string[]>(getDefaultColOrder)
+  const [colVis, setColVis] = useState<Record<string, boolean>>(getDefaultColVis)
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(getDefaultColWidths)
   const [colMenuOpen, setColMenuOpen] = useState(false)
   const [dragColKey, setDragColKey] = useState<string | null>(null)
+  const [markups, setMarkups] = useState<MarkupRule[]>([])
+  const [storeMap, setStoreMap] = useState<Record<number, string>>({})
+  const [carrierAccounts, setCarrierAccounts] = useState<TableCarrierAccount[]>([])
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
   const colMenuRef = useRef<HTMLDivElement>(null)
 
-  // Persist column state to localStorage
   useEffect(() => {
-    localStorage.setItem(LS_COL_ORDER, JSON.stringify(colOrder))
-  }, [colOrder])
-  useEffect(() => {
-    localStorage.setItem(LS_COL_VIS, JSON.stringify(colVis))
-  }, [colVis])
+    setSearchText(searchQuery || '')
+  }, [searchQuery])
 
-  // Close col menu on outside click
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadPageContext() {
+      try {
+        const [markupsResponse, storesResponse, carrierAccountsResponse, prefsResponse] = await Promise.all([
+          fetch('/api/settings/rbMarkups'),
+          fetch('/api/stores'),
+          fetch('/api/carrier-accounts'),
+          fetch('/api/settings/colPrefs'),
+        ])
+
+        if (!cancelled && markupsResponse.ok) {
+          const data = await markupsResponse.json() as Record<string, { type?: string; value?: number } | number>
+          const next: MarkupRule[] = Object.entries(data || {}).flatMap(([key, value]) => {
+            const record = typeof value === 'number' ? { type: 'flat', value } : value
+            if (!record || typeof record !== 'object') return []
+            const markup = typeof record.value === 'number' ? record.value : 0
+            const markupType: 'percent' | 'flat' = record.type === 'pct' || record.type === 'percent' ? 'percent' : 'flat'
+            if (/^\d+$/.test(key)) {
+              return [{ providerId: Number(key), carrierCode: null, markup, markupType }]
+            }
+            return [{ carrierCode: key, providerId: null, markup, markupType }]
+          })
+          setMarkups(next)
+        }
+
+        if (!cancelled && storesResponse.ok) {
+          const stores = await storesResponse.json() as InitStoreDto[]
+          setStoreMap(Object.fromEntries(
+            (Array.isArray(stores) ? stores : []).map((store) => [store.storeId, store.storeName]),
+          ))
+        }
+
+        if (!cancelled && carrierAccountsResponse.ok) {
+          const accounts = await carrierAccountsResponse.json() as CarrierAccountDto[]
+          setCarrierAccounts(Array.isArray(accounts) ? accounts : [])
+        }
+
+        if (!cancelled && prefsResponse.ok) {
+          const prefs = await prefsResponse.json() as {
+            hidden?: string[]
+            order?: string[]
+            widths?: Record<string, number>
+          }
+          const defaultOrder = getDefaultColOrder()
+          const validOrder = Array.isArray(prefs.order)
+            ? prefs.order.filter((key): key is string => defaultOrder.includes(key))
+            : []
+          const missing = defaultOrder.filter((key) => !validOrder.includes(key))
+          setColOrder(validOrder.length > 0 ? [...validOrder, ...missing] : defaultOrder)
+
+          const nextVis = getDefaultColVis()
+          if (Array.isArray(prefs.hidden)) {
+            prefs.hidden.forEach((key) => {
+              if (key in nextVis) nextVis[key] = false
+            })
+          }
+          setColVis(nextVis)
+
+          if (prefs.widths && typeof prefs.widths === 'object') {
+            setColumnWidths((prev) => ({ ...prev, ...prefs.widths }))
+          }
+        }
+      } catch {
+        if (!cancelled) setMarkups([])
+      } finally {
+        if (!cancelled) setPrefsLoaded(true)
+      }
+    }
+
+    loadPageContext()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!prefsLoaded) return
+
+    const timer = window.setTimeout(() => {
+      void fetch('/api/settings/colPrefs', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order: colOrder,
+          hidden: Object.keys(colVis).filter((key) => key !== 'select' && !colVis[key]),
+          widths: columnWidths,
+        }),
+      }).catch(() => {})
+    }, 400)
+
+    return () => window.clearTimeout(timer)
+  }, [colOrder, colVis, columnWidths, prefsLoaded])
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
@@ -146,13 +213,11 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     return () => document.removeEventListener('mousedown', handler)
   }, [colMenuOpen])
 
-  // Compute visible col keys in order
-  const visibleColKeys = useMemo(() => 
-    colOrder.filter(key => colVis[key]),
-    [colOrder, colVis]
+  const visibleColKeys = useMemo(
+    () => colOrder.filter(key => colVis[key]),
+    [colOrder, colVis],
   )
 
-  // Column drag handlers
   const handleColDragStart = (key: string) => setDragColKey(key)
   const handleColDragOver = (e: React.DragEvent, key: string) => {
     e.preventDefault()
@@ -169,99 +234,54 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   }
   const handleColDragEnd = () => setDragColKey(null)
 
-  // Use the hook to fetch orders from the API
+  const dateRange = useMemo(
+    () => getOrdersDateRange(dateFilter, { start: dateFrom, end: dateTo }),
+    [dateFilter, dateFrom, dateTo],
+  )
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [status, rowsPerPage, dateFilter, dateFrom, dateTo])
+
   const { orders, loading, error, refetch, total, pages, goToPage } = useOrdersWithDetails(status, {
     pageSize: rowsPerPage,
     page: currentPage,
+    dateStart: dateRange?.start?.toISOString(),
+    dateEnd: dateRange?.end?.toISOString(),
   })
 
-  // Build SKU list from loaded orders
   const skuList = useMemo(() => {
     const set = new Set<string>()
     orders.forEach(o => {
       if (Array.isArray(o.items)) {
-        (o.items as any[]).forEach((i: any) => { if (i.sku) set.add(i.sku) })
+        ;(o.items as any[]).forEach((i: any) => {
+          if (i.sku) set.add(i.sku)
+        })
       }
     })
     return Array.from(set).sort()
   }, [orders])
 
-  // Date filter cutoff
-  const dateCutoff = useMemo(() => {
-    const now = Date.now()
-    if (dateFilter === 'last30') return now - 30 * 24 * 60 * 60 * 1000
-    if (dateFilter === 'last90') return now - 90 * 24 * 60 * 60 * 1000
-    if (dateFilter === 'thisMonth') {
-      const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.getTime()
-    }
-    if (dateFilter === 'lastMonth') {
-      const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); d.setMonth(d.getMonth()-1); return d.getTime()
-    }
-    return 0 // 'all'
-  }, [dateFilter])
-
-  // Filter and sort orders locally
   const filteredOrders = useMemo(() => {
-    let filtered = orders as any[]
-    
-    if (searchText.trim()) {
-      const query = searchText.toLowerCase()
-      filtered = filtered.filter((o: any) =>
-        o.orderNumber?.toLowerCase().includes(query) ||
-        o.shipTo?.name?.toLowerCase().includes(query) ||
-        o.clientName?.toLowerCase().includes(query)
-      )
-    }
+    let filtered = orders as TableOrder[]
 
-    if (skuFilter !== 'all') {
-      filtered = filtered.filter((o: any) =>
-        Array.isArray(o.items) && (o.items as any[]).some((i: any) => i.sku === skuFilter)
-      )
-    }
+    filtered = filtered.filter((order) => orderMatchesSearch(order, searchText))
+    filtered = filtered.filter((order) => orderMatchesSku(order, skuFilter))
 
-    if (dateCutoff > 0) {
-      filtered = filtered.filter((o: any) => {
-        const t = new Date(o.orderDate || 0).getTime()
-        return t >= dateCutoff
-      })
-    }
-
-    // Sort
-    const sorted = [...filtered].sort((a: any, b: any) => {
-      let aVal: any = a[sortKey]
-      let bVal: any = b[sortKey]
-
-      if (sortKey === 'date') {
-        aVal = new Date(a.orderDate || 0).getTime()
-        bVal = new Date(b.orderDate || 0).getTime()
-      } else if (sortKey === 'weight') {
-        aVal = a.weight?.value || 0
-        bVal = b.weight?.value || 0
-      } else if (sortKey === 'sku') {
-        const getSkuVal = (o: any) => {
-          const item = Array.isArray(o.items) ? o.items.find((i: any) => i.sku) : null
-          return item?.sku?.toLowerCase() || ''
-        }
-        aVal = getSkuVal(a)
-        bVal = getSkuVal(b)
-      }
+    return [...filtered].sort((a, b) => {
+      const aVal = getSortValue(a, sortKey, { storeMap, carrierAccounts })
+      const bVal = getSortValue(b, sortKey, { storeMap, carrierAccounts })
 
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
       return 0
     })
+  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts])
 
-    return sorted
-  }, [orders, searchText, skuFilter, dateCutoff, sortKey, sortDir])
-
-  // Convert for table display
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
 
-  // Expose orders to parent for BatchPanel
   useEffect(() => {
-    if (onOrdersLoaded && tableOrders.length > 0) {
-      onOrdersLoaded(tableOrders)
-    }
+    onOrdersLoaded?.(tableOrders)
   }, [tableOrders, onOrdersLoaded])
 
   const handleSort = (key: string) => {
@@ -269,26 +289,23 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
     } else {
       setSortKey(key)
-      setSortDir(key === 'date' ? 'desc' : 'asc')
+      setSortDir(key === 'date' || key === 'age' ? 'desc' : 'asc')
     }
   }
 
   const handleSelectOrder = (orderId: number, selected: boolean) => {
     const newSelected = new Set(selectedOrders)
-    if (selected) {
-      newSelected.add(orderId)
-    } else {
-      newSelected.delete(orderId)
-    }
+    if (selected) newSelected.add(orderId)
+    else newSelected.delete(orderId)
     setSelectedOrders(newSelected)
   }
 
   const handleSelectAll = (selected: boolean) => {
     if (selected) {
       setSelectedOrders(new Set(filteredOrders.map((o: any) => o.orderId)))
-    } else {
-      setSelectedOrders(new Set())
+      return
     }
+    setSelectedOrders(new Set())
   }
 
   const handleRowsPerPageChange = (newSize: number) => {
@@ -296,58 +313,6 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     setCurrentPage(1)
   }
 
-  // Export CSV — visible columns, current sort order
-  const handleExportCSV = () => {
-    const colDefs = visibleColKeys
-      .map(key => ALL_COLUMNS.find(c => c.key === key))
-      .filter(c => c && c.key !== 'select') as typeof ALL_COLUMNS
-
-    const getRowValue = (order: any, colKey: string): string => {
-      const item = Array.isArray(order.items) ? (order.items.find((i: any) => !('adjustment' in i)) || order.items[0]) : null
-      switch (colKey) {
-        case 'date': return order.orderDate ? new Date(order.orderDate).toLocaleString() : ''
-        case 'client': return order.clientName || ''
-        case 'orderNum': return order.orderNumber || ''
-        case 'customer': return order.shipTo?.name || ''
-        case 'itemname': return item?.name || ''
-        case 'sku': return item?.sku || ''
-        case 'qty': return String(item?.quantity || 1)
-        case 'weight': return order.weight?.value ? `${order.weight.value}oz` : ''
-        case 'shipto': return order.shipTo ? `${order.shipTo.city}, ${order.shipTo.state}` : ''
-        case 'carrier': return [order.carrierCode, order.serviceCode].filter(Boolean).join(' • ')
-        case 'custcarrier': return order.shippingAccountName || ''
-        case 'total': return order.orderTotal != null ? `$${order.orderTotal.toFixed(2)}` : ''
-        case 'bestrate': return order.bestRate?.cost != null ? `$${order.bestRate.cost.toFixed(2)}` : ''
-        case 'tracking': return order.trackingNumber || ''
-        default: return ''
-      }
-    }
-
-    const headers = colDefs.map(c => c.label)
-    const rows = filteredOrders.map(order =>
-      colDefs.map(c => {
-        const val = getRowValue(order, c.key)
-        // Escape CSV: wrap in quotes if contains comma, newline, or quote
-        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-          return `"${val.replace(/"/g, '""')}"`
-        }
-        return val
-      }).join(',')
-    )
-
-    const csv = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `prepship-orders-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
-  // SKU sort toggle
   const handleSkuSort = () => {
     if (sortKey === 'sku') {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -381,15 +346,12 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     setFocusedRowIndex(-1)
   }
 
-  // ── Keyboard navigation (gap #11) ──────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!tableOrders.length) return
-    
-    // Only handle when table area is focused
+
     const active = document.activeElement
     const tableEl = tableRef.current
     if (!tableEl) return
-    // Allow when table or panel has focus, or when focused index is set
     if (!tableEl.contains(active) && panelOrderId === null && focusedRowIndex < 0) return
 
     if (e.key === 'ArrowDown') {
@@ -434,8 +396,8 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)' }}>
         <div style={{ fontSize: '13px', marginBottom: '8px' }}>⚠️ Failed to load orders</div>
         <div style={{ fontSize: '11px', color: 'var(--text2)', marginBottom: '12px' }}>{error.message}</div>
-        <button 
-          onClick={() => refetch()} 
+        <button
+          onClick={() => refetch()}
           className="btn btn-sm"
           style={{ backgroundColor: 'var(--ss-blue)', color: '#fff' }}
         >
@@ -445,18 +407,14 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     )
   }
 
-  const shiftWindow = getShiftWindow()
   const firstRow = (currentPage - 1) * rowsPerPage + 1
   const lastRow = Math.min(currentPage * rowsPerPage, total)
+  const showCustomDateWrap = dateFilter === 'custom'
 
   return (
     <div id="view-orders" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* ── Daily Strip / Shift Window Banner (gap #5) ─────────────────── */}
-      <StatsBar />
-
-      {/* ── Filter Bar (gap #3) ───────────────────────────────────────── */}
       <div className="filterbar">
-        <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
+        <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <input
             type="text"
             placeholder="Search orders, SKUs, names…"
@@ -476,6 +434,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
                 color: 'var(--text3)',
                 fontSize: '13px',
                 padding: '2px',
+                lineHeight: 1,
               }}
             >
               ✕
@@ -483,7 +442,6 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           )}
         </div>
 
-        {/* All SKUs filter (was "All Stores") */}
         <select
           className="filter-sel"
           value={skuFilter}
@@ -495,48 +453,40 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           ))}
         </select>
 
-        {/* Date filter — Last 30 Days default */}
         <select
           className="filter-sel"
           value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
+          onChange={(e) => setDateFilter(e.target.value as OrdersDateFilter)}
         >
-          <option value="all">All Dates</option>
-          <option value="thisMonth">This Month</option>
-          <option value="lastMonth">Last Month</option>
-          <option value="last30">Last 30 Days</option>
-          <option value="last90">Last 90 Days</option>
+          <option value="">All Dates</option>
+          <option value="this-month">This Month</option>
+          <option value="last-month">Last Month</option>
+          <option value="last-30">Last 30 Days</option>
+          <option value="last-90">Last 90 Days</option>
+          <option value="custom">Custom…</option>
         </select>
 
-        <button className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)}>
-          Select All
-        </button>
-        {selectedOrders.size > 1 && (
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setSelectedOrders(new Set())}
-            style={{ color: 'var(--text3)', borderColor: 'var(--border2)' }}
-            title="Deselect all rows"
-          >
-            ✕ Deselect All ({selectedOrders.size})
-          </button>
-        )}
-        <button 
-          className={`btn btn-ghost btn-sm${sortKey === 'sku' ? ' btn-outline' : ''}`}
-          onClick={handleSkuSort}
-          title="Sort by SKU"
-          style={sortKey === 'sku' ? { color: 'var(--ss-blue)', borderColor: 'var(--ss-blue)' } : {}}
-        >
-          SKU {sortKey === 'sku' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={handleExportCSV} title="Export visible columns as CSV">
-          📥 Export CSV
-        </button>
-        <button className="btn btn-ghost btn-sm">🖨️ Picklist</button>
+        <div style={{ display: showCustomDateWrap ? 'flex' : 'none', alignItems: 'center', gap: '4px' }}>
+          <input
+            type="date"
+            className="filter-sel"
+            style={{ padding: '4px 6px', fontSize: '11.5px', width: 'auto' }}
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+          <span style={{ color: 'var(--text3)', fontSize: '11px' }}>–</span>
+          <input
+            type="date"
+            className="filter-sel"
+            style={{ padding: '4px 6px', fontSize: '11.5px', width: 'auto' }}
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
 
-        {/* Columns dropdown */}
-        <div ref={colMenuRef} style={{ position: 'relative' }}>
-          <button 
+        <div ref={colMenuRef} className="col-toggle-wrap" style={{ display: 'none' }}>
+          <button
+            id="colBtnFilter"
             className="btn btn-outline btn-sm"
             onClick={() => setColMenuOpen(v => !v)}
           >
@@ -600,10 +550,9 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
                 <button
                   className="btn btn-ghost btn-xs"
                   onClick={() => {
-                    const defaults: Record<string, boolean> = {}
-                    ALL_COLUMNS.forEach(c => { defaults[c.key] = c.defaultVisible })
-                    setColVis(defaults)
-                    setColOrder(ALL_COLUMNS.map(c => c.key))
+                    setColVis(getDefaultColVis())
+                    setColOrder(getDefaultColOrder())
+                    setColumnWidths(getDefaultColWidths())
                   }}
                   style={{ width: '100%', justifyContent: 'center', fontSize: '11px' }}
                 >
@@ -613,7 +562,29 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
             </div>
           )}
         </div>
+
+        <button id="btnSelectAll" className="btn btn-ghost btn-sm" onClick={() => handleSelectAll(true)}>
+          Select All
+        </button>
+        <button
+          id="btnSkuSort"
+          className={`btn btn-ghost btn-sm${sortKey === 'sku' ? ' btn-outline' : ''}`}
+          onClick={handleSkuSort}
+          title="Sort by SKU"
+          style={sortKey === 'sku' ? { color: 'var(--ss-blue)', borderColor: 'var(--ss-blue)', gap: '4px' } : { gap: '4px' }}
+        >
+          📋 SKU Sort
+        </button>
+        <button
+          id="picklistBtn"
+          className="btn btn-ghost btn-sm"
+          style={{ marginLeft: 'auto', display: status === 'awaiting_shipment' ? undefined : 'none', fontSize: '11.5px', gap: '4px' }}
+        >
+          🖨️ Picklist
+        </button>
       </div>
+
+      <StatsBar />
 
       <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div className="orders-section">
@@ -621,6 +592,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
             <OrdersTable
               status={status}
               orders={tableOrders}
+              markups={markups}
               selectedOrders={selectedOrders}
               onSelectOrder={handleSelectOrder}
               onSelectAll={handleSelectAll}
@@ -631,10 +603,13 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
               focusedRowIndex={focusedRowIndex}
               panelOrderId={panelOrderId}
               visibleColKeys={visibleColKeys}
+              storeMap={storeMap}
+              carrierAccounts={carrierAccounts}
+              columnWidths={columnWidths}
+              onColumnWidthsChange={setColumnWidths}
             />
           </div>
 
-          {/* Pagination Bar with total count (gap #9) */}
           <div className="pagination-bar">
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
               {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
@@ -670,10 +645,9 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           </div>
         </div>
 
-        {/* Right Panel — always visible (gap #2) */}
         <OrderPanel
           orderId={panelOrderId}
-          orderSnapshot={filteredOrders.find((order) => order.orderId === panelOrderId) ?? null}
+          orderSnapshot={orders.find((order) => order.orderId === panelOrderId) ?? null}
           orderIds={tableOrders.map((order) => order.orderId)}
           onOpenOrder={handleOpenPanelLocal}
           onClose={handleClosePanel}
