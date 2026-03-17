@@ -98,9 +98,9 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
             {expandedSections.has(status) && (
               <div className="ss-stores">
                 {stores.map((store) => {
-                  const count = storeCounts[store.id] || 0
+                  const count = storeCounts[store.clientId] || 0
                   return (
-                    <div key={store.id} className="ss-store">
+                    <div key={store.clientId} className="ss-store">
                       <span className="ss-store-name">{store.name}</span>
                       <span className="ss-store-count">{count}</span>
                     </div>

@@ -17,6 +17,9 @@ interface Order {
   serviceCode?: string
   trackingNumber?: string
   orderTotal?: number
+  shippingAccountName?: string
+  bestRate?: { cost?: number; carrierCode?: string }
+  shippingAmount?: number
 }
 
 interface OrdersViewProps {
