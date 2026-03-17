@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
-import { useOrders } from '../../hooks'
+import { useOrdersWithDetails } from '../../hooks'
 import OrdersTable from '../Tables/OrdersTable'
+import StatsBar from '../StatsBar/StatsBar'
 import type { OrderSummaryDto } from '@prepshipv2/contracts/orders/contracts'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -26,7 +27,7 @@ interface OrdersViewProps {
 }
 
 // Convert OrderSummaryDto to table Order format
-function convertToTableOrder(dto: OrderSummaryDto): Order {
+function convertToTableOrder(dto: any): Order {
   return {
     orderId: dto.orderId,
     orderNumber: dto.orderNumber || '',
@@ -42,6 +43,9 @@ function convertToTableOrder(dto: OrderSummaryDto): Order {
     serviceCode: dto.serviceCode || undefined,
     trackingNumber: dto.label?.trackingNumber || undefined,
     orderTotal: dto.orderTotal || undefined,
+    shippingAccountName: dto.shippingAccountName || undefined,
+    bestRate: dto.bestRate || undefined,
+    shippingAmount: dto.shippingAmount || undefined,
   }
 }
 
@@ -49,10 +53,13 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
   const [searchText, setSearchText] = useState('')
   const [sortKey, setSortKey] = useState('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [rowsPerPage, setRowsPerPage] = useState(25)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Use the hook to fetch orders from the API
-  const { orders, loading, error, refetch } = useOrders(status, {
-    pageSize: 100, // Load more orders at once for better filtering
+  const { orders, loading, error, refetch, total, pages, currentPage: apiPage, goToPage } = useOrdersWithDetails(status, {
+    pageSize: rowsPerPage,
+    page: currentPage,
   })
 
   // Filter and sort orders locally
@@ -143,8 +150,26 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     )
   }
 
+  const handleRowsPerPageChange = (newSize: number) => {
+    setRowsPerPage(newSize)
+    setCurrentPage(1)
+  }
+
+  const handlePrevPage = async () => {
+    const newPage = Math.max(1, currentPage - 1)
+    setCurrentPage(newPage)
+    await goToPage(newPage)
+  }
+
+  const handleNextPage = async () => {
+    const newPage = Math.min(pages, currentPage + 1)
+    setCurrentPage(newPage)
+    await goToPage(newPage)
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <StatsBar />
       <div className="filterbar">
         <div className="search-wrap" style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, maxWidth: '300px' }}>
           <input
@@ -198,6 +223,39 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
             />
           </div>
         </div>
+      </div>
+
+      {/* Pagination Bar */}
+      <div className="pagination-bar">
+        <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
+          Page {currentPage} of {pages}
+        </span>
+        <button
+          onClick={handlePrevPage}
+          disabled={currentPage === 1}
+          className="btn btn-sm btn-ghost"
+          style={{ marginLeft: '8px' }}
+        >
+          ← Prev
+        </button>
+        <button
+          onClick={handleNextPage}
+          disabled={currentPage >= pages}
+          className="btn btn-sm btn-ghost"
+          style={{ marginLeft: '4px' }}
+        >
+          Next →
+        </button>
+        <select
+          value={rowsPerPage}
+          onChange={(e) => handleRowsPerPageChange(Number(e.target.value))}
+          className="filter-sel"
+          style={{ marginLeft: 'auto' }}
+        >
+          <option value={25}>25 rows</option>
+          <option value={50}>50 rows</option>
+          <option value={100}>100 rows</option>
+        </select>
       </div>
     </div>
   )

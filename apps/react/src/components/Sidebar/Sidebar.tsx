@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useStoreOrders, useStores } from '../../hooks'
 import './Sidebar.css'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -18,6 +19,10 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
     shipped: 0,
     cancelled: 0,
   })
+
+  // Fetch store orders
+  const { storeCounts } = useStoreOrders(currentStatus)
+  const { stores } = useStores()
 
   useEffect(() => {
     // Fetch status counts from API
@@ -92,7 +97,15 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
             </div>
             {expandedSections.has(status) && (
               <div className="ss-stores">
-                {/* Store list would go here */}
+                {stores.map((store) => {
+                  const count = storeCounts[store.id] || 0
+                  return (
+                    <div key={store.id} className="ss-store">
+                      <span className="ss-store-name">{store.name}</span>
+                      <span className="ss-store-count">{count}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

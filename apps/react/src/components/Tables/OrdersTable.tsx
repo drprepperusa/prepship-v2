@@ -13,6 +13,9 @@ interface Order {
   serviceCode?: string
   trackingNumber?: string
   orderTotal?: number
+  shippingAccountName?: string
+  bestRate?: { cost?: number; carrierCode?: string }
+  shippingAmount?: number
 }
 
 interface OrdersTableProps {
@@ -29,23 +32,19 @@ interface OrdersTableProps {
 
 const COLUMNS = [
   { key: 'select', label: '', width: 34, sortable: false },
-  { key: 'date', label: 'Order Date', width: 90, sortable: true },
-  { key: 'client', label: 'Client', width: 100, sortable: true },
-  { key: 'orderNum', label: 'Order #', width: 85, sortable: true },
-  { key: 'customer', label: 'Recipient', width: 175, sortable: true },
-  { key: 'itemname', label: 'Item Name', width: 170, sortable: true },
-  { key: 'sku', label: 'SKU', width: 100, sortable: true },
-  { key: 'qty', label: 'Qty', width: 44, sortable: true },
-  { key: 'weight', label: 'Weight', width: 80, sortable: true },
-  { key: 'shipto', label: 'Ship To', width: 135, sortable: true },
-  { key: 'carrier', label: 'Carrier', width: 145, sortable: true },
-  { key: 'custcarrier', label: 'Shipping Account', width: 140, sortable: true },
+  { key: 'date', label: 'Order Date', width: 80, sortable: true },
+  { key: 'orderNum', label: 'Order #', width: 80, sortable: true },
+  { key: 'customer', label: 'Recipient', width: 130, sortable: true },
+  { key: 'itemname', label: 'Item Name', width: 140, sortable: true },
+  { key: 'sku', label: 'SKU', width: 90, sortable: true },
+  { key: 'qty', label: 'Qty', width: 40, sortable: true },
+  { key: 'weight', label: 'Weight', width: 70, sortable: true },
+  { key: 'shipto', label: 'Ship To', width: 120, sortable: true },
+  { key: 'carrier', label: 'Carrier', width: 100, sortable: true },
+  { key: 'custcarrier', label: 'Shipping Account', width: 130, sortable: true },
   { key: 'total', label: 'Order Total', width: 85, sortable: true },
-  { key: 'bestrate', label: 'Best Rate', width: 105, sortable: false },
-  { key: 'margin', label: 'Ship Margin', width: 90, sortable: false },
-  { key: 'tracking', label: 'Tracking #', width: 160, sortable: false },
-  { key: 'labelcreated', label: 'Label Created', width: 115, sortable: false },
-  { key: 'age', label: 'Age', width: 50, sortable: true },
+  { key: 'bestrate', label: 'Best Rate', width: 80, sortable: false },
+  { key: 'tracking', label: 'Tracking #', width: 120, sortable: false },
 ]
 
 export default function OrdersTable({
@@ -117,8 +116,6 @@ export default function OrdersTable({
         return null // Handled separately
       case 'date':
         return formatDate(order.orderDate)
-      case 'client':
-        return '—' // TODO: fetch client name
       case 'orderNum':
         return order.orderNumber
       case 'customer':
@@ -136,17 +133,13 @@ export default function OrdersTable({
       case 'carrier':
         return order.carrierCode ? `${order.carrierCode}${order.serviceCode ? ' • ' + order.serviceCode : ''}` : '—'
       case 'custcarrier':
-        return '—' // TODO: fetch shipping account
+        return order.shippingAccountName || '—'
       case 'total':
         return formatCurrency(order.orderTotal)
       case 'bestrate':
-        return '—'
-      case 'margin':
-        return '—'
+        return order.bestRate?.cost ? formatCurrency(order.bestRate.cost) : '—'
       case 'tracking':
         return order.trackingNumber || '—'
-      case 'labelcreated':
-        return '—'
       case 'age':
         if (!order.orderDate) return '—'
         const days = Math.floor((Date.now() - new Date(order.orderDate).getTime()) / (1000 * 60 * 60 * 24))
