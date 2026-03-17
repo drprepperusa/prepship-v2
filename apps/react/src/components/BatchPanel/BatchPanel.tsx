@@ -1,5 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
+/**
+ * BatchPanel — Batch shipping for 2+ selected orders
+ * 
+ * Uses useReducer for atomic state transitions (no more module-scoped orderBestRate)
+ * AbortController for cancellable rate fetching
+ * Proper React patterns throughout
+ */
+
+import { useReducer, useCallback, useEffect, useRef } from 'react'
 import { useToast } from '../../hooks/useToast'
+import { useMarkups } from '../../contexts/MarkupsContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -13,7 +22,7 @@ interface Order {
   serviceCode?: string
   orderTotal?: number
   shippingAccountName?: string
-  bestRate?: { cost?: number; carrierCode?: string; serviceCode?: string; shippingProviderId?: number }
+  bestRate?: { cost?: number; shipmentCost?: number; otherCost?: number; carrierCode?: string; serviceCode?: string; serviceName?: string; shippingProviderId?: number }
   _enrichedWeight?: { value: number }
   _enrichedDims?: { length?: number; width?: number; height?: number }
 }
@@ -22,10 +31,10 @@ interface RateResult {
   serviceCode: string
   serviceName?: string
   carrierCode: string
-  shipmentCost: number
+  shipmentCost?: number
   otherCost?: number
   shippingProviderId?: number
-  cost?: number
+  cost: number
 }
 
 interface BatchPanelProps {
@@ -35,22 +44,101 @@ interface BatchPanelProps {
   onRefresh?: () => void
 }
 
-// ── Service name map ───────────────────────────────────────────────────────────
+// ── Batch State Machine ────────────────────────────────────────────────────────
 
-const SERVICE_NAMES: Record<string, string> = {
-  'usps_priority_mail': 'USPS Priority Mail',
-  'usps_priority_mail_express': 'USPS Priority Express',
-  'usps_first_class_mail': 'USPS First Class',
-  'usps_ground_advantage': 'USPS Ground Advantage',
-  'ups_ground': 'UPS Ground',
-  'ups_next_day_air': 'UPS Next Day Air',
-  'ups_2nd_day_air': 'UPS 2nd Day Air',
-  'fedex_ground': 'FedEx Ground',
-  'fedex_home_delivery': 'FedEx Home Delivery',
-  'fedex_2day': 'FedEx 2Day',
+interface OrderRateState {
+  status: 'idle' | 'pending' | 'ok' | 'error'
+  display?: string
+  cost?: number
+  rate?: RateResult
 }
 
-function svcName(code: string, fallback?: string) {
+interface BatchState {
+  phase: 'idle' | 'rating' | 'creating' | 'queuing'
+  rateResults: Record<number, OrderRateState>
+  bestRates: Record<number, RateResult>
+  rateSummary: { rated: number; failed: number; total: number; totalCost: number } | null
+  // Override dims
+  panelWeight: string
+  panelL: string
+  panelW: string
+  panelH: string
+  testMode: boolean
+}
+
+type BatchAction =
+  | { type: 'SET_DIM'; field: 'panelWeight' | 'panelL' | 'panelW' | 'panelH'; value: string }
+  | { type: 'SET_TEST_MODE'; value: boolean }
+  | { type: 'START_RATING'; orderIds: number[] }
+  | { type: 'ORDER_RATED'; orderId: number; rate: RateResult; cost: number }
+  | { type: 'ORDER_RATE_ERROR'; orderId: number; error: string }
+  | { type: 'RATING_COMPLETE'; rated: number; failed: number; total: number; totalCost: number }
+  | { type: 'START_CREATING' }
+  | { type: 'START_QUEUING' }
+  | { type: 'PHASE_IDLE' }
+  | { type: 'RESET' }
+
+function batchReducer(state: BatchState, action: BatchAction): BatchState {
+  switch (action.type) {
+    case 'SET_DIM':
+      return { ...state, [action.field]: action.value }
+    case 'SET_TEST_MODE':
+      return { ...state, testMode: action.value }
+    case 'START_RATING': {
+      const init: Record<number, OrderRateState> = {}
+      action.orderIds.forEach(id => { init[id] = { status: 'pending' } })
+      return { ...state, phase: 'rating', rateResults: init, bestRates: {}, rateSummary: null }
+    }
+    case 'ORDER_RATED':
+      return {
+        ...state,
+        rateResults: { ...state.rateResults, [action.orderId]: { status: 'ok', cost: action.cost, rate: action.rate, display: `${action.rate.carrierCode} · ${action.rate.serviceName || action.rate.serviceCode}` } },
+        bestRates: { ...state.bestRates, [action.orderId]: action.rate },
+      }
+    case 'ORDER_RATE_ERROR':
+      return { ...state, rateResults: { ...state.rateResults, [action.orderId]: { status: 'error', display: action.error } } }
+    case 'RATING_COMPLETE':
+      return { ...state, phase: 'idle', rateSummary: { rated: action.rated, failed: action.failed, total: action.total, totalCost: action.totalCost } }
+    case 'START_CREATING':
+      return { ...state, phase: 'creating' }
+    case 'START_QUEUING':
+      return { ...state, phase: 'queuing' }
+    case 'PHASE_IDLE':
+      return { ...state, phase: 'idle' }
+    case 'RESET':
+      return initialBatchState
+    default:
+      return state
+  }
+}
+
+const initialBatchState: BatchState = {
+  phase: 'idle',
+  rateResults: {},
+  bestRates: {},
+  rateSummary: null,
+  panelWeight: '',
+  panelL: '',
+  panelW: '',
+  panelH: '',
+  testMode: false,
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function svcName(code: string, fallback?: string | null) {
+  const SERVICE_NAMES: Record<string, string> = {
+    usps_priority_mail: 'USPS Priority Mail',
+    usps_priority_mail_express: 'USPS Priority Express',
+    usps_first_class_mail: 'USPS First Class',
+    usps_ground_advantage: 'USPS Ground Advantage',
+    ups_ground: 'UPS Ground',
+    ups_next_day_air: 'UPS Next Day Air',
+    ups_2nd_day_air: 'UPS 2nd Day Air',
+    fedex_ground: 'FedEx Ground',
+    fedex_home_delivery: 'FedEx Home Delivery',
+    fedex_2day: 'FedEx 2Day',
+  }
   return SERVICE_NAMES[code] || fallback || code
 }
 
@@ -61,43 +149,17 @@ function carrierLabel(code: string) {
   return code.toUpperCase()
 }
 
-// ── Best Rate State ────────────────────────────────────────────────────────────
-
-const orderBestRate: Record<number, RateResult> = {}
-
-// ── Carrier Markups ────────────────────────────────────────────────────────────
-
-interface MarkupData {
-  carrierCode: string
-  markup: number // percentage
-  markupType: 'percent' | 'flat'
-}
-
-async function fetchMarkups(): Promise<MarkupData[]> {
-  try {
-    const res = await fetch('/api/accounts/markups')
-    if (!res.ok) return []
-    const data = await res.json()
-    return Array.isArray(data) ? data : data.markups || []
-  } catch {
-    return []
-  }
-}
-
-function applyMarkup(cost: number, carrier: string, markups: MarkupData[]): number {
-  const m = markups.find(mx => mx.carrierCode === carrier)
-  if (!m) return cost
-  if (m.markupType === 'percent') return cost * (1 + m.markup / 100)
-  return cost + m.markup
-}
-
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onRefresh }: BatchPanelProps) {
-  // Don't render if < 2 orders selected
+  const [state, dispatch] = useReducer(batchReducer, initialBatchState)
+  const { showToast } = useToast()
+  const { markups, applyMarkup } = useMarkups()
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Don't render if < 2 orders
   if (selectedOrderIds.length < 2) return null
 
-  const { showToast } = useToast()
   const selectedOrders = orders.filter(o => selectedOrderIds.includes(o.orderId))
 
   const totalUnits = selectedOrders.reduce((s, o) =>
@@ -107,100 +169,99 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
     (o.items || []).filter(i => !i.adjustment).map(i => i.sku)))]
   const sameSku = skus.length === 1 ? skus[0] : null
 
-  // State
-  const [panelWeight, setPanelWeight] = useState('')
-  const [panelL, setPanelL] = useState('')
-  const [panelW, setPanelW] = useState('')
-  const [panelH, setPanelH] = useState('')
-  const [testMode, setTestMode] = useState(false)
-  const [rateResults, setRateResults] = useState<Record<number, { status: 'pending' | 'ok' | 'error'; display?: string; cost?: number }>>({})
-  const [rateSummary, setRateSummary] = useState<{ rated: number; failed: number; total: number; totalCost: number } | null>(null)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [phase, setPhase] = useState<'idle' | 'rating' | 'creating' | 'queuing'>('idle')
-  const [markups, setMarkups] = useState<MarkupData[]>([])
-
-  // Load markups on mount
-  useEffect(() => {
-    fetchMarkups().then(setMarkups)
-  }, [])
-
   const getOrderParams = useCallback((o: Order) => {
-    const wt = parseFloat(panelWeight) || (o._enrichedWeight || o.weight)?.value || 0
-    const l = parseFloat(panelL) || o._enrichedDims?.length || 0
-    const w = parseFloat(panelW) || o._enrichedDims?.width || 0
-    const h = parseFloat(panelH) || o._enrichedDims?.height || 0
+    const wt = parseFloat(state.panelWeight) || (o._enrichedWeight || o.weight)?.value || 0
+    const l = parseFloat(state.panelL) || o._enrichedDims?.length || 0
+    const w = parseFloat(state.panelW) || o._enrichedDims?.width || 0
+    const h = parseFloat(state.panelH) || o._enrichedDims?.height || 0
     return { wt, l, w, h }
-  }, [panelWeight, panelL, panelW, panelH])
+  }, [state.panelWeight, state.panelL, state.panelW, state.panelH])
+
+  // Cleanup abort on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
 
   // ── Rate Shop ──────────────────────────────────────────────────────────────
 
   const handleRateShop = async () => {
-    setIsProcessing(true); setPhase('rating')
-    const init: typeof rateResults = {}
-    selectedOrders.forEach(o => { init[o.orderId] = { status: 'pending' } })
-    setRateResults({ ...init })
+    // Cancel any in-flight request
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    const { signal } = abortRef.current
+
+    dispatch({ type: 'START_RATING', orderIds: selectedOrders.map(o => o.orderId) })
 
     let rated = 0, failed = 0, totalCost = 0
 
     for (const o of selectedOrders) {
+      if (signal.aborted) break
+
       const p = getOrderParams(o)
       const zip = (o.shipTo?.postalCode || '').replace(/\D/g, '').slice(0, 5)
       if (!p.wt || !zip) {
-        setRateResults(prev => ({ ...prev, [o.orderId]: { status: 'error', display: 'Missing weight/zip' } }))
+        dispatch({ type: 'ORDER_RATE_ERROR', orderId: o.orderId, error: 'Missing weight/zip' })
         failed++; continue
       }
+
       try {
         const res = await fetch('/api/rates', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fromPostalCode: '90248', toPostalCode: zip,
+            fromPostalCode: '90248',
+            toPostalCode: zip,
             weight: { value: p.wt, units: 'ounces' },
-            dimensions: { units: 'inches', length: p.l, width: p.w, height: p.h },
+            dimensions: p.l && p.w && p.h ? { units: 'inches', length: p.l, width: p.w, height: p.h } : undefined,
           }),
+          signal,
         })
-        const rates: RateResult[] = await res.json()
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const rates: Array<{ serviceCode: string; serviceName?: string; carrierCode: string; shipmentCost: number; otherCost: number; shippingProviderId?: number }> = await res.json()
         if (!Array.isArray(rates) || rates.length === 0) throw new Error('No rates')
-        const sorted = rates
-          .map(r => ({ ...r, cost: applyMarkup((r.shipmentCost || 0) + (r.otherCost || 0), r.carrierCode, markups) }))
-          .sort((a, b) => a.cost - b.cost)
-        const best = sorted[0]
-        orderBestRate[o.orderId] = best
-        const cost = best.cost || 0
-        totalCost += cost
+
+        const enriched = rates.map(r => {
+          const baseCost = (r.shipmentCost || 0) + (r.otherCost || 0)
+          const markup = markups[r.shippingProviderId || ''] || markups[r.carrierCode]
+          const cost = markup ? applyMarkup(baseCost, markup) : baseCost
+          return { ...r, cost }
+        })
+        const best = enriched.sort((a, b) => a.cost - b.cost)[0]
+
+        totalCost += best.cost
         rated++
-        setRateResults(prev => ({
-          ...prev,
-          [o.orderId]: {
-            status: 'ok',
-            display: `${carrierLabel(best.carrierCode)} · ${svcName(best.serviceCode, best.serviceName)}`,
-            cost,
-          },
-        }))
-      } catch (e: any) {
+        dispatch({ type: 'ORDER_RATED', orderId: o.orderId, rate: best, cost: best.cost })
+      } catch (e: unknown) {
+        if ((e as Error).name === 'AbortError') break
         failed++
-        setRateResults(prev => ({ ...prev, [o.orderId]: { status: 'error', display: e.message || 'No rates' } }))
+        dispatch({ type: 'ORDER_RATE_ERROR', orderId: o.orderId, error: (e as Error).message || 'No rates' })
       }
     }
 
-    setRateSummary({ rated, failed, total: selectedOrders.length, totalCost })
-    setIsProcessing(false); setPhase('idle')
+    dispatch({ type: 'RATING_COMPLETE', rated, failed, total: selectedOrders.length, totalCost })
   }
 
   // ── Create Labels ──────────────────────────────────────────────────────────
 
   const handleCreateLabels = async () => {
-    const missingRate = selectedOrders.find(o => !orderBestRate[o.orderId])
+    const missingRate = selectedOrders.find(o => !state.bestRates[o.orderId])
     if (missingRate) {
       showToast(`⚠ Rate Shop first — order ${missingRate.orderNumber} has no rate`)
       return
     }
-    setIsProcessing(true); setPhase('creating')
+
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    const { signal } = abortRef.current
+
+    dispatch({ type: 'START_CREATING' })
     let created = 0, failed = 0
     const failures: string[] = []
-    const downloads: Array<{ orderNumber: string; tracking: string; labelUrl: string }> = []
 
     for (const o of selectedOrders) {
-      const best = orderBestRate[o.orderId]
+      if (signal.aborted) break
+      const best = state.bestRates[o.orderId]
       if (!best?.serviceCode || !best?.carrierCode) {
         failed++; failures.push(`${o.orderNumber} (no rate)`)
         continue
@@ -217,33 +278,38 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
             packageCode: 'package',
             ...(p.wt ? { weightOz: p.wt } : {}),
             ...(p.l && p.w && p.h ? { length: p.l, width: p.w, height: p.h } : {}),
-            ...(testMode ? { testLabel: true } : {}),
+            ...(state.testMode ? { testLabel: true } : {}),
           }),
+          signal,
         })
         if (!res.ok) throw new Error(await res.text())
         const d = await res.json()
         created++
-        if (d.labelUrl) downloads.push({ orderNumber: o.orderNumber, tracking: d.trackingNumber, labelUrl: d.labelUrl })
-      } catch (e: any) {
-        failed++; failures.push(`${o.orderNumber} (${e.message || 'unknown'})`)
+        // Open label in new tab
+        if (d.labelUrl) {
+          const a = document.createElement('a')
+          a.href = d.labelUrl
+          a.download = `label-${d.trackingNumber || o.orderNumber}.pdf`
+          a.target = '_blank'
+          a.rel = 'noopener'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          await new Promise(r => setTimeout(r, 300))
+        }
+      } catch (e: unknown) {
+        if ((e as Error).name === 'AbortError') break
+        failed++
+        failures.push(`${o.orderNumber} (${(e as Error).message || 'unknown'})`)
       }
     }
 
+    dispatch({ type: 'PHASE_IDLE' })
+
     if (failed === 0) showToast(`✅ Created ${created}/${selectedOrders.length} labels`)
-    else if (created === 0) showToast(`❌ Failed to create ${failed}/${selectedOrders.length} labels: ${failures.slice(0, 3).join(', ')}`)
+    else if (created === 0) showToast(`❌ Failed: ${failures.slice(0, 3).join(', ')}`)
     else showToast(`⚠️ Created ${created}, ${failed} failed: ${failures.slice(0, 2).join(', ')}`)
 
-    for (const { orderNumber, tracking, labelUrl } of downloads) {
-      try {
-        const a = document.createElement('a')
-        a.href = labelUrl; a.download = `label-${tracking || orderNumber}.pdf`
-        a.target = '_blank'; a.rel = 'noopener'
-        document.body.appendChild(a); a.click(); document.body.removeChild(a)
-        await new Promise(resolve => setTimeout(resolve, 300))
-      } catch {}
-    }
-
-    setIsProcessing(false); setPhase('idle')
     if (created > 0) { onRefresh?.(); onClose() }
   }
 
@@ -251,7 +317,7 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
 
   const handleSendToQueue = async () => {
     const missingRates = selectedOrders.filter(o => {
-      const r = orderBestRate[o.orderId]
+      const r = state.bestRates[o.orderId]
       return !r || !r.serviceCode || !r.carrierCode
     })
     if (missingRates.length > 0) {
@@ -259,18 +325,24 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
       return
     }
 
-    setIsProcessing(true); setPhase('queuing')
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    const { signal } = abortRef.current
+
+    dispatch({ type: 'START_QUEUING' })
     let queued = 0, failed = 0
     const failures: Array<{ orderNumber: string; error: string }> = []
 
     for (const o of selectedOrders) {
-      const best = orderBestRate[o.orderId]
+      if (signal.aborted) break
+      const best = state.bestRates[o.orderId]
       if (!best?.serviceCode || !best?.carrierCode) {
         failed++; failures.push({ orderNumber: o.orderNumber, error: 'No rate' })
         continue
       }
       const p = getOrderParams(o)
       try {
+        // Step 1: Create label
         const labelRes = await fetch('/api/labels/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -281,24 +353,38 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
             weightOz: p.wt,
             packageCode: 'package',
             length: p.l, width: p.w, height: p.h,
-            testLabel: testMode,
+            testLabel: state.testMode,
           }),
+          signal,
         })
         if (!labelRes.ok) throw new Error(await labelRes.text())
         const labelData = await labelRes.json()
 
+        // Step 2: Add to queue
+        const primaryItem = o.items?.find(i => !i.adjustment)
         const queueRes = await fetch('/api/queue/add', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: o.orderId, labelId: labelData.labelId }),
+          body: JSON.stringify({
+            order_id: String(o.orderId),
+            order_number: o.orderNumber,
+            label_url: labelData.labelUrl || '',
+            primary_sku: primaryItem?.sku || null,
+            item_description: primaryItem?.name || null,
+            order_qty: o.items?.filter(i => !i.adjustment).reduce((s, i) => s + i.quantity, 0) || 1,
+          }),
+          signal,
         })
         if (!queueRes.ok) throw new Error(await queueRes.text())
         queued++
-      } catch (e: any) {
-        failed++; failures.push({ orderNumber: o.orderNumber, error: e.message || 'Failed' })
+      } catch (e: unknown) {
+        if ((e as Error).name === 'AbortError') break
+        failed++
+        failures.push({ orderNumber: o.orderNumber, error: (e as Error).message || 'Failed' })
       }
     }
 
-    setIsProcessing(false); setPhase('idle')
+    dispatch({ type: 'PHASE_IDLE' })
+
     if (failed === 0) {
       showToast(`✅ Queued ${queued} orders`)
       onRefresh?.(); onClose()
@@ -308,23 +394,30 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
     }
   }
 
+  // ── State computations ─────────────────────────────────────────────────────
+
   const statesMap: Record<string, number> = {}
   selectedOrders.forEach(o => {
     const st = o.shipTo?.state || '?'
     statesMap[st] = (statesMap[st] || 0) + 1
   })
-  const stateList = Object.entries(statesMap).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([st, n]) => `${st} (${n})`).join(', ')
+  const stateList = Object.entries(statesMap).sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([st, n]) => `${st} (${n})`).join(', ')
 
-  const phaseLabel = phase === 'rating' ? 'Shopping rates…' : phase === 'creating' ? 'Creating labels…' : phase === 'queuing' ? 'Queuing…' : ''
+  const isProcessing = state.phase !== 'idle'
+  const phaseLabel = state.phase === 'rating' ? 'Shopping rates…'
+    : state.phase === 'creating' ? 'Creating labels…'
+    : state.phase === 'queuing' ? 'Queuing…'
+    : ''
 
-  // ── Render as right sidebar panel ─────────────────────────────────────────
+  const hasRates = state.rateSummary !== null && state.rateSummary.rated > 0
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{
       position: 'fixed',
-      top: 0,
-      right: 0,
-      bottom: 0,
+      top: 0, right: 0, bottom: 0,
       width: 360,
       zIndex: 8000,
       backgroundColor: 'var(--surface)',
@@ -363,44 +456,46 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
         <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.4px', marginBottom: 4 }}>Destinations</div>
         <div style={{ fontSize: '11.5px', color: 'var(--text2)', marginBottom: 14 }}>{stateList}</div>
 
-        {/* Shared dims override */}
+        {/* Override dims */}
         <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.4px', marginBottom: 8 }}>Override Weight & Dims (optional)</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             {[
-              { label: 'Weight (oz)', val: panelWeight, set: setPanelWeight },
-              { label: 'Length (in)', val: panelL, set: setPanelL },
-              { label: 'Width (in)', val: panelW, set: setPanelW },
-              { label: 'Height (in)', val: panelH, set: setPanelH },
+              { label: 'Weight (oz)', val: state.panelWeight, field: 'panelWeight' as const },
+              { label: 'Length (in)', val: state.panelL, field: 'panelL' as const },
+              { label: 'Width (in)', val: state.panelW, field: 'panelW' as const },
+              { label: 'Height (in)', val: state.panelH, field: 'panelH' as const },
             ].map(f => (
-              <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 9, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase' }}>{f.label}</label>
-                <input type="number" step="0.1" min="0" value={f.val} onChange={e => f.set(e.target.value)} placeholder="—"
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid var(--border2)', borderRadius: 5, background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }} />
+              <div key={f.label}>
+                <label style={{ fontSize: 9, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>{f.label}</label>
+                <input
+                  type="number" step="0.1" min="0" value={f.val}
+                  onChange={e => dispatch({ type: 'SET_DIM', field: f.field, value: e.target.value })}
+                  placeholder="—"
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid var(--border2)', borderRadius: 5, background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
+                />
               </div>
             ))}
           </div>
         </div>
 
-        {/* Orders list with rate results */}
+        {/* Orders list */}
         <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.4px', marginBottom: 6 }}>Selected Orders</div>
-        <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 14 }}>
+        <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 14 }}>
           {selectedOrders.map(o => {
-            const r = rateResults[o.orderId]
+            const r = state.rateResults[o.orderId]
             return (
               <div key={o.orderId} style={{ padding: '7px 10px', fontSize: 11, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ fontFamily: 'monospace', color: 'var(--ss-blue)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.orderNumber}</span>
-                <span style={{ color: 'var(--text3)', fontSize: 10, margin: '0 6px', flexShrink: 0 }}>{o.shipTo?.state} {(o.shipTo?.postalCode || '').slice(0, 5)}</span>
+                <span style={{ fontFamily: 'monospace', color: 'var(--ss-blue)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {o.orderNumber}
+                </span>
+                <span style={{ color: 'var(--text3)', fontSize: 10, margin: '0 6px', flexShrink: 0 }}>
+                  {o.shipTo?.state} {(o.shipTo?.postalCode || '').slice(0, 5)}
+                </span>
                 {r ? (
-                  r.status === 'pending' ? (
-                    <span style={{ color: 'var(--text4)', fontSize: 10, flexShrink: 0 }}>⏳</span>
-                  ) : r.status === 'ok' ? (
-                    <span style={{ fontSize: 10, flexShrink: 0 }}>
-                      <strong style={{ color: 'var(--green)' }}>${r.cost?.toFixed(2)}</strong>
-                    </span>
-                  ) : (
-                    <span style={{ color: 'var(--red)', fontSize: 10, flexShrink: 0 }}>❌</span>
-                  )
+                  r.status === 'pending' ? <span style={{ color: 'var(--text4)', fontSize: 10, flexShrink: 0 }}>⏳</span>
+                  : r.status === 'ok' ? <strong style={{ color: 'var(--green)', fontSize: 10, flexShrink: 0 }}>${r.cost?.toFixed(2)}</strong>
+                  : <span style={{ color: 'var(--red)', fontSize: 10, flexShrink: 0 }} title={r.display}>❌</span>
                 ) : (
                   <span style={{ color: 'var(--text4)', fontSize: 10, flexShrink: 0 }}>—</span>
                 )}
@@ -410,19 +505,29 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
         </div>
 
         {/* Rate summary */}
-        {rateSummary && (
+        {state.rateSummary && (
           <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-              <span style={{ fontSize: 12 }}>{rateSummary.rated} of {rateSummary.total} rated{rateSummary.failed > 0 && <span style={{ color: 'var(--red)' }}> · {rateSummary.failed} failed</span>}</span>
-              <span style={{ color: 'var(--green)', fontSize: 13 }}>Total: ${rateSummary.totalCost.toFixed(2)}</span>
+              <span style={{ fontSize: 12 }}>
+                {state.rateSummary.rated} of {state.rateSummary.total} rated
+                {state.rateSummary.failed > 0 && <span style={{ color: 'var(--red)' }}> · {state.rateSummary.failed} failed</span>}
+              </span>
+              <span style={{ color: 'var(--green)', fontSize: 13 }}>Total: ${state.rateSummary.totalCost.toFixed(2)}</span>
             </div>
-            <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 2 }}>Avg: ${rateSummary.rated ? (rateSummary.totalCost / rateSummary.rated).toFixed(2) : '0.00'}/order</div>
+            <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 2 }}>
+              Avg: ${state.rateSummary.rated ? (state.rateSummary.totalCost / state.rateSummary.rated).toFixed(2) : '0.00'}/order
+            </div>
           </div>
         )}
 
         {/* Test mode */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 10px', background: '#f3e8ff', borderRadius: 6, border: '1px solid #e9d5ff' }}>
-          <input type="checkbox" id="batch-test-mode" checked={testMode} onChange={e => setTestMode(e.target.checked)} style={{ cursor: 'pointer' }} />
+          <input
+            type="checkbox" id="batch-test-mode"
+            checked={state.testMode}
+            onChange={e => dispatch({ type: 'SET_TEST_MODE', value: e.target.checked })}
+            style={{ cursor: 'pointer' }}
+          />
           <label htmlFor="batch-test-mode" style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>🧪 Test mode (no charges)</label>
         </div>
 
@@ -430,7 +535,7 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
         <button
           onClick={handleRateShop}
           disabled={isProcessing}
-          style={{ width: '100%', padding: '10px', background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border2)', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: isProcessing ? 0.7 : 1, marginBottom: 8 }}
+          style={{ width: '100%', padding: '10px', background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border2)', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isProcessing ? 'not-allowed' : 'pointer', opacity: isProcessing ? 0.7 : 1, marginBottom: 8 }}
         >
           💰 Rate Shop All
         </button>
@@ -438,15 +543,15 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <button
             onClick={handleCreateLabels}
-            disabled={isProcessing || !rateSummary || rateSummary.rated === 0}
-            style={{ flex: 1, padding: '11px', background: 'var(--ss-blue)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: (isProcessing || !rateSummary || rateSummary.rated === 0) ? 0.7 : 1 }}
+            disabled={isProcessing || !hasRates}
+            style={{ flex: 1, padding: '11px', background: 'var(--ss-blue)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isProcessing || !hasRates ? 'not-allowed' : 'pointer', opacity: (isProcessing || !hasRates) ? 0.7 : 1 }}
           >
             🖨️ Print Labels
           </button>
           <button
             onClick={handleSendToQueue}
-            disabled={isProcessing || !rateSummary || rateSummary.rated === 0}
-            style={{ flex: 1, padding: '11px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: (isProcessing || !rateSummary || rateSummary.rated === 0) ? 0.7 : 1 }}
+            disabled={isProcessing || !hasRates}
+            style={{ flex: 1, padding: '11px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: isProcessing || !hasRates ? 'not-allowed' : 'pointer', opacity: (isProcessing || !hasRates) ? 0.7 : 1 }}
           >
             📥 Send to Queue
           </button>
@@ -455,12 +560,6 @@ export default function BatchPanel({ selectedOrderIds, orders = [], onClose, onR
         {phaseLabel && (
           <div style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--ss-blue-bg)', color: 'var(--ss-blue)', fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
             ⏳ {phaseLabel}
-          </div>
-        )}
-
-        {markups.length > 0 && (
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6 }}>
-            Carrier markups applied: {markups.map(m => `${m.carrierCode} +${m.markup}${m.markupType === 'percent' ? '%' : '$'}`).join(', ')}
           </div>
         )}
       </div>

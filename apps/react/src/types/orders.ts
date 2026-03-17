@@ -40,6 +40,11 @@ export interface Rate {
   serviceCode: string;
   serviceName: string;
   amount: number;
+  shipmentCost?: number;
+  otherCost?: number;
+  carrierNickname?: string | null;
+  deliveryDays?: number | null;
+  estimatedDelivery?: string | null;
   estimatedDeliveryDays?: number;
   surcharges?: Array<{ name: string; amount: number }>;
 }

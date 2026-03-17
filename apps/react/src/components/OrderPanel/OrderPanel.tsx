@@ -3,10 +3,11 @@ import type { CSSProperties } from 'react'
 import type { CarrierAccountDto } from '@prepshipv2/contracts/init/contracts'
 import type { OrderSummaryDto, OrderSelectedRateDto } from '@prepshipv2/contracts/orders/contracts'
 import type { PackageDto } from '@prepshipv2/contracts/packages/contracts'
-import type { LocationDto } from '@prepshipv2/contracts/locations/contracts'
 import type { RateDto } from '@prepshipv2/contracts/rates/contracts'
 import { useLocations, useOrderDetail, useShippingAccounts } from '../../hooks'
 import { useToast } from '../../hooks/useToast'
+import FullRateBrowserModal from '../RateBrowser/RateBrowserModal'
+import type { RateSelection } from '../RateBrowser/RateBrowserModal'
 
 type ProductDefaultsDto = {
   sku: string
@@ -401,96 +402,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
-function RateBrowserModal({
-  open,
-  rates,
-  loading,
-  onClose,
-  onSelect,
-}: {
-  open: boolean
-  rates: RateDto[]
-  loading: boolean
-  onClose: () => void
-  onSelect: (rate: RateDto) => void
-}) {
-  if (!open) return null
-
-  const sortedRates = [...rates].sort((a, b) => formatRateTotal(a) - formatRateTotal(b))
-
-  return (
-    <div
-      id="rateBrowserModal"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9200,
-        background: 'rgba(0,0,0,.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          width: '900px',
-          maxWidth: '95vw',
-          maxHeight: '85vh',
-          overflow: 'hidden',
-          borderRadius: '12px',
-          border: '1px solid var(--border2)',
-          background: 'var(--surface)',
-          boxShadow: 'var(--shadow-lg)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text)' }}>Browse Rates</div>
-          <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{loading ? 'Refreshing…' : `${sortedRates.length} options`}</div>
-          <button className="panel-close" style={{ marginLeft: 'auto', display: 'flex' }} onClick={onClose}>✕</button>
-        </div>
-        <div id="rb-rates" style={{ overflowY: 'auto', padding: '10px 12px 14px' }}>
-          {!sortedRates.length && !loading ? (
-            <div style={{ padding: '18px', textAlign: 'center', fontSize: '12px', color: 'var(--text3)' }}>No rates available</div>
-          ) : (
-            sortedRates.map((rate) => (
-              <button
-                key={`${rate.shippingProviderId}-${rate.serviceCode}-${rate.shipmentCost}`}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '10px',
-                  padding: '10px 12px',
-                  marginBottom: '6px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface2)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-                onClick={() => onSelect(rate)}
-              >
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 700 }}>{fmtCarrierName(rate)} · {fmtServiceName(rate.serviceCode, rate.serviceName)}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>
-                    {rate.deliveryDays ? `${rate.deliveryDays} day${rate.deliveryDays === 1 ? '' : 's'}` : 'ETA unavailable'}
-                  </div>
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--green-dark)' }}>${formatRateTotal(rate).toFixed(2)}</div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
+// RateBrowserModal is now imported from RateBrowser/RateBrowserModal.tsx
 
 export default function OrderPanel({ orderId, orderSnapshot, orderIds, onOpenOrder, onClose, onRefresh }: OrderPanelProps) {
   const { order, loading, error, refetch: refetchOrder } = useOrderDetail(orderId)
@@ -1694,18 +1606,53 @@ export default function OrderPanel({ orderId, orderSnapshot, orderIds, onOpenOrd
         </div>
       </div>
 
-      <RateBrowserModal
-        open={rateBrowserOpen}
-        rates={panelRates}
-        loading={rateLoading}
+      <FullRateBrowserModal
+        isOpen={rateBrowserOpen}
+        order={panelOrder ? {
+          orderId: panelOrder.orderId,
+          orderNumber: panelOrder.orderNumber ?? String(panelOrder.orderId),
+          shipTo: {
+            postalCode: shipTo.postalCode,
+            residential: isResidential(panelOrder),
+            name: shipTo.name,
+          },
+          weight: panelOrder.weight ? { value: panelOrder.weight.value, units: panelOrder.weight.units } : undefined,
+          dimensions: getOrderDimensions(panelOrder),
+          storeId: getOrderStoreId(panelOrder) ?? undefined,
+          items: Array.isArray(panelOrder.items) ? panelOrder.items.map((i: any) => ({
+            sku: typeof i.sku === 'string' ? i.sku : '',
+            quantity: typeof i.quantity === 'number' ? i.quantity : 1,
+            adjustment: Boolean(i.adjustment),
+          })) : [],
+        } : null}
         onClose={() => setRateBrowserOpen(false)}
-        onSelect={(rate) => {
-          if (rate.shippingProviderId) {
-            setSelectedShipAccountId(String(rate.shippingProviderId))
+        onSelectRate={(sel: RateSelection) => {
+          setSelectedShipAccountId(String(sel.shippingProviderId))
+          setSelectedService(sel.serviceCode)
+          if (sel.weightLb !== undefined) setWeightLb(String(sel.weightLb))
+          if (sel.weightOz !== undefined) setWeightOz(String(sel.weightOz))
+          if (sel.length) setLength(String(sel.length))
+          if (sel.width) setWidth(String(sel.width))
+          if (sel.height) setHeight(String(sel.height))
+          const syntheticRate: RateDto = {
+            serviceCode: sel.serviceCode,
+            serviceName: sel.serviceName,
+            packageType: null,
+            shipmentCost: sel.shipmentCost,
+            otherCost: sel.otherCost,
+            rateDetails: [],
+            carrierCode: sel.carrierCode,
+            shippingProviderId: sel.shippingProviderId,
+            carrierNickname: sel.carrierNickname ?? null,
+            guaranteed: false,
+            zone: null,
+            sourceClientId: null,
+            deliveryDays: null,
+            estimatedDelivery: null,
           }
-          setSelectedService(rate.serviceCode)
-          setSelectedRate(rate)
-          setRateBrowserOpen(false)
+          setSelectedRate(syntheticRate)
+          const total = sel.shipmentCost + sel.otherCost
+          setRateMessage(`${sel.carrierNickname || sel.carrierCode} · ${sel.serviceName} · $${total.toFixed(2)}`)
         }}
       />
     </div>

@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+/**
+ * QueueContext — Print queue state management
+ * 
+ * DB-first architecture: localStorage is 5-minute fallback cache only
+ * 30s cross-tab sync via polling
+ * useEffect cleanup for all intervals/timers
+ */
+
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 
 export interface QueueItem {
@@ -14,6 +22,7 @@ export interface QueueItem {
   sku?: string
   skuName?: string
   addedAt: number
+  printCount?: number
 }
 
 interface QueueContextValue {
@@ -23,7 +32,7 @@ interface QueueContextValue {
   removeFromQueue: (queueId: string) => Promise<void>
   markPrinted: (queueId: string) => void
   clearPrinted: () => void
-  clearAll: () => void
+  clearAll: () => Promise<void>
   refreshQueue: () => Promise<void>
   isOpen: boolean
   setIsOpen: (open: boolean) => void
@@ -32,54 +41,106 @@ interface QueueContextValue {
 const QueueContext = createContext<QueueContextValue | null>(null)
 
 const STORAGE_KEY = 'prepship_print_queue'
+const CACHE_TS_KEY = 'prepship_print_queue_ts'
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const POLL_INTERVAL_MS = 30_000 // 30s cross-tab sync
+
+function parseServerItems(raw: unknown[]): QueueItem[] {
+  return raw.map((item: any) => ({
+    queueId: String(item.id || item.queueId || Math.random()),
+    orderId: Number(item.order_id || item.orderId),
+    orderNumber: String(item.order_number || item.orderNumber || `#${item.order_id || item.orderId}`),
+    labelId: item.label_id || item.labelId || undefined,
+    labelUrl: item.label_url || item.labelUrl || undefined,
+    storeId: item.store_id || item.storeId || undefined,
+    quantity: Number(item.order_qty || item.quantity || 1),
+    notes: item.notes || undefined,
+    status: (item.status as QueueItem['status']) || 'pending',
+    sku: item.primary_sku || item.sku || undefined,
+    skuName: item.item_description || item.skuName || undefined,
+    addedAt: item.created_at ? new Date(item.created_at).getTime() : (item.addedAt || Date.now()),
+    printCount: item.print_count || 0,
+  }))
+}
+
+function loadFromLocalStorage(): QueueItem[] {
+  try {
+    const ts = localStorage.getItem(CACHE_TS_KEY)
+    const age = ts ? Date.now() - parseInt(ts, 10) : Infinity
+    if (age > CACHE_TTL_MS) return []
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function saveToLocalStorage(items: QueueItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+    localStorage.setItem(CACHE_TS_KEY, String(Date.now()))
+  } catch {}
+}
 
 export function QueueProvider({ children }: { children: ReactNode }) {
-  const [queue, setQueue] = useState<QueueItem[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      return stored ? JSON.parse(stored) : []
-    } catch {
-      return []
-    }
-  })
+  // Init from localStorage (stale fallback) while DB loads
+  const [queue, setQueue] = useState<QueueItem[]>(loadFromLocalStorage)
   const [isOpen, setIsOpen] = useState(false)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastCountRef = useRef<number>(-1)
 
-  // Sync to localStorage whenever queue changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue))
-  }, [queue])
-
-  // Also load from server on mount
+  // Hydrate from DB on mount
   const refreshQueue = useCallback(async () => {
     try {
-      const res = await fetch('/api/print-queue')
+      const res = await fetch('/api/queue')
       if (!res.ok) return
       const data = await res.json()
-      const serverItems: QueueItem[] = (data.items || data || []).map((item: any) => ({
-        queueId: String(item.queueId || item.id || Math.random()),
-        orderId: item.orderId,
-        orderNumber: item.orderNumber || `#${item.orderId}`,
-        labelId: item.labelId,
-        labelUrl: item.labelUrl,
-        storeId: item.storeId,
-        quantity: item.quantity || 1,
-        notes: item.notes,
-        status: item.status || 'pending',
-        sku: item.sku,
-        skuName: item.skuName || item.name,
-        addedAt: item.addedAt || Date.now(),
-      }))
-      if (serverItems.length > 0) {
-        setQueue(serverItems)
-      }
+      const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || [])
+      setQueue(serverItems)
+      saveToLocalStorage(serverItems)
     } catch {
-      // Fall back to localStorage
+      // Fall back to localStorage (already loaded in initial state)
     }
   }, [])
 
+  // Mount: load from DB
   useEffect(() => {
-    refreshQueue()
-  }, [])
+    void refreshQueue()
+  }, [refreshQueue])
+
+  // 30s polling when queue panel is open — only re-render if count changed
+  useEffect(() => {
+    if (!isOpen) {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+      return
+    }
+
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/queue')
+        if (!res.ok) return
+        const data = await res.json()
+        const serverItems = parseServerItems(Array.isArray(data) ? data : data.items || data.queue || [])
+        const pendingCount = serverItems.filter(i => i.status === 'pending').length
+        if (pendingCount !== lastCountRef.current) {
+          lastCountRef.current = pendingCount
+          setQueue(serverItems)
+          saveToLocalStorage(serverItems)
+        }
+      } catch {}
+    }
+
+    pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS)
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+  }, [isOpen])
 
   const addToQueue = useCallback(async (item: Omit<QueueItem, 'queueId' | 'status' | 'addedAt'>) => {
     const newItem: QueueItem = {
@@ -89,47 +150,70 @@ export function QueueProvider({ children }: { children: ReactNode }) {
       addedAt: Date.now(),
     }
 
+    // Optimistic update
     setQueue(prev => {
-      // Avoid duplicates
       if (prev.some(q => q.orderId === item.orderId)) return prev
-      return [...prev, newItem]
+      const next = [...prev, newItem]
+      saveToLocalStorage(next)
+      return next
     })
 
-    // Also POST to server
+    // Persist to DB
     try {
-      await fetch('/api/print-queue/add', {
+      await fetch('/api/queue/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId: item.orderId,
-          labelId: item.labelId,
-          storeId: item.storeId,
-          quantity: item.quantity || 1,
-          notes: item.notes,
+          order_id: String(item.orderId),
+          order_number: item.orderNumber,
+          label_url: item.labelUrl || '',
+          primary_sku: item.sku || null,
+          item_description: item.skuName || null,
+          order_qty: item.quantity || 1,
+          store_id: item.storeId || null,
+          notes: item.notes || null,
         }),
       })
+      // Refresh to get server-assigned ID
+      await refreshQueue()
     } catch {
       // localStorage already updated, continue
     }
-  }, [])
+  }, [refreshQueue])
 
   const removeFromQueue = useCallback(async (queueId: string) => {
-    setQueue(prev => prev.filter(q => q.queueId !== queueId))
+    setQueue(prev => {
+      const next = prev.filter(q => q.queueId !== queueId)
+      saveToLocalStorage(next)
+      return next
+    })
     try {
-      await fetch(`/api/print-queue/${queueId}`, { method: 'DELETE' })
+      await fetch(`/api/queue/${queueId}`, { method: 'DELETE' })
     } catch {}
   }, [])
 
   const markPrinted = useCallback((queueId: string) => {
-    setQueue(prev => prev.map(q => q.queueId === queueId ? { ...q, status: 'printed' as const } : q))
+    setQueue(prev => {
+      const next = prev.map(q => q.queueId === queueId ? { ...q, status: 'printed' as const } : q)
+      saveToLocalStorage(next)
+      return next
+    })
   }, [])
 
   const clearPrinted = useCallback(() => {
-    setQueue(prev => prev.filter(q => q.status !== 'printed'))
+    setQueue(prev => {
+      const next = prev.filter(q => q.status !== 'printed')
+      saveToLocalStorage(next)
+      return next
+    })
   }, [])
 
-  const clearAll = useCallback(() => {
+  const clearAll = useCallback(async () => {
     setQueue([])
+    saveToLocalStorage([])
+    try {
+      await fetch('/api/queue/clear', { method: 'POST' })
+    } catch {}
   }, [])
 
   const count = queue.filter(q => q.status === 'pending').length

@@ -1,0 +1,101 @@
+.markup-table-container {
+  margin: 20px 0;
+}
+
+.markup-table-loading,
+.markup-table-empty {
+  font-size: 12px;
+  color: var(--text3);
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.markup-table-error {
+  background: rgba(255, 100, 100, 0.1);
+  color: #d00;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.markup-table-success {
+  background: rgba(100, 200, 100, 0.1);
+  color: #080;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.markup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markup-table thead {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.markup-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.markup-table tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.markup-table tbody tr:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.markup-row {
+  height: 36px;
+}
+
+.markup-row td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+.markup-label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.markup-type-select,
+.markup-value-input {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.markup-type-select {
+  width: 52px;
+}
+
+.markup-value-input {
+  width: 80px;
+}
+
+.markup-type-select:focus,
+.markup-value-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(0, 100, 200, 0.1);
+}
+
+.markup-preview {
+  font-size: 11px;
+  color: var(--text3);
+  min-width: 60px;
+}
