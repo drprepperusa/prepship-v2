@@ -44,11 +44,8 @@ export default function Topbar({
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
 
   useEffect(() => {
-    const appRoot = document.getElementById('app')
-    if (appRoot) {
-      appRoot.style.zoom = `${zoom}%`
-    }
-    // Also persist to localStorage so zoom persists on page reload
+    const appRoot = document.getElementById('root') || document.body
+    appRoot.style.zoom = `${zoom}%`
     localStorage.setItem('prepship_zoom', zoom.toString())
   }, [zoom])
 
