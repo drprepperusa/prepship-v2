@@ -44,8 +44,21 @@ export default function Topbar({
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
 
   useEffect(() => {
-    document.documentElement.style.fontSize = `${16 * (zoom / 100)}px`
+    const appRoot = document.getElementById('app')
+    if (appRoot) {
+      appRoot.style.zoom = `${zoom}%`
+    }
+    // Also persist to localStorage so zoom persists on page reload
+    localStorage.setItem('prepship_zoom', zoom.toString())
   }, [zoom])
+
+  // Restore zoom from localStorage on mount
+  useEffect(() => {
+    const savedZoom = localStorage.getItem('prepship_zoom')
+    if (savedZoom) {
+      setZoom(parseInt(savedZoom, 10))
+    }
+  }, [])
 
   const handleSync = async (full: boolean) => {
     try {
