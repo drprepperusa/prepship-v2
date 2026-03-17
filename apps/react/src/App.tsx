@@ -29,10 +29,14 @@ function App() {
     setCurrentStatus(status)
   }
 
+  const handleOpenPanel = () => {
+    // TODO: implement right panel
+  }
+
   const renderView = () => {
     switch (currentView) {
       case 'orders':
-        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} />
+        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={handleOpenPanel} />
       case 'inventory':
         return <InventoryView />
       case 'locations':
@@ -48,7 +52,7 @@ function App() {
       case 'billing':
         return <BillingView />
       default:
-        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} />
+        return <OrdersView status={currentStatus} selectedOrders={selectedOrders} setSelectedOrders={setSelectedOrders} onOpenPanel={handleOpenPanel} />
     }
   }
 
