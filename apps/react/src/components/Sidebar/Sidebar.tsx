@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStoreOrders, useStores } from '../../hooks'
+import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
 import './Sidebar.css'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -28,6 +29,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
 
   const { storeCounts } = useStoreOrders(currentStatus)
   const { stores } = useStores()
+  const { useStoreVisibility, toggleStoreVisibility } = useStoreVisibilityContext()
 
   useEffect(() => {
     fetchStatusCounts()
@@ -178,16 +180,41 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                       const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (storeCounts[sid] || 0), 0)
                       return { store, count }
                     })
-                    .filter(({ count }) => count > 0)
+                    .filter(({ store }) => useStoreVisibility(store.clientId))
                     .map(({ store, count }) => (
                       <div 
                         key={store.clientId} 
                         className={`ss-store ${activeStore === store.clientId ? 'selected' : ''}`}
                         onClick={() => onSelectStore?.(store.clientId)}
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                       >
                         <span className="ss-store-name">{store.name}</span>
-                        <span className="ss-store-count">{count}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="ss-store-count">{count}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleStoreVisibility(store.clientId)
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '2px',
+                              fontSize: '14px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: 0.7,
+                              transition: 'opacity 0.2s ease',
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                            title={`${useStoreVisibility(store.clientId) ? 'Hide' : 'Show'} ${store.name}`}
+                          >
+                            👁️
+                          </button>
+                        </div>
                       </div>
                     ))}
                 </div>

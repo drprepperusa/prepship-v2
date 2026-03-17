@@ -17,6 +17,7 @@ import { QueueProvider, useQueue } from './components/PrintQueue/QueueContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { MarkupsProvider } from './contexts/MarkupsContext'
 import { StoresProvider } from './contexts/StoresContext'
+import { StoreVisibilityProvider } from './contexts/StoreVisibilityContext'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
@@ -172,11 +173,13 @@ function App() {
   return (
     <ToastProvider>
       <StoresProvider>
-        <MarkupsProvider>
-          <QueueProvider>
-            <AppInner />
-          </QueueProvider>
-        </MarkupsProvider>
+        <StoreVisibilityProvider>
+          <MarkupsProvider>
+            <QueueProvider>
+              <AppInner />
+            </QueueProvider>
+          </MarkupsProvider>
+        </StoreVisibilityProvider>
       </StoresProvider>
     </ToastProvider>
   )
