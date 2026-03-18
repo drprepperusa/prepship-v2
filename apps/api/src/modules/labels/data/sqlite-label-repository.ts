@@ -249,6 +249,19 @@ export class SqliteLabelRepository implements LabelRepository {
     return row ? this.mapShipment(row) : null;
   }
 
+  getShipmentByLabelId(labelId: number): LabelShipmentRecord | null {
+    const row = this.db.prepare(`
+      SELECT s.shipmentId, s.orderId, s.orderNumber, s.trackingNumber, s.labelUrl,
+             s.carrierCode, s.serviceCode, s.shipmentCost, s.label_created_at,
+             s.voided, s.source, o.storeId
+      FROM shipments s
+      JOIN orders o ON o.orderId = s.orderId
+      WHERE s.shipmentId = ?
+      LIMIT 1
+    `).get(labelId) as ShipmentLookupRow | undefined;
+    return row ? this.mapShipment(row) : null;
+  }
+
   updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void {
     this.db.prepare(`UPDATE shipments SET labelUrl = ? WHERE shipmentId = ?`).run(labelUrl, shipmentId);
   }

@@ -13,6 +13,7 @@ import type { LocationsHttpHandler } from "../modules/locations/api/locations-ha
 import type { ManifestsHttpHandler } from "../modules/manifests/api/manifests-handler.ts";
 import type { OrdersHttpHandler } from "../modules/orders/api/orders-handler.ts";
 import type { PackagesHttpHandler } from "../modules/packages/api/packages-handler.ts";
+import type { PrintsHttpHandler } from "../modules/prints/api/prints-handler.ts";
 import type { ProductsHttpHandler } from "../modules/products/api/products-handler.ts";
 import type { RatesHttpHandler } from "../modules/rates/api/rates-handler.ts";
 import type { SettingsHttpHandler } from "../modules/settings/api/settings-handler.ts";
@@ -32,6 +33,7 @@ export interface AppDependencies {
   locationsHandler: LocationsHttpHandler;
   manifestsHandler: ManifestsHttpHandler;
   packagesHandler: PackagesHttpHandler;
+  printsHandler: PrintsHttpHandler;
   productsHandler: ProductsHttpHandler;
   ratesHandler: RatesHttpHandler;
   settingsHandler: SettingsHttpHandler;
@@ -250,6 +252,20 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/api/billing/summary") {
+      try {
+        const body = await readJson() as Record<string, unknown>;
+        const url = new URL("http://localhost");
+        if (body.from) url.searchParams.set("from", String(body.from));
+        if (body.to) url.searchParams.set("to", String(body.to));
+        return jsonResponse(200, dependencies.billingHandler.handleSummary(url));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["from and to required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
     if (request.method === "GET" && url.pathname === "/api/billing/details") {
       try {
         return jsonResponse(200, dependencies.billingHandler.handleDetails(url));
@@ -260,8 +276,36 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/api/billing/details") {
+      try {
+        const body = await readJson() as Record<string, unknown>;
+        const url = new URL("http://localhost");
+        if (body.from) url.searchParams.set("from", String(body.from));
+        if (body.to) url.searchParams.set("to", String(body.to));
+        if (body.clientId) url.searchParams.set("clientId", String(body.clientId));
+        return jsonResponse(200, dependencies.billingHandler.handleDetails(url));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["from, to, clientId required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
     if (request.method === "GET" && url.pathname === "/api/billing/package-prices") {
       try {
+        return jsonResponse(200, dependencies.billingHandler.handlePackagePrices(url));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["clientId required"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/billing/package-prices") {
+      try {
+        const body = await readJson() as Record<string, unknown>;
+        const url = new URL("http://localhost");
+        if (body.clientId) url.searchParams.set("clientId", String(body.clientId));
         return jsonResponse(200, dependencies.billingHandler.handlePackagePrices(url));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
@@ -292,6 +336,31 @@ export function createApp(dependencies: AppDependencies) {
 
     if (request.method === "GET" && url.pathname === "/api/billing/invoice") {
       try {
+        const invoice = dependencies.billingHandler.handleInvoice(url);
+        if (!invoice) {
+          return new Response("<p>Client not found</p>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+        }
+        return new Response(renderBillingInvoiceHtml(invoice), {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["from, to, clientId required", "from and to must be YYYY-MM-DD"]) ? 400 : 500;
+        return new Response(`<p style="font-family:sans-serif;padding:40px;color:red">${message}</p>`, {
+          status,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/billing/invoice") {
+      try {
+        const body = await readJson() as Record<string, unknown>;
+        const url = new URL("http://localhost");
+        if (body.clientId) url.searchParams.set("clientId", String(body.clientId));
+        if (body.from) url.searchParams.set("from", String(body.from));
+        if (body.to) url.searchParams.set("to", String(body.to));
         const invoice = dependencies.billingHandler.handleInvoice(url);
         if (!invoice) {
           return new Response("<p>Client not found</p>", { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
@@ -545,6 +614,16 @@ export function createApp(dependencies: AppDependencies) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/shipments/shipped-external") {
+      try {
+        return jsonResponse(200, await dependencies.shipmentsHandler.handleShippedExternal(await readJson()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error, ["orderId is required", "trackingNumber is required", "carrier is required"]) ? 400 : message.includes("not found") ? 404 : 500;
+        return jsonResponse(status, { error: message });
       }
     }
 
@@ -1289,6 +1368,19 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    const labelReprintMatch = url.pathname.match(/^\/api\/labels\/reprint\/(\d+)$/);
+    if (request.method === "GET" && labelReprintMatch) {
+      try {
+        const labelId = Number.parseInt(labelReprintMatch[1] ?? "0", 10);
+        return jsonResponse(200, await dependencies.labelsHandler.handleReprintLabel(labelId));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const statusCode = (error instanceof Error && (error as Error & { statusCode?: number }).statusCode) ?? null;
+        const status = statusCode === 404 ? 404 : statusCode === 410 ? 410 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
     // ── PRINT QUEUE ENDPOINTS ────────────────────────────────────────────────
 
     // CRITICAL #1: GET /api/queue — hydrate UI from DB (source of truth)
@@ -1372,6 +1464,24 @@ export function createApp(dependencies: AppDependencies) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = message.includes("not found") ? 404 : isInputError(error) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/prints/picklist") {
+      try {
+        const requestBody = await readJson();
+        const pdfBuffer = await dependencies.printsHandler.handlePicklistPdf(requestBody);
+        return new Response(pdfBuffer, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="picklist-${new Date().toISOString().split("T")[0]}.pdf"`,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = isInputError(error) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
     }

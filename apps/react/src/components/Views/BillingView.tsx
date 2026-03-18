@@ -165,7 +165,11 @@ export default function BillingView() {
     if (!f || !t) return
     setSummaryLoading(true)
     try {
-      const r = await fetch(`/api/billing/summary?from=${f}&to=${t}`)
+      const r = await fetch('/api/billing/summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: f, to: t }),
+      })
       if (r.ok) setSummary(await r.json())
     } finally { setSummaryLoading(false) }
   }, [])
@@ -203,7 +207,11 @@ export default function BillingView() {
     setDetailClient({ id: clientId, name: clientName })
     setDetailLoading(true)
     try {
-      const r = await fetch(`/api/billing/details?from=${from}&to=${to}&clientId=${clientId}`)
+      const r = await fetch('/api/billing/details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to, clientId }),
+      })
       if (r.ok) setDetailRows(await r.json())
     } finally { setDetailLoading(false) }
   }
@@ -215,10 +223,24 @@ export default function BillingView() {
     saveDetailColVis(next)
   }
 
-  const exportInvoice = (clientId: number, clientName: string) => {
-    const url = `/api/billing/invoice?clientId=${encodeURIComponent(clientId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-    window.open(url, '_blank')
-    showToast(`📄 Opening invoice for ${clientName}…`)
+  const exportInvoice = async (clientId: number, clientName: string) => {
+    try {
+      const r = await fetch('/api/billing/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, from, to }),
+      })
+      if (r.ok) {
+        const blob = await r.blob()
+        const url = URL.createObjectURL(blob)
+        window.open(url, '_blank')
+        showToast(`📄 Opening invoice for ${clientName}…`)
+      } else {
+        showToast('Failed to export invoice')
+      }
+    } catch (error) {
+      showToast('Error exporting invoice')
+    }
   }
 
   const totals = summary.reduce((t, r) => ({
@@ -598,7 +620,11 @@ function PkgPriceMatrix({ configs, packages, showToast }: { configs: BillingConf
 
   useEffect(() => {
     if (!selectedClientId || selectedClientId === loadedClient) return
-    fetch('/api/billing/package-prices?clientId=' + selectedClientId)
+    fetch('/api/billing/package-prices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: parseInt(selectedClientId, 10) }),
+    })
       .then(r => r.json())
       .then((rows: PkgPriceDto[]) => {
         const map: Record<number, { price: number; is_custom: number }> = {}

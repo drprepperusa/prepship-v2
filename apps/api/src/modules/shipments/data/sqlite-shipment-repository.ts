@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ShipmentRepository } from "../application/shipment-repository.ts";
+import type { ShipmentRepository, ExternalShipmentRecord } from "../application/shipment-repository.ts";
 import type { ShipmentSyncAccountRecord, ShipmentSyncRecord } from "../domain/shipment.ts";
 
 export class SqliteShipmentRepository implements ShipmentRepository {
@@ -149,5 +149,54 @@ export class SqliteShipmentRepository implements ShipmentRepository {
   getOrderNumbersByStoreId(storeId: number): string[] {
     const rows = this.db.prepare(`SELECT DISTINCT orderNumber FROM orders WHERE storeId = ? AND orderNumber IS NOT NULL`).all(storeId) as Array<{ orderNumber: string }>;
     return rows.map(row => row.orderNumber);
+  }
+
+  recordExternalShipment(shipment: ExternalShipmentRecord): void {
+    const now = Date.now();
+    
+    // Create a virtual shipment ID for external tracking (negative to avoid conflicts with ShipStation IDs)
+    const virtualShipmentId = -(now % 1000000) - Math.floor(Math.random() * 1000000);
+
+    // Insert into shipments table
+    this.db.prepare(`
+      INSERT INTO shipments (
+        shipmentId, orderId, trackingNumber, carrierCode, serviceCode,
+        shipDate, voided, updatedAt, clientId, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(shipmentId) DO UPDATE SET
+        trackingNumber = excluded.trackingNumber,
+        carrierCode = excluded.carrierCode,
+        updatedAt = excluded.updatedAt
+    `).run(
+      virtualShipmentId,
+      shipment.orderId,
+      shipment.trackingNumber,
+      shipment.carrier,
+      null, // serviceCode
+      new Date().toISOString().split('T')[0], // shipDate
+      0, // voided
+      now,
+      shipment.clientId,
+      shipment.source
+    );
+
+    // Update order_local with external shipment info
+    this.db.prepare(`
+      INSERT INTO order_local (orderId, tracking_number, external_shipped, external_shipped_source, shipping_account, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(orderId) DO UPDATE SET
+        tracking_number = excluded.tracking_number,
+        external_shipped = excluded.external_shipped,
+        external_shipped_source = excluded.external_shipped_source,
+        shipping_account = CASE WHEN shipping_account IS NULL THEN excluded.shipping_account ELSE shipping_account END,
+        updatedAt = excluded.updatedAt
+    `).run(
+      shipment.orderId,
+      shipment.trackingNumber,
+      1, // external_shipped = true
+      shipment.source,
+      null, // shipping_account (provider account)
+      now
+    );
   }
 }

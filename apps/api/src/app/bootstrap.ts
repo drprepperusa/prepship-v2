@@ -54,6 +54,8 @@ import { QueueHttpHandler } from "../modules/queue/api/queue-handler.ts";
 import { QueueServices } from "../modules/queue/application/queue-services.ts";
 import { HealthHttpHandler } from "../modules/health/api/health-handler.ts";
 import { HealthSyncService } from "../modules/health/application/health-sync-service.ts";
+import { PrintsHttpHandler } from "../modules/prints/api/prints-handler.ts";
+import { PicklistPdfService } from "../modules/prints/application/picklist-pdf-service.ts";
 import type { MemoryDataStoreSeed } from "./providers/memory-datastore.ts";
 
 export interface BootstrapApiOverrides {
@@ -116,6 +118,8 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const workerSyncEnabled = env.WORKER_SYNC_ENABLED === "true" || env.WORKER_SYNC_ENABLED === "1";
   const healthSyncService = new HealthSyncService(dataStore, config.secrets, dbInstance, workerSyncEnabled);
   const healthHandler = new HealthHttpHandler(healthSyncService);
+  const picklistPdfService = new PicklistPdfService(dataStore.orderRepository);
+  const printsHandler = new PrintsHttpHandler(picklistPdfService);
 
   const ordersHandler = new OrdersHttpHandler(
     listOrdersService,
@@ -145,6 +149,7 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
     shipmentsHandler, 
     queueHandler, 
     healthHandler,
+    printsHandler,
     syncLogRepository: dataStore.syncLogRepository,
   });
 

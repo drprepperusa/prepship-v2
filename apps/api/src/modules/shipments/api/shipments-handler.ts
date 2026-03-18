@@ -30,4 +30,8 @@ export class ShipmentsHttpHandler {
   async handleBackfillStoreShipments(storeId: number) {
     return this.services.backfillStoreShipments(storeId);
   }
+
+  async handleShippedExternal(body: unknown) {
+    return this.services.recordExternalShipment(body);
+  }
 }

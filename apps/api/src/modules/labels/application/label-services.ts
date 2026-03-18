@@ -572,4 +572,124 @@ export class LabelServices {
     const details = await this.gateway.getShipment(credentials, shipment.shipmentId);
     return details?.labelUrl ?? null;
   }
+
+  async getReprintLabel(labelId: number): Promise<RetrieveLabelResponseDto> {
+    const shipment = this.repository.getShipmentByLabelId(labelId);
+    if (!shipment) {
+      const error = new Error("Label not found") as Error & { statusCode?: number };
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (shipment.voided) {
+      const error = new Error("Label has been voided and cannot be reprinted") as Error & { statusCode?: number };
+      error.statusCode = 410;
+      throw error;
+    }
+
+    let labelUrl = shipment.labelUrl;
+    if (!labelUrl) {
+      labelUrl = await this.findFreshLabelUrl(shipment);
+      if (labelUrl && labelUrl !== shipment.labelUrl) {
+        this.repository.updateShipmentLabelUrl(shipment.shipmentId, labelUrl);
+      }
+    }
+
+    if (!labelUrl) {
+      const error = new Error("Label URL not available. The label may have expired in ShipStation.") as Error & { statusCode?: number };
+      error.statusCode = 410;
+      throw error;
+    }
+
+    return {
+      orderId: shipment.orderId,
+      orderNumber: shipment.orderNumber,
+      shipmentId: shipment.shipmentId,
+      trackingNumber: shipment.trackingNumber,
+      labelUrl,
+      createdAt: shipment.labelCreatedAt ? new Date(shipment.labelCreatedAt).toISOString() : null,
+      carrier: shipment.carrierCode || "unknown",
+      service: shipment.serviceCode || "unknown",
+      cost: shipment.shipmentCost ?? 0,
+    };
+  }
+}
+
+  /**
+   * Batch print: creates labels for multiple orders and returns their URLs and tracking numbers.
+   * This wraps createBatch and then retrieves the label URLs for all successfully created labels.
+   */
+  async batchPrint(body: CreateBatchLabelRequestDto): Promise<{
+    job_id: string;
+    status: string;
+    created: Array<{
+      orderId: number;
+      shipmentId: number;
+      trackingNumber: string | null;
+      labelUrl: string | null;
+      cost: number;
+    }>;
+    failed: Array<{
+      orderId: number;
+      error: string;
+    }>;
+    summary: {
+      total: number;
+      created: number;
+      failed: number;
+    };
+  }> {
+    // Create batch labels
+    const batchResult = await this.createBatch(body);
+
+    // For each successfully created label, retrieve its URL
+    const createdWithUrls = await Promise.all(
+      batchResult.created.map(async (item) => {
+        if (!item.shipmentId) {
+          return {
+            orderId: item.orderId,
+            shipmentId: 0,
+            trackingNumber: item.trackingNumber ?? null,
+            labelUrl: null,
+            cost: item.cost ?? 0,
+          };
+        }
+
+        // Retrieve the label to get its URL
+        let labelUrl: string | null = null;
+        try {
+          const retrieved = await this.retrieve(item.orderId, false);
+          labelUrl = retrieved.labelUrl;
+        } catch {
+          // If retrieve fails, we still return what we have
+          labelUrl = null;
+        }
+
+        return {
+          orderId: item.orderId,
+          shipmentId: item.shipmentId,
+          trackingNumber: item.trackingNumber ?? null,
+          labelUrl,
+          cost: item.cost ?? 0,
+        };
+      })
+    );
+
+    // Convert failed items to the print response format
+    const failedFormatted = batchResult.failed.map((item) => ({
+      orderId: item.orderId,
+      error: item.error ?? "Unknown error",
+    }));
+
+    // Generate a job ID for tracking (format: "batch-<timestamp>-<random>")
+    const jobId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    return {
+      job_id: jobId,
+      status: "done",
+      created: createdWithUrls,
+      failed: failedFormatted,
+      summary: batchResult.summary,
+    };
+  }
 }

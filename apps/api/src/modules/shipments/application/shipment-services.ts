@@ -86,6 +86,45 @@ export class ShipmentServices {
     return result.raw;
   }
 
+  async recordExternalShipment(body: unknown): Promise<{ success: boolean; orderId: number }> {
+    // Validate input
+    const input = body as Record<string, unknown>;
+    const orderId = input.orderId;
+    const trackingNumber = input.trackingNumber as string | null | undefined;
+    const carrier = input.carrier as string | null | undefined;
+    const estimatedDelivery = input.estimatedDelivery as string | null | undefined;
+
+    if (!Number.isFinite(orderId)) {
+      throw new Error("orderId is required and must be a number");
+    }
+    if (!trackingNumber || typeof trackingNumber !== "string") {
+      throw new Error("trackingNumber is required");
+    }
+    if (!carrier || typeof carrier !== "string") {
+      throw new Error("carrier is required");
+    }
+
+    // Validate order exists
+    if (!this.repository.orderExists(orderId)) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+
+    // Record the external shipment
+    const clientId = this.repository.getOrderClientId(orderId);
+    const source = "external";
+    
+    this.repository.recordExternalShipment({
+      orderId,
+      trackingNumber,
+      carrier,
+      estimatedDelivery: estimatedDelivery || null,
+      clientId,
+      source,
+    });
+
+    return { success: true, orderId };
+  }
+
   async backfillStoreShipments(storeId: number): Promise<{ synced: number; skipped: number }> {
     // Validate store exists
     if (!this.repository.storeExists(storeId)) {

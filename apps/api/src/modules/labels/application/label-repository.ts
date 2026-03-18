@@ -20,6 +20,7 @@ export interface LabelRepository {
   saveReturnLabel(record: ReturnLabelRecord): void;
   getShipmentForVoidOrReturn(shipmentId: number): LabelShipmentRecord | null;
   getLatestShipmentForOrderLookup(orderLookup: number | string): LabelShipmentRecord | null;
+  getShipmentByLabelId(labelId: number): LabelShipmentRecord | null;
   updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void;
   backfillOrderLocalTracking(orderId: number, trackingNumber: string, providerAccountId: number | null, updatedAtSeconds: number): void;
   enrichShipment(input: ShipmentEnrichmentInput): void;
