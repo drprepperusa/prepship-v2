@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { RateShopper } from "../src/modules/rates/application/rate-shopper.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -310,7 +311,7 @@ test("billing endpoints return read-only config, summary, details, and package p
     API_PORT: "4010",
   });
 
-  const configResponse = await app(new Request("http://127.0.0.1:4010/api/billing/config"));
+  const configResponse = await app(authedRequest("http://127.0.0.1:4010/api/billing/config"));
   assert.equal(configResponse.status, 200);
   const configPayload = await configResponse.json() as Array<{ clientId: number; clientName: string; pickPackFee: number; billing_mode: string }>;
   assert.deepEqual(configPayload.map((row) => row.clientName), ["Acme", "Beta"]);
@@ -318,7 +319,7 @@ test("billing endpoints return read-only config, summary, details, and package p
   assert.equal(configPayload[0]?.billing_mode, "reference_rate");
   assert.equal(configPayload[1]?.pickPackFee, 3);
 
-  const summaryResponse = await app(new Request("http://127.0.0.1:4010/api/billing/summary?from=2026-03-01&to=2026-03-31"));
+  const summaryResponse = await app(authedRequest("http://127.0.0.1:4010/api/billing/summary?from=2026-03-01&to=2026-03-31"));
   assert.equal(summaryResponse.status, 200);
   const summaryPayload = await summaryResponse.json() as Array<{ clientId: number; grandTotal: number; storageTotal: number; orderCount: number }>;
   assert.equal(summaryPayload[0]?.clientId, 1);
@@ -328,7 +329,7 @@ test("billing endpoints return read-only config, summary, details, and package p
   assert.equal(summaryPayload[1]?.clientId, 2);
   assert.equal(summaryPayload[1]?.grandTotal, 0);
 
-  const detailsResponse = await app(new Request("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31&clientId=1"));
+  const detailsResponse = await app(authedRequest("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31&clientId=1"));
   assert.equal(detailsResponse.status, 200);
   const detailsPayload = await detailsResponse.json() as Array<{ orderId: number; totalQty: number; actualLabelCost: number; packageName: string; itemSkus: string }>;
   assert.equal(detailsPayload[0]?.orderId, 1001);
@@ -337,7 +338,7 @@ test("billing endpoints return read-only config, summary, details, and package p
   assert.equal(detailsPayload[0]?.packageName, "Custom Mailer");
   assert.equal(detailsPayload[0]?.itemSkus, "SKU-1 | SKU-2");
 
-  const packagePricesResponse = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices?clientId=1"));
+  const packagePricesResponse = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices?clientId=1"));
   assert.equal(packagePricesResponse.status, 200);
   const packagePricesPayload = await packagePricesResponse.json() as Array<{ packageId: number; is_custom: number }>;
   assert.deepEqual(packagePricesPayload.map((row) => row.packageId), [10, 11]);
@@ -354,34 +355,34 @@ test("billing write endpoints mutate config, package prices, and generated billi
     API_PORT: "4010",
   });
 
-  const missingSummary = await app(new Request("http://127.0.0.1:4010/api/billing/summary"));
+  const missingSummary = await app(authedRequest("http://127.0.0.1:4010/api/billing/summary"));
   assert.equal(missingSummary.status, 400);
 
-  const missingDetails = await app(new Request("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31"));
+  const missingDetails = await app(authedRequest("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31"));
   assert.equal(missingDetails.status, 400);
 
-  const missingPackagePrices = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices"));
+  const missingPackagePrices = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices"));
   assert.equal(missingPackagePrices.status, 400);
 
-  const updateConfig = await app(new Request("http://127.0.0.1:4010/api/billing/config/1", {
+  const updateConfig = await app(authedRequest("http://127.0.0.1:4010/api/billing/config/1", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pickPackFee: 5.5, additionalUnitFee: 1.25, billing_mode: "label_cost" }),
   }));
   assert.equal(updateConfig.status, 200);
-  const configAfterUpdate = await (await app(new Request("http://127.0.0.1:4010/api/billing/config"))).json() as Array<{ clientId: number; pickPackFee: number; additionalUnitFee: number; billing_mode: string }>;
+  const configAfterUpdate = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/config"))).json() as Array<{ clientId: number; pickPackFee: number; additionalUnitFee: number; billing_mode: string }>;
   assert.equal(configAfterUpdate.find((row) => row.clientId === 1)?.pickPackFee, 5.5);
   assert.equal(configAfterUpdate.find((row) => row.clientId === 1)?.additionalUnitFee, 1.25);
   assert.equal(configAfterUpdate.find((row) => row.clientId === 1)?.billing_mode, "label_cost");
 
-  const badGenerate = await app(new Request("http://127.0.0.1:4010/api/billing/generate", {
+  const badGenerate = await app(authedRequest("http://127.0.0.1:4010/api/billing/generate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ from: "2026-03-01" }),
   }));
   assert.equal(badGenerate.status, 400);
 
-  const generate = await app(new Request("http://127.0.0.1:4010/api/billing/generate", {
+  const generate = await app(authedRequest("http://127.0.0.1:4010/api/billing/generate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ from: "2026-03-01", to: "2026-03-31", clientId: 1 }),
@@ -392,34 +393,34 @@ test("billing write endpoints mutate config, package prices, and generated billi
   assert.equal(generatePayload.generated, 7);
   assert.equal(generatePayload.total, 34.75);
 
-  const summaryAfterGenerate = await (await app(new Request("http://127.0.0.1:4010/api/billing/summary?from=2026-03-01&to=2026-03-31&clientId=1"))).json() as Array<{ grandTotal: number; storageTotal: number; orderCount: number }>;
+  const summaryAfterGenerate = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/summary?from=2026-03-01&to=2026-03-31&clientId=1"))).json() as Array<{ grandTotal: number; storageTotal: number; orderCount: number }>;
   assert.equal(summaryAfterGenerate[0]?.grandTotal, 39.75);
   assert.equal(summaryAfterGenerate[0]?.storageTotal, 5);
   assert.equal(summaryAfterGenerate[0]?.orderCount, 2);
 
-  const detailsAfterGenerate = await (await app(new Request("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31&clientId=1"))).json() as Array<{ orderId: number; shippingTotal: number; packageTotal: number }>;
+  const detailsAfterGenerate = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/details?from=2026-03-01&to=2026-03-31&clientId=1"))).json() as Array<{ orderId: number; shippingTotal: number; packageTotal: number }>;
   assert.equal(detailsAfterGenerate.length, 3);
   assert.equal(detailsAfterGenerate.find((row) => row.orderId === 1002)?.shippingTotal, 8);
   assert.equal(detailsAfterGenerate.find((row) => row.orderId === 1002)?.packageTotal, 0.75);
 
-  const updatePrices = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices", {
+  const updatePrices = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ clientId: 1, prices: [{ packageId: 11, price: 0.9 }] }),
   }));
   assert.equal(updatePrices.status, 200);
-  const pricesAfterUpdate = await (await app(new Request("http://127.0.0.1:4010/api/billing/package-prices?clientId=1"))).json() as Array<{ packageId: number; price: number; is_custom: number }>;
+  const pricesAfterUpdate = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices?clientId=1"))).json() as Array<{ packageId: number; price: number; is_custom: number }>;
   assert.equal(pricesAfterUpdate.find((row) => row.packageId === 11)?.price, 0.9);
   assert.equal(pricesAfterUpdate.find((row) => row.packageId === 11)?.is_custom, 1);
 
-  const badSetDefault = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices/set-default", {
+  const badSetDefault = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices/set-default", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ packageId: 10 }),
   }));
   assert.equal(badSetDefault.status, 400);
 
-  const setDefault = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices/set-default", {
+  const setDefault = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices/set-default", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ packageId: 10, price: 1.15 }),
@@ -429,7 +430,7 @@ test("billing write endpoints mutate config, package prices, and generated billi
   assert.equal(setDefaultPayload.updated, 1);
   assert.equal(setDefaultPayload.skipped, 1);
 
-  const betaPrices = await (await app(new Request("http://127.0.0.1:4010/api/billing/package-prices?clientId=2"))).json() as Array<{ packageId: number; price: number; is_custom: number }>;
+  const betaPrices = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices?clientId=2"))).json() as Array<{ packageId: number; price: number; is_custom: number }>;
   assert.equal(betaPrices.find((row) => row.packageId === 10)?.price, 1.15);
   assert.equal(betaPrices.find((row) => row.packageId === 10)?.is_custom, 0);
 });
@@ -484,7 +485,7 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
     API_PORT: "4010",
   }, { rateShopper });
 
-  const invoiceResponse = await app(new Request("http://127.0.0.1:4010/api/billing/invoice?clientId=1&from=2026-03-01&to=2026-03-31"));
+  const invoiceResponse = await app(authedRequest("http://127.0.0.1:4010/api/billing/invoice?clientId=1&from=2026-03-01&to=2026-03-31"));
   assert.equal(invoiceResponse.status, 200);
   assert.equal(invoiceResponse.headers.get("content-type"), "text/html; charset=utf-8");
   const invoiceHtml = await invoiceResponse.text();
@@ -492,7 +493,7 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
   assert.equal(invoiceHtml.includes("A-1001"), true);
   assert.equal(invoiceHtml.includes("$24.70"), true);
 
-  const fetchRefRatesStatus = await app(new Request("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"));
+  const fetchRefRatesStatus = await app(authedRequest("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"));
   assert.equal(fetchRefRatesStatus.status, 200);
   assert.deepEqual(await fetchRefRatesStatus.json(), {
     running: false,
@@ -502,7 +503,7 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
     startedAt: null,
   });
 
-  const backfillRefRates = await app(new Request("http://127.0.0.1:4010/api/billing/backfill-ref-rates", {
+  const backfillRefRates = await app(authedRequest("http://127.0.0.1:4010/api/billing/backfill-ref-rates", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ from: "2026-03-01", to: "2026-03-31" }),
@@ -516,14 +517,14 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
   assert.equal(backfilledOrder?.ref_usps_rate, 6.25);
   assert.equal(backfilledOrder?.ref_ups_rate, 8.4);
 
-  const fetchRefRates = await app(new Request("http://127.0.0.1:4010/api/billing/fetch-ref-rates", { method: "POST" }));
+  const fetchRefRates = await app(authedRequest("http://127.0.0.1:4010/api/billing/fetch-ref-rates", { method: "POST" }));
   assert.equal(fetchRefRates.status, 200);
   const fetchPayload = await fetchRefRates.json() as { ok: boolean; queued: number; orders: number; message: string };
   assert.equal(fetchPayload.ok, true);
   assert.equal(fetchPayload.queued, 1);
   assert.equal(fetchPayload.orders, 1);
 
-  const alreadyRunning = await app(new Request("http://127.0.0.1:4010/api/billing/fetch-ref-rates", { method: "POST" }));
+  const alreadyRunning = await app(authedRequest("http://127.0.0.1:4010/api/billing/fetch-ref-rates", { method: "POST" }));
   assert.equal(alreadyRunning.status, 200);
   const alreadyRunningPayload = await alreadyRunning.json() as { ok: boolean; message: string; status: { running: boolean } };
   assert.equal(alreadyRunningPayload.ok, false);
@@ -531,12 +532,12 @@ test("billing invoice export renders HTML and billing reference-rate endpoints b
   assert.equal(alreadyRunningPayload.status.running, true);
 
   await waitFor(async () => {
-    const response = await app(new Request("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"));
+    const response = await app(authedRequest("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"));
     const payload = await response.json() as { running: boolean };
     return payload.running === false;
   });
 
-  const completedStatus = await (await app(new Request("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"))).json() as {
+  const completedStatus = await (await app(authedRequest("http://127.0.0.1:4010/api/billing/fetch-ref-rates/status"))).json() as {
     running: boolean;
     total: number;
     done: number;
@@ -570,15 +571,15 @@ test("billing endpoints reject malformed JSON and invalid query/date input", asy
     API_PORT: "4010",
   });
 
-  const invalidPackagePrices = await app(new Request("http://127.0.0.1:4010/api/billing/package-prices?clientId=1abc"));
+  const invalidPackagePrices = await app(authedRequest("http://127.0.0.1:4010/api/billing/package-prices?clientId=1abc"));
   assert.equal(invalidPackagePrices.status, 400);
   assert.deepEqual(await invalidPackagePrices.json(), { error: "clientId must be an integer" });
 
-  const invalidSummaryDate = await app(new Request("http://127.0.0.1:4010/api/billing/summary?from=2026-02-30&to=2026-03-31"));
+  const invalidSummaryDate = await app(authedRequest("http://127.0.0.1:4010/api/billing/summary?from=2026-02-30&to=2026-03-31"));
   assert.equal(invalidSummaryDate.status, 400);
   assert.deepEqual(await invalidSummaryDate.json(), { error: "from and to must be YYYY-MM-DD" });
 
-  const malformedConfigUpdate = await app(new Request("http://127.0.0.1:4010/api/billing/config/1", {
+  const malformedConfigUpdate = await app(authedRequest("http://127.0.0.1:4010/api/billing/config/1", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: "{\"pickPackFee\":",

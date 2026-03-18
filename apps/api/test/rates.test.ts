@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { RateShopper } from "../src/modules/rates/application/rate-shopper.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 const MAIN_API_KEY_V2 = "main-test-key";
@@ -240,7 +241,7 @@ test("rates cached endpoint returns a normalized cache hit and miss", async () =
     PREPSHIP_SECRETS_PATH: secretsPath,
   });
 
-  const hitResponse = await app(new Request("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&storeId=4001"));
+  const hitResponse = await app(authedRequest("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&storeId=4001"));
   assert.equal(hitResponse.status, 200);
   const hitPayload = await hitResponse.json() as {
     cached: boolean;
@@ -254,7 +255,7 @@ test("rates cached endpoint returns a normalized cache hit and miss", async () =
   assert.equal(hitPayload.best?.serviceCode, "ups_ground");
   assert.equal(typeof hitPayload.fetchedAt, "number");
 
-  const missResponse = await app(new Request("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=999"));
+  const missResponse = await app(authedRequest("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=999"));
   assert.equal(missResponse.status, 200);
   assert.deepEqual(await missResponse.json(), { cached: false, rates: [], best: null });
 });
@@ -271,7 +272,7 @@ test("rates cached bulk endpoint returns cached entries and surfaces misses with
     PREPSHIP_SECRETS_PATH: secretsPath,
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/rates/cached/bulk", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/rates/cached/bulk", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify([
@@ -308,7 +309,7 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
     rateShopper: new FakeRateShopper(),
   });
 
-  const carriersResponse = await app(new Request("http://127.0.0.1:4010/api/carriers-for-store?storeId=4002"));
+  const carriersResponse = await app(authedRequest("http://127.0.0.1:4010/api/carriers-for-store?storeId=4002"));
   assert.equal(carriersResponse.status, 200);
   const carriersPayload = await carriersResponse.json() as { carriers: Array<{ shippingProviderId: number }> };
   assert.equal(carriersPayload.carriers.length, 7);
@@ -316,7 +317,7 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
   assert.equal(carriersPayload.carriers.some((carrier) => carrier.shippingProviderId === 442006), true);
   assert.equal(carriersPayload.carriers.some((carrier) => carrier.shippingProviderId === 596001), false);
 
-  const mainCarriersResponse = await app(new Request("http://127.0.0.1:4010/api/carriers-for-store?storeId=4001"));
+  const mainCarriersResponse = await app(authedRequest("http://127.0.0.1:4010/api/carriers-for-store?storeId=4001"));
   assert.equal(mainCarriersResponse.status, 200);
   const mainCarriersPayload = await mainCarriersResponse.json() as { carriers: Array<{ shippingProviderId: number }> };
   assert.equal(mainCarriersPayload.carriers.length, 8);
@@ -324,7 +325,7 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
   assert.equal(mainCarriersPayload.carriers.some((carrier) => carrier.shippingProviderId === 442006), false);
   assert.equal(mainCarriersPayload.carriers.some((carrier) => carrier.shippingProviderId === 604209), false);
 
-  const liveResponse = await app(new Request("http://127.0.0.1:4010/api/rates", {
+  const liveResponse = await app(authedRequest("http://127.0.0.1:4010/api/rates", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ toPostalCode: "90210", weight: { value: 16 } }),
@@ -333,7 +334,7 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
   const livePayload = await liveResponse.json() as Array<{ serviceCode: string }>;
   assert.equal(livePayload[0]?.serviceCode, "usps_ground_advantage");
 
-  const browseResponse = await app(new Request("http://127.0.0.1:4010/api/rates/browse", {
+  const browseResponse = await app(authedRequest("http://127.0.0.1:4010/api/rates/browse", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ shippingProviderId: 596001, toPostalCode: "90210", weightOz: 16, dimensions: { length: 10, width: 8, height: 4 } }),
@@ -342,7 +343,7 @@ test("rates carrier lookup is scoped by store client and supports live rate + br
   const browsePayload = await browseResponse.json() as { rates: Array<{ shippingProviderId: number }> };
   assert.deepEqual(browsePayload.rates.map((rate) => rate.shippingProviderId), [596001]);
 
-  const prefetchResponse = await app(new Request("http://127.0.0.1:4010/api/rates/prefetch", {
+  const prefetchResponse = await app(authedRequest("http://127.0.0.1:4010/api/rates/prefetch", {
     method: "POST",
   }));
   assert.equal(prefetchResponse.status, 200);
@@ -362,15 +363,15 @@ test("rates endpoints reject invalid query params and malformed JSON", async () 
     rateShopper: new FakeRateShopper(),
   });
 
-  const invalidCarrierLookup = await app(new Request("http://127.0.0.1:4010/api/carriers-for-store?storeId=4002abc"));
+  const invalidCarrierLookup = await app(authedRequest("http://127.0.0.1:4010/api/carriers-for-store?storeId=4002abc"));
   assert.equal(invalidCarrierLookup.status, 400);
   assert.deepEqual(await invalidCarrierLookup.json(), { error: "storeId must be an integer" });
 
-  const invalidCachedResidential = await app(new Request("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&residential=maybe"));
+  const invalidCachedResidential = await app(authedRequest("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&residential=maybe"));
   assert.equal(invalidCachedResidential.status, 400);
   assert.deepEqual(await invalidCachedResidential.json(), { error: "residential must be true/false or 1/0" });
 
-  const malformedBrowseBody = await app(new Request("http://127.0.0.1:4010/api/rates/browse", {
+  const malformedBrowseBody = await app(authedRequest("http://127.0.0.1:4010/api/rates/browse", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{\"shippingProviderId\":",

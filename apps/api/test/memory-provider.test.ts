@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../src/common/prepship-config.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 class MemoryInitMetadataProvider implements InitMetadataProvider {
   async listStores() {
@@ -239,33 +240,33 @@ test("memory provider boots the full API surface without SQLite wiring", async (
     },
   });
 
-  const orders = await app(new Request("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
+  const orders = await app(authedRequest("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
   assert.equal(orders.status, 200);
 
-  const clients = await app(new Request("http://127.0.0.1:4010/api/clients"));
+  const clients = await app(authedRequest("http://127.0.0.1:4010/api/clients"));
   assert.equal(clients.status, 200);
 
-  const init = await app(new Request("http://127.0.0.1:4010/api/init-data"));
+  const init = await app(authedRequest("http://127.0.0.1:4010/api/init-data"));
   assert.equal(init.status, 200);
 
-  const inventory = await app(new Request("http://127.0.0.1:4010/api/inventory"));
+  const inventory = await app(authedRequest("http://127.0.0.1:4010/api/inventory"));
   assert.equal(inventory.status, 200);
 
-  const locations = await app(new Request("http://127.0.0.1:4010/api/locations"));
+  const locations = await app(authedRequest("http://127.0.0.1:4010/api/locations"));
   assert.equal(locations.status, 200);
 
-  const packages = await app(new Request("http://127.0.0.1:4010/api/packages"));
+  const packages = await app(authedRequest("http://127.0.0.1:4010/api/packages"));
   assert.equal(packages.status, 200);
 
-  const rates = await app(new Request("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&storeId=4001"));
+  const rates = await app(authedRequest("http://127.0.0.1:4010/api/rates/cached?wt=16&zip=90210&storeId=4001"));
   assert.equal(rates.status, 200);
 
-  const settings = await app(new Request("http://127.0.0.1:4010/api/settings/pageSize"));
+  const settings = await app(authedRequest("http://127.0.0.1:4010/api/settings/pageSize"));
   assert.equal(settings.status, 200);
 
-  const analysis = await app(new Request("http://127.0.0.1:4010/api/analysis/skus"));
+  const analysis = await app(authedRequest("http://127.0.0.1:4010/api/analysis/skus"));
   assert.equal(analysis.status, 200);
 
-  const billing = await app(new Request("http://127.0.0.1:4010/api/billing/config"));
+  const billing = await app(authedRequest("http://127.0.0.1:4010/api/billing/config"));
   assert.equal(billing.status, 200);
 });

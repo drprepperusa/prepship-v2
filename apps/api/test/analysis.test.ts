@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -125,7 +126,7 @@ test("analysis endpoints return sku aggregates and daily sales series", async ()
     initMetadataProvider: new NoopInitMetadataProvider(),
   });
 
-  const skuResponse = await app(new Request("http://127.0.0.1:4010/api/analysis/skus?from=2026-03-01&to=2026-03-03&clientId=1"));
+  const skuResponse = await app(authedRequest("http://127.0.0.1:4010/api/analysis/skus?from=2026-03-01&to=2026-03-03&clientId=1"));
   assert.equal(skuResponse.status, 200);
   const skuPayload = await skuResponse.json() as {
     skus: Array<{ sku: string; qty: number; clientName: string; invSkuId: number | null; standardShipCount: number; expeditedShipCount: number; totalShipping: number; blendedAvgShipping: number; externalOrders: number }>;
@@ -146,7 +147,7 @@ test("analysis endpoints return sku aggregates and daily sales series", async ()
   assert.equal(sku1?.blendedAvgShipping, 12.5);
   assert.equal(sku2?.externalOrders, 0);
 
-  const dailyResponse = await app(new Request("http://127.0.0.1:4010/api/analysis/daily-sales?from=2026-03-01&to=2026-03-03&top=2"));
+  const dailyResponse = await app(authedRequest("http://127.0.0.1:4010/api/analysis/daily-sales?from=2026-03-01&to=2026-03-03&top=2"));
   assert.equal(dailyResponse.status, 200);
   const dailyPayload = await dailyResponse.json() as {
     topSkus: Array<{ sku: string; total: number }>;

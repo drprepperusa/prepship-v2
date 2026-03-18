@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { RateShopper } from "../src/modules/rates/application/rate-shopper.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -197,25 +198,25 @@ test("settings endpoints support allowed keys and clear/refetch rates", async ()
     rateShopper: shopper,
   });
 
-  const getResponse = await app(new Request("http://127.0.0.1:4010/api/settings/pageSize"));
+  const getResponse = await app(authedRequest("http://127.0.0.1:4010/api/settings/pageSize"));
   assert.equal(getResponse.status, 200);
   assert.equal(await getResponse.json(), 50);
 
-  const putResponse = await app(new Request("http://127.0.0.1:4010/api/settings/rbSettings", {
+  const putResponse = await app(authedRequest("http://127.0.0.1:4010/api/settings/rbSettings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ dense: true }),
   }));
   assert.equal(putResponse.status, 200);
 
-  const verifyResponse = await app(new Request("http://127.0.0.1:4010/api/settings/rbSettings"));
+  const verifyResponse = await app(authedRequest("http://127.0.0.1:4010/api/settings/rbSettings"));
   assert.equal(verifyResponse.status, 200);
   assert.deepEqual(await verifyResponse.json(), { dense: true });
 
-  const unknownResponse = await app(new Request("http://127.0.0.1:4010/api/settings/not-real"));
+  const unknownResponse = await app(authedRequest("http://127.0.0.1:4010/api/settings/not-real"));
   assert.equal(unknownResponse.status, 404);
 
-  const cacheResponse = await app(new Request("http://127.0.0.1:4010/api/cache/clear-and-refetch", {
+  const cacheResponse = await app(authedRequest("http://127.0.0.1:4010/api/cache/clear-and-refetch", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scope: "all" }),

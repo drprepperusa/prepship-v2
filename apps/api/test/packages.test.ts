@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { PackageSyncGateway } from "../src/modules/packages/application/package-sync-gateway.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -179,20 +180,20 @@ test("packages endpoints support CRUD, stock operations, lookups, and sync carri
     packageSyncGateway: new FakePackageSyncGateway(),
   });
 
-  const listResponse = await app(new Request("http://127.0.0.1:4010/api/packages"));
+  const listResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages"));
   assert.equal(listResponse.status, 200);
   const listPayload = await listResponse.json() as Array<{ name: string }>;
   assert.equal(listPayload.length, 2);
 
-  const lowStockResponse = await app(new Request("http://127.0.0.1:4010/api/packages/low-stock"));
+  const lowStockResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/low-stock"));
   const lowStockPayload = await lowStockResponse.json() as Array<{ name: string }>;
   assert.deepEqual(lowStockPayload.map((item) => item.name), ["Small Box"]);
 
-  const dimsResponse = await app(new Request("http://127.0.0.1:4010/api/packages/find-by-dims?length=8&width=6&height=4"));
+  const dimsResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/find-by-dims?length=8&width=6&height=4"));
   const dimsPayload = await dimsResponse.json() as { name: string } | null;
   assert.equal(dimsPayload?.name, "Small Box");
 
-  const createResponse = await app(new Request("http://127.0.0.1:4010/api/packages", {
+  const createResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "New Box", length: 12, width: 10, height: 8, tareWeightOz: 4 }),
@@ -200,7 +201,7 @@ test("packages endpoints support CRUD, stock operations, lookups, and sync carri
   assert.equal(createResponse.status, 200);
   const created = await createResponse.json() as { packageId: number };
 
-  const autoCreateResponse = await app(new Request("http://127.0.0.1:4010/api/packages/auto-create", {
+  const autoCreateResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/auto-create", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ length: 9, width: 7, height: 5, sku: "SKU-1", clientId: 1 }),
@@ -209,47 +210,47 @@ test("packages endpoints support CRUD, stock operations, lookups, and sync carri
   const autoPayload = await autoCreateResponse.json() as { package: { name: string }; isNew: boolean };
   assert.equal(autoPayload.isNew, true);
 
-  const getResponse = await app(new Request(`http://127.0.0.1:4010/api/packages/${created.packageId}`));
+  const getResponse = await app(authedRequest(`http://127.0.0.1:4010/api/packages/${created.packageId}`));
   assert.equal(getResponse.status, 200);
 
-  const updateResponse = await app(new Request(`http://127.0.0.1:4010/api/packages/${created.packageId}`, {
+  const updateResponse = await app(authedRequest(`http://127.0.0.1:4010/api/packages/${created.packageId}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "Renamed Box", type: "box", length: 12, width: 10, height: 8, tareWeightOz: 4, reorderLevel: 3, unitCost: 2.5 }),
   }));
   assert.equal(updateResponse.status, 200);
 
-  const receiveResponse = await app(new Request("http://127.0.0.1:4010/api/packages/1/receive", {
+  const receiveResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/1/receive", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ qty: 10, note: "restock", costPerUnit: 1.5 }),
   }));
   assert.equal(receiveResponse.status, 200);
 
-  const adjustResponse = await app(new Request("http://127.0.0.1:4010/api/packages/1/adjust", {
+  const adjustResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/1/adjust", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ qty: -2, note: "damage" }),
   }));
   assert.equal(adjustResponse.status, 200);
 
-  const reorderResponse = await app(new Request("http://127.0.0.1:4010/api/packages/1/reorder-level", {
+  const reorderResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/1/reorder-level", {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ reorderLevel: 4 }),
   }));
   assert.equal(reorderResponse.status, 200);
 
-  const ledgerResponse = await app(new Request("http://127.0.0.1:4010/api/packages/1/ledger"));
+  const ledgerResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/1/ledger"));
   const ledgerPayload = await ledgerResponse.json() as Array<{ delta: number }>;
   assert.equal(ledgerPayload.length, 2);
 
-  const deleteResponse = await app(new Request(`http://127.0.0.1:4010/api/packages/${created.packageId}`, {
+  const deleteResponse = await app(authedRequest(`http://127.0.0.1:4010/api/packages/${created.packageId}`, {
     method: "DELETE",
   }));
   assert.equal(deleteResponse.status, 200);
 
-  const syncResponse = await app(new Request("http://127.0.0.1:4010/api/packages/sync", { method: "POST" }));
+  const syncResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/sync", { method: "POST" }));
   assert.equal(syncResponse.status, 200);
   assert.deepEqual(await syncResponse.json(), { queued: true });
 
@@ -274,11 +275,11 @@ test("packages endpoints reject malformed JSON and invalid dimension query input
     packageSyncGateway: new FakePackageSyncGateway(),
   });
 
-  const invalidDimsResponse = await app(new Request("http://127.0.0.1:4010/api/packages/find-by-dims?length=8x&width=6&height=4"));
+  const invalidDimsResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages/find-by-dims?length=8x&width=6&height=4"));
   assert.equal(invalidDimsResponse.status, 400);
   assert.deepEqual(await invalidDimsResponse.json(), { error: "length must be a number" });
 
-  const malformedCreateResponse = await app(new Request("http://127.0.0.1:4010/api/packages", {
+  const malformedCreateResponse = await app(authedRequest("http://127.0.0.1:4010/api/packages", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{\"name\":",

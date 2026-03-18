@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type {
+import { authedRequest } from "./test-helpers.ts";
   CreateExternalLabelInput,
   CreatedExternalLabel,
   ExternalOrderShipmentRecord,
@@ -300,7 +301,7 @@ test("POST /api/labels/create persists the shipment and marks the order shipped"
   const gateway = new FakeShippingGateway();
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4010" }, { shippingGateway: gateway });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/labels/create", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/labels/create", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ orderId: 101, serviceCode: "ups_ground", packageCode: "package", shippingProviderId: 596001, weightOz: 18 }),
@@ -334,7 +335,7 @@ test("POST /api/labels/:shipmentId/void marks the shipment void and resets the o
     VALUES (9001, 101, 'ORD-101', 'ups', 'ups_ground', '1Z999', '2026-03-09', 'https://labels.example/9001.pdf', 8.75, 0, ?, 1, 596001, 'prepship_v2', ?)
   `).run(Date.now(), Date.now());
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/labels/9001/void", { method: "POST" }));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/labels/9001/void", { method: "POST" }));
   assert.equal(response.status, 200);
   const payload = await response.json() as { voided: boolean; refundEstimate: string };
   assert.equal(payload.voided, true);
@@ -359,7 +360,7 @@ test("POST /api/labels/:shipmentId/return stores the return label record", async
     VALUES (9001, 101, 'ORD-101', 'ups', 'ups_ground', '1Z999', '2026-03-09', 'https://labels.example/9001.pdf', 8.75, 0, ?, 1, 596001, 'prepship_v2', ?)
   `).run(Date.now(), Date.now());
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/labels/9001/return", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/labels/9001/return", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ reason: "Customer Return" }),
@@ -387,7 +388,7 @@ test("GET /api/labels/:orderId/retrieve returns the cached or refreshed label ur
     VALUES (9001, 101, 'ORD-101', 'ups', 'ups_ground', '1Z999', '2026-03-09', NULL, 8.75, 0, ?, 1, 596001, 'prepship_v2', ?)
   `).run(Date.now(), Date.now());
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/labels/101/retrieve?fresh=true"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/labels/101/retrieve?fresh=true"));
   assert.equal(response.status, 200);
   const payload = await response.json() as { labelUrl: string; trackingNumber: string };
   assert.equal(payload.labelUrl, "https://labels.example/fresh-9001.pdf");
@@ -402,7 +403,7 @@ test("POST /api/shipments/sync queues a sync and upserts returned shipments", as
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4010" }, { shippingGateway: gateway });
   const db = new DatabaseSync(dbPath);
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/shipments/sync", { method: "POST" }));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/shipments/sync", { method: "POST" }));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { queued: true });
 
@@ -425,7 +426,7 @@ test("GET /api/shipments/status reports count, last sync, and running state", as
   `).run(Date.now());
   db.prepare(`INSERT INTO sync_meta (key, value) VALUES ('lastShipmentSync', '1710000000000')`).run();
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/shipments/status"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/shipments/status"));
   assert.equal(response.status, 200);
   const payload = await response.json() as { count: number; lastSync: number; running: boolean };
   assert.equal(payload.count, 1);
@@ -440,7 +441,7 @@ test("GET /api/sync/status and POST /api/sync/trigger expose V1-compatible sync 
   const gateway = new FakeShippingGateway();
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4010" }, { shippingGateway: gateway });
 
-  const initialStatus = await app(new Request("http://127.0.0.1:4010/api/sync/status"));
+  const initialStatus = await app(authedRequest("http://127.0.0.1:4010/api/sync/status"));
   assert.equal(initialStatus.status, 200);
   assert.deepEqual(await initialStatus.json(), {
     status: "idle",
@@ -453,17 +454,17 @@ test("GET /api/sync/status and POST /api/sync/trigger expose V1-compatible sync 
     ratePrefetchRunning: false,
   });
 
-  const trigger = await app(new Request("http://127.0.0.1:4010/api/sync/trigger?full=1", { method: "POST" }));
+  const trigger = await app(authedRequest("http://127.0.0.1:4010/api/sync/trigger?full=1", { method: "POST" }));
   assert.equal(trigger.status, 200);
   assert.deepEqual(await trigger.json(), { queued: true, mode: "full" });
 
   await waitFor(async () => {
-    const response = await app(new Request("http://127.0.0.1:4010/api/sync/status"));
+    const response = await app(authedRequest("http://127.0.0.1:4010/api/sync/status"));
     const payload = await response.json() as { status: string };
     return payload.status === "done";
   });
 
-  const finalStatus = await (await app(new Request("http://127.0.0.1:4010/api/sync/status"))).json() as {
+  const finalStatus = await (await app(authedRequest("http://127.0.0.1:4010/api/sync/status"))).json() as {
     status: string;
     lastSync: number | null;
     count: number;
@@ -497,7 +498,7 @@ test("GET /api/shipments returns the proxied upstream payload", async () => {
   };
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4010" }, { shippingGateway: gateway });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/shipments?page=1&pageSize=500"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/shipments?page=1&pageSize=500"));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { shipments: [{ shipmentId: 9002, trackingNumber: "1ZSYNC" }], page: 1, pages: 1, total: 1 });
 });
