@@ -259,7 +259,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     setCurrentPage(1)
   }, [status, rowsPerPage, dateFilter, dateFrom, dateTo])
 
-  const { orders, loading, error, refetch, total, pages, goToPage } = useOrdersWithDetails(status, {
+  const { orders, loading, backgroundLoading, error, refetch, total, pages, goToPage } = useOrdersWithDetails(status, {
     pageSize: rowsPerPage,
     page: currentPage,
     dateStart: dateRange?.start?.toISOString(),
@@ -511,7 +511,8 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  if (loading) {
+  // Only show full loading spinner on initial load, not when updating filters/store
+  if (loading && orders.length === 0) {
     return (
       <div style={{ padding: '20px', textAlign: 'center' }}>
         <div className="spinner"></div>

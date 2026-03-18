@@ -12,6 +12,7 @@ export interface UseOrdersWithDetailsResult {
   pages: number;
   currentPage: number;
   loading: boolean;
+  backgroundLoading: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
   goToPage: (page: number) => Promise<void>;
@@ -27,11 +28,17 @@ export function useOrdersWithDetails(
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(page);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [backgroundLoading, setBackgroundLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchOrders = useCallback(async (pageNum: number = currentPage) => {
-    setLoading(true);
+  const fetchOrders = useCallback(async (pageNum: number = currentPage, isInitial: boolean = false) => {
+    // On initial load, show full loading. On subsequent loads (store filter changes), use backgroundLoading
+    if (isInitial) {
+      setLoading(true);
+    } else {
+      setBackgroundLoading(true);
+    }
     setError(null);
 
     try {
@@ -69,11 +76,14 @@ export function useOrdersWithDetails(
       console.error("[useOrdersWithDetails]", error);
     } finally {
       setLoading(false);
+      setBackgroundLoading(false);
     }
   }, [status, pageSize, dateStart, dateEnd, clientId, currentPage]);
 
   useEffect(() => {
-    fetchOrders(1); // Reset to page 1 when filters change
+    // First load is always initial (full loading spinner)
+    const isFirstLoad = orders.length === 0;
+    fetchOrders(1, isFirstLoad);
   }, [status, pageSize, dateStart, dateEnd, clientId]);
 
   const goToPage = useCallback(
@@ -89,8 +99,9 @@ export function useOrdersWithDetails(
     pages,
     currentPage,
     loading,
+    backgroundLoading,
     error,
-    refetch: () => fetchOrders(currentPage),
+    refetch: () => fetchOrders(currentPage, false),
     goToPage,
   };
 }
