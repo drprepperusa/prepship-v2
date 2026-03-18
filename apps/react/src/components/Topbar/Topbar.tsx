@@ -40,22 +40,26 @@ export default function Topbar({
 }: TopbarProps) {
   const { count: queueCount, setIsOpen: setQueueOpen } = useQueue()
   const syncStatus = useSyncPoller(true, 10000)
-  const [zoom, setZoom] = useState(100)
+  // Initialize zoom from localStorage on mount
+  const [zoom, setZoom] = useState(() => {
+    try {
+      const saved = localStorage.getItem('prepship_zoom')
+      return saved ? parseInt(saved, 10) : 100
+    } catch {
+      return 100
+    }
+  })
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
 
   useEffect(() => {
     const appRoot = document.getElementById('root') || document.body
     appRoot.style.zoom = `${zoom}%`
-    localStorage.setItem('prepship_zoom', zoom.toString())
-  }, [zoom])
-
-  // Restore zoom from localStorage on mount
-  useEffect(() => {
-    const savedZoom = localStorage.getItem('prepship_zoom')
-    if (savedZoom) {
-      setZoom(parseInt(savedZoom, 10))
+    try {
+      localStorage.setItem('prepship_zoom', zoom.toString())
+    } catch (error) {
+      console.warn('Failed to save zoom to localStorage:', error)
     }
-  }, [])
+  }, [zoom])
 
   const handleSync = async (full: boolean) => {
     try {
