@@ -1,48 +1,18 @@
 import { jsonResponse } from "../common/http/json.ts";
 
-/**
- * Extract client IP from a fetch API Request object.
- * Handles IPv4, IPv6 (::1), and IPv6-mapped IPv4 (::ffff:127.0.0.1).
- */
-function getClientIp(request: Request): string {
-  // Try X-Forwarded-For header first (set by proxies/tunnels)
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    // X-Forwarded-For is comma-separated list; take the first (client) IP
-    return forwarded.split(",")[0]?.trim() || "";
-  }
-
-  // Fall back to cf-connecting-ip (set by Cloudflare)
-  const cfIp = request.headers.get("cf-connecting-ip");
-  if (cfIp) return cfIp;
-
-  // If no headers, we're likely localhost (direct connection or Tunnel)
-  return "127.0.0.1";
-}
-
-/**
- * Check if an IP address is localhost or private LAN.
- */
-function isLocalOrPrivate(ip: string): boolean {
-  return (
-    ip === "127.0.0.1" ||
-    ip === "::1" ||
-    ip === "::ffff:127.0.0.1" ||
-    ip.startsWith("192.168.") ||
-    ip.startsWith("10.") ||
-    ip.startsWith("172.") ||
-    ip === "localhost"
-  );
-}
-
 export type AppHandler = (request: Request) => Promise<Response>;
 
 /**
  * Wraps an app handler with auth middleware.
  * - All /api/* routes require X-App-Token header (except /api/auth/token)
- * - Localhost and private LAN IPs bypass auth
- * - Remote requests without valid token get 401
+ * - NO IP-based bypass: auth is enforced regardless of source IP or proxy headers
  * - /api/portal/* routes have their own auth (skipped by this middleware)
+ *
+ * SECURITY FIX (2026-03-17): Removed IP-based auth bypass.
+ * Previously, requests appearing to come from private/LAN IPs were allowed
+ * through without a token. Cloudflare proxy headers caused remote requests to
+ * appear as private-IP traffic, bypassing auth entirely. All /api/* routes now
+ * require a valid X-App-Token — no exceptions based on source IP.
  */
 export function createAuthMiddleware(handler: AppHandler, sessionToken: string): AppHandler {
   return async (request: Request): Promise<Response> => {
@@ -60,16 +30,10 @@ export function createAuthMiddleware(handler: AppHandler, sessionToken: string):
         return handler(request);
       }
 
-      // Get client IP
-      const clientIp = getClientIp(request);
-      const isLocal = isLocalOrPrivate(clientIp);
-
-      // If not local, require X-App-Token header
-      if (!isLocal) {
-        const token = request.headers.get("x-app-token");
-        if (!token || token !== sessionToken) {
-          return jsonResponse(401, { error: "Unauthorized" });
-        }
+      // Require X-App-Token for ALL /api/* routes — no IP-based exceptions
+      const token = request.headers.get("x-app-token");
+      if (!token || token !== sessionToken) {
+        return jsonResponse(401, { error: "Unauthorized" });
       }
     }
 

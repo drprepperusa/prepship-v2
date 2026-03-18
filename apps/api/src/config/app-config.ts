@@ -9,6 +9,7 @@ export interface AppConfig {
   secretsPath: string;
   workerSyncEnabled: boolean;
   secrets: TransitionalSecrets;
+  sessionToken: string;
 }
 
 function parseBooleanFlag(value: string | undefined, fallback: boolean): boolean {
@@ -30,6 +31,10 @@ export function loadAppConfig(env = process.env): AppConfig {
 
   const secretsPath = env.PREPSHIP_SECRETS_PATH ?? defaultSecretsPath(env);
 
+  // SESSION_TOKEN must be set in production. In dev, fall back to a fixed
+  // dev-only token so the server can still start without manual config.
+  const sessionToken = env.SESSION_TOKEN ?? "dev-only-insecure-token-change-me";
+
   return {
     port: Number.parseInt(env.API_PORT ?? "4010", 10),
     dbProvider,
@@ -37,5 +42,6 @@ export function loadAppConfig(env = process.env): AppConfig {
     secretsPath,
     workerSyncEnabled: parseBooleanFlag(env.WORKER_SYNC_ENABLED, false),
     secrets: loadTransitionalSecrets(secretsPath),
+    sessionToken,
   };
 }
