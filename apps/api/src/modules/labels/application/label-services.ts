@@ -21,6 +21,28 @@ import type {
 import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
 import type { AddressRecord, LabelOrderRecord, LabelShipmentRecord } from "../domain/label.ts";
 
+// Type for batch print response
+type BatchPrintResponseDto = {
+  job_id: string;
+  status: string;
+  created: Array<{
+    orderId: number;
+    shipmentId: number;
+    trackingNumber: string | null;
+    labelUrl: string | null;
+    cost: number;
+  }>;
+  failed: Array<{
+    orderId: number;
+    error: string;
+  }>;
+  summary: {
+    total: number;
+    created: number;
+    failed: number;
+  };
+};
+
 // Rate limiting configuration
 const LABEL_RATE_LIMIT = 10; // max 10 labels per minute per client
 const LABEL_RATE_WINDOW_MS = 60_000; // 1 minute window
@@ -619,26 +641,7 @@ export class LabelServices {
    * Batch print: creates labels for multiple orders and returns their URLs and tracking numbers.
    * This wraps createBatch and then retrieves the label URLs for all successfully created labels.
    */
-  async batchPrint(body: CreateBatchLabelRequestDto): Promise<{
-    job_id: string;
-    status: string;
-    created: Array<{
-      orderId: number;
-      shipmentId: number;
-      trackingNumber: string | null;
-      labelUrl: string | null;
-      cost: number;
-    }>;
-    failed: Array<{
-      orderId: number;
-      error: string;
-    }>;
-    summary: {
-      total: number;
-      created: number;
-      failed: number;
-    };
-  }> {
+  async batchPrint(body: CreateBatchLabelRequestDto): Promise<BatchPrintResponseDto> {
     // Create batch labels
     const batchResult = await this.createBatch(body);
 
