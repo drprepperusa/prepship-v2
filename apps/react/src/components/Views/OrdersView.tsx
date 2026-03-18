@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { CarrierAccountDto, InitStoreDto } from '@prepshipv2/contracts/init/contracts'
 import { useOrdersWithDetails, useStores } from '../../hooks'
 import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
+import { useToast } from '../../hooks/useToast'
 import OrdersTable from '../Tables/OrdersTable'
 import { ALL_COLUMNS } from '../Tables/columnDefs'
 import type { TableCarrierAccount, TableOrder } from '../Tables/orders-table-parity'
@@ -82,6 +83,7 @@ function getDefaultColWidths(): Record<string, number> {
 }
 
 export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedClientId }: OrdersViewProps) {
+  const { showToast } = useToast()
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
   const [dateFilter, setDateFilter] = useState<OrdersDateFilter>(status === 'awaiting_shipment' ? '' : 'last-30')
@@ -307,6 +309,103 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     onOrdersLoaded?.(tableOrders)
   }, [tableOrders, onOrdersLoaded])
 
+  const handleExportCSV = () => {
+    const params = new URLSearchParams()
+    params.set('orderStatus', status)
+    if (dateRange?.start) params.set('dateStart', dateRange.start.toISOString())
+    if (dateRange?.end) params.set('dateEnd', dateRange.end.toISOString())
+    const url = `/api/orders/export?${params}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const handlePicklist = async () => {
+    const params = new URLSearchParams()
+    params.set('orderStatus', status)
+    if (dateRange?.start) params.set('dateStart', dateRange.start.toISOString())
+    if (dateRange?.end) params.set('dateEnd', dateRange.end.toISOString())
+
+    let data: { skus: any[]; orderStatus: string }
+    try {
+      const r = await fetch(`/api/orders/picklist?${params}`)
+      data = await r.json()
+      if (!r.ok) throw new Error((data as any)?.error || 'Server error')
+    } catch (e: any) {
+      showToast(`Picklist error: ${e.message}`, 'error')
+      return
+    }
+
+    if (!data.skus?.length) {
+      showToast('No items found for current filter', 'info')
+      return
+    }
+
+    const now = new Date().toLocaleString()
+    const totalUnits = data.skus.reduce((s: number, r: any) => s + r.totalQty, 0)
+    const totalSkus = data.skus.length
+
+    const rows = data.skus.map((s: any, i: number) => {
+      const img = s.imageUrl
+        ? `<img src="${s.imageUrl}" style="width:48px;height:48px;object-fit:cover;border-radius:5px;border:1px solid #e0e0e0" onerror="this.style.display='none'">`
+        : `<div style="width:48px;height:48px;background:#f5f5f5;border-radius:5px;border:1px solid #e0e0e0;display:flex;align-items:center;justify-content:center;font-size:20px">📦</div>`
+      return `<tr>
+        <td style="font-size:11px;color:#888;text-align:center">${i + 1}</td>
+        <td style="font-size:12px;font-weight:700;color:#333">${s.clientName || '—'}</td>
+        <td style="text-align:center">${img}</td>
+        <td>
+          <div style="font-weight:600;font-size:13px;color:#1a1a1a;margin-bottom:3px">${s.name || '—'}</div>
+          <div style="font-family:monospace;font-size:11px;color:#666;background:#f5f5f5;display:inline-block;padding:1px 6px;border-radius:3px">${s.sku}</div>
+        </td>
+        <td style="text-align:center"><span style="font-size:26px;font-weight:800;color:#1a1a1a">${s.totalQty}</span></td>
+        <td style="text-align:center"><div style="width:34px;height:34px;border:2px solid #ccc;border-radius:6px;margin:0 auto"></div></td>
+      </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>PrepShip Pick List — ${now}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a1a1a; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 3px solid #1a1a1a; }
+.header h1 { font-size: 22px; font-weight: 800; }
+.header .meta { font-size: 12px; color: #555; margin-top: 4px; }
+.stats { display: flex; gap: 24px; }
+.stat { text-align: right; }
+.stat .n { font-size: 28px; font-weight: 800; line-height: 1; }
+.stat .l { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+table { width: 100%; border-collapse: collapse; }
+thead th { background: #1a1a1a; color: #fff; padding: 8px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+thead th:nth-child(1), thead th:nth-child(3), thead th:nth-child(5), thead th:nth-child(6) { text-align: center; }
+tbody tr:nth-child(even) td { background: #fafafa; }
+td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
+@media print { @page { size: letter portrait; margin: 12mm; } body { padding: 0; } }
+</style></head><body>
+<div class="header">
+  <div>
+    <h1>📦 PrepShip Pick List</h1>
+    <div class="meta">Generated: ${now} · Status: ${status.replace(/_/g, ' ')}</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n">${totalSkus}</div><div class="l">SKUs</div></div>
+    <div class="stat"><div class="n">${totalUnits}</div><div class="l">Total Units</div></div>
+  </div>
+</div>
+<table>
+  <thead><tr><th>#</th><th>Client</th><th>IMG</th><th>Item / SKU</th><th>Qty to Pick</th><th>✓ Done</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<script>window.onload = () => window.print();<\/script>
+</body></html>`
+
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close() }
+    else showToast('⚠️ Allow popups to print pick list', 'error')
+  }
+
   const handleSort = (key: string) => {
     if (sortKey === key) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -507,7 +606,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           />
         </div>
 
-        <div ref={colMenuRef} className="col-toggle-wrap" style={{ display: 'none' }}>
+        <div ref={colMenuRef} className="col-toggle-wrap" style={{ position: 'relative' }}>
           <button
             id="colBtnFilter"
             className="btn btn-outline btn-sm"
@@ -599,8 +698,18 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
           📋 SKU Sort
         </button>
         <button
+          id="btnExportCSV"
+          className="btn btn-ghost btn-sm"
+          onClick={handleExportCSV}
+          title="Export orders to CSV"
+          style={{ gap: '4px' }}
+        >
+          📥 Export CSV
+        </button>
+        <button
           id="picklistBtn"
           className="btn btn-ghost btn-sm"
+          onClick={handlePicklist}
           style={{ marginLeft: 'auto', display: status === 'awaiting_shipment' ? undefined : 'none', fontSize: '11.5px', gap: '4px' }}
         >
           🖨️ Picklist

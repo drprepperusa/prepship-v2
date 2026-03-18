@@ -15,6 +15,9 @@ interface TopbarProps {
   mobileMenuOpen: boolean
   onToggleMobileMenu: () => void
   onOpenPrintQueue?: () => void
+  selectedOrderIds?: number[]
+  onPrintLabels?: (orderIds: number[]) => void
+  onPrintBatch?: () => void
 }
 
 const viewTitles: Record<ViewType, string> = {
@@ -37,6 +40,9 @@ export default function Topbar({
   onShowBatchPanel,
   onToggleMobileMenu,
   onOpenPrintQueue,
+  selectedOrderIds,
+  onPrintLabels,
+  onPrintBatch,
 }: TopbarProps) {
   const { count: queueCount, setIsOpen: setQueueOpen } = useQueue()
   const syncStatus = useSyncPoller(true, 10000)
@@ -98,7 +104,7 @@ export default function Topbar({
           <span>{selectedOrdersCount} selected</span>
           <div className="batch-btns">
             <button className="batch-btn" onClick={onShowBatchPanel}>🗂️ Batch</button>
-            <button className="batch-btn" onClick={() => {}}>🖨️ Print</button>
+            <button className="batch-btn" onClick={onPrintBatch ?? (() => {})}>🖨️ Print</button>
             <button className="batch-btn" onClick={onClearSelection}>✕</button>
           </div>
         </div>
@@ -126,7 +132,18 @@ export default function Topbar({
           Full↻
         </button>
 
-        <button className="btn btn-primary btn-sm">🖨️ Labels</button>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            if (selectedOrderIds?.length) {
+              onPrintLabels?.(selectedOrderIds)
+            }
+          }}
+          disabled={!selectedOrderIds?.length}
+          title={selectedOrderIds?.length ? `Reprint ${selectedOrderIds.length} label(s)` : 'Select orders to print labels'}
+        >
+          🖨️ Labels
+        </button>
 
         {/* Print Queue Badge */}
         <button

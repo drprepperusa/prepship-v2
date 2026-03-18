@@ -64,6 +64,31 @@ function AppInner() {
     setSelectedClientId(prev => prev === clientId ? null : clientId)
   }
 
+  const handlePrintLabels = async (orderIds: number[]) => {
+    if (!orderIds.length) return
+    for (const orderId of orderIds) {
+      try {
+        const r = await fetch(`/api/labels/${orderId}/retrieve`)
+        if (!r.ok) continue
+        const data = await r.json()
+        if (data.labelUrl) {
+          window.open(data.labelUrl, '_blank')
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+      } catch (e) {
+        console.error(`Failed to retrieve label for order ${orderId}:`, e)
+      }
+    }
+  }
+
+  const handlePrintBatch = () => {
+    if (currentStatus === 'shipped') {
+      void handlePrintLabels(Array.from(selectedOrders))
+    } else {
+      setShowBatchPanel(true)
+    }
+  }
+
   // Auto-show batch panel when 2+ orders selected
   const handleSetSelectedOrders = (orders: Set<number>) => {
     setSelectedOrders(orders)
@@ -142,6 +167,9 @@ function AppInner() {
           mobileMenuOpen={mobileMenuOpen}
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
           onOpenPrintQueue={() => setQueueOpen(true)}
+          selectedOrderIds={Array.from(selectedOrders)}
+          onPrintLabels={handlePrintLabels}
+          onPrintBatch={handlePrintBatch}
         />
 
         {renderView()}
