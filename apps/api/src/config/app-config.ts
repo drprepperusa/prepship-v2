@@ -33,7 +33,14 @@ export function loadAppConfig(env = process.env): AppConfig {
 
   // SESSION_TOKEN must be set in production. In dev, fall back to a fixed
   // dev-only token so the server can still start without manual config.
-  const sessionToken = env.SESSION_TOKEN ?? "dev-only-insecure-token-change-me";
+  const isProduction = env.NODE_ENV === "production";
+  const sessionToken = env.SESSION_TOKEN;
+  
+  if (isProduction && !sessionToken) {
+    throw new Error("SESSION_TOKEN is required in production environment");
+  }
+
+  const fallbackToken = sessionToken ?? "dev-only-insecure-token-change-me";
 
   return {
     port: Number.parseInt(env.API_PORT ?? "4010", 10),
@@ -42,6 +49,6 @@ export function loadAppConfig(env = process.env): AppConfig {
     secretsPath,
     workerSyncEnabled: parseBooleanFlag(env.WORKER_SYNC_ENABLED, false),
     secrets: loadTransitionalSecrets(secretsPath),
-    sessionToken,
+    sessionToken: fallbackToken,
   };
 }
