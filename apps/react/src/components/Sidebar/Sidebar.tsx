@@ -42,18 +42,38 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
   }, [visibilityState])
 
   const fetchStatusCounts = async () => {
+    const fetchWithRetry = async (url: string, maxRetries = 3): Promise<Record<number, number>> => {
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const res = await fetch(url)
+          
+          // Handle 429 with exponential backoff
+          if (res.status === 429) {
+            const retryAfter = parseInt(res.headers.get('Retry-After') || '1', 10)
+            const waitTime = Math.min(retryAfter * 1000 * Math.pow(2, attempt), 10000) // Cap at 10s
+            console.warn(`Rate limited. Retrying in ${waitTime}ms...`)
+            await new Promise(resolve => setTimeout(resolve, waitTime))
+            continue
+          }
+          
+          if (!res.ok) {
+            throw new Error(`API error: ${res.status} ${res.statusText}`)
+          }
+          
+          return await res.json() as Record<number, number>
+        } catch (error) {
+          if (attempt === maxRetries - 1) throw error
+        }
+      }
+      return {}
+    }
+    
     try {
       // Use server-side store aggregation endpoint for fast, accurate counts
-      const [awaitingRes, shippedRes, cancelledRes] = await Promise.all([
-        fetch('/api/orders/store-counts?orderStatus=awaiting_shipment'),
-        fetch('/api/orders/store-counts?orderStatus=shipped'),
-        fetch('/api/orders/store-counts?orderStatus=cancelled'),
-      ])
-      
       const [awaitingCounts, shippedCounts, cancelledCounts] = await Promise.all([
-        awaitingRes.json() as Promise<Record<number, number>>,
-        shippedRes.json() as Promise<Record<number, number>>,
-        cancelledRes.json() as Promise<Record<number, number>>,
+        fetchWithRetry('/api/orders/store-counts?orderStatus=awaiting_shipment'),
+        fetchWithRetry('/api/orders/store-counts?orderStatus=shipped'),
+        fetchWithRetry('/api/orders/store-counts?orderStatus=cancelled'),
       ])
       
       // Calculate totals from store counts
@@ -71,7 +91,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
         cancelled: cancelledCounts,
       })
     } catch (error) {
-      console.error('Failed to fetch status counts:', error)
+      console.error('Failed to fetch status counts after retries:', error)
     }
   }
 
