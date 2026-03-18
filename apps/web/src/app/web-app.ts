@@ -45,7 +45,7 @@ async function serveStatic(publicDir: string, pathname: string): Promise<Respons
       status: 200,
       headers: {
         "content-type": getContentType(filename),
-        "cache-control": pathname === "/" || pathname.endsWith(".html") ? "no-cache" : "public, max-age=300",
+        "cache-control": "no-store, no-cache, must-revalidate",
       },
     });
   } catch {
