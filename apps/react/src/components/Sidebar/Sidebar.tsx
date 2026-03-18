@@ -24,10 +24,14 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
     shipped: 0,
     cancelled: 0,
   })
+  const [storeCountsByStatus, setStoreCountsByStatus] = useState<Record<OrderStatus, Record<number, number>>>({
+    awaiting_shipment: {},
+    shipped: {},
+    cancelled: {},
+  })
   const [searchValue, setSearchValue] = useState('')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { storeCounts } = useStoreOrders(currentStatus)
   const { stores } = useStores()
   const { useStoreVisibility } = useStoreVisibilityContext()
 
@@ -51,14 +55,32 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
       ])
       
       // Filter orders by visibility: only count orders from visible clients
-      const countVisibleOrders = (orders: any[]) => {
-        return orders.filter(o => visibilityState[o.clientId] !== false).length
+      const filterAndGroupByStore = (orders: any[]) => {
+        const visible = orders.filter(o => visibilityState[o.clientId] !== false)
+        const countsByStore: Record<number, number> = {}
+        visible.forEach(order => {
+          const storeIds = order.storeIds || (order.storeId ? [order.storeId] : [])
+          storeIds.forEach(sid => {
+            countsByStore[sid] = (countsByStore[sid] || 0) + 1
+          })
+        })
+        return { total: visible.length, byStore: countsByStore }
       }
       
+      const awaiting = filterAndGroupByStore(awaitingData.orders || [])
+      const shipped = filterAndGroupByStore(shippedData.orders || [])
+      const cancelled = filterAndGroupByStore(cancelledData.orders || [])
+      
       setStatusCounts({
-        awaiting_shipment: countVisibleOrders(awaitingData.orders || []),
-        shipped: countVisibleOrders(shippedData.orders || []),
-        cancelled: countVisibleOrders(cancelledData.orders || []),
+        awaiting_shipment: awaiting.total,
+        shipped: shipped.total,
+        cancelled: cancelled.total,
+      })
+      
+      setStoreCountsByStatus({
+        awaiting_shipment: awaiting.byStore,
+        shipped: shipped.byStore,
+        cancelled: cancelled.byStore,
       })
     } catch (error) {
       console.error('Failed to fetch status counts:', error)
@@ -185,7 +207,8 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                 <div className="ss-stores">
                   {stores
                     .map((store) => {
-                      const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (storeCounts[sid] || 0), 0)
+                      const counts = storeCountsByStatus[status] || {}
+                      const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (counts[sid] || 0), 0)
                       return { store, count }
                     })
                     .filter(({ store }) => useStoreVisibility(store.clientId))
