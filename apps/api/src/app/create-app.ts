@@ -1123,7 +1123,16 @@ export function createApp(dependencies: AppDependencies) {
       try {
         return jsonResponse(200, await dependencies.labelsHandler.handleCreateBatch(await readJson()));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const err = error as Error & { rateLimited?: boolean; retryAfterMs?: number };
+        const message = err instanceof Error ? err.message : "Unknown error";
+        if (err.rateLimited) {
+          const retryAfter = Math.ceil((err.retryAfterMs ?? 60000) / 1000);
+          return jsonResponse(429, {
+            error: message,
+            retryAfter,
+            rateLimited: true,
+          });
+        }
         const status = isInputError(error, ["orderIds must be a non-empty array", "serviceCode is required", "shippingProviderId is required"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
       }
@@ -1137,9 +1146,18 @@ export function createApp(dependencies: AppDependencies) {
         console.log("[DEBUG] /api/labels/create succeeded:", JSON.stringify(response, null, 2));
         return jsonResponse(200, response);
       } catch (error) {
-        const err = error as Error & { details?: Record<string, unknown> };
+        const err = error as Error & { details?: Record<string, unknown>; rateLimited?: boolean; retryAfterMs?: number };
         const message = err instanceof Error ? err.message : "Unknown error";
         console.error("[DEBUG] /api/labels/create error:", message, err.details ? JSON.stringify(err.details) : "");
+        if (err.rateLimited) {
+          const retryAfter = Math.ceil((err.retryAfterMs ?? 60000) / 1000);
+          return jsonResponse(429, {
+            error: message,
+            retryAfter,
+            rateLimited: true,
+            ...(err.details ?? {}),
+          });
+        }
         const status = isInputError(error, ["orderId and serviceCode required", "shippingProviderId required for v2 label creation", "Order weight required to create label"])
           ? 400
           : message === "Order not found"
