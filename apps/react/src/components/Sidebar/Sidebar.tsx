@@ -31,26 +31,34 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
   const { stores } = useStores()
   const { useStoreVisibility } = useStoreVisibilityContext()
 
+  const { visibilityState } = useStoreVisibilityContext()
+
   useEffect(() => {
     fetchStatusCounts()
-  }, [])
+  }, [visibilityState])
 
   const fetchStatusCounts = async () => {
     try {
       const [awaitingRes, shippedRes, cancelledRes] = await Promise.all([
-        fetch('/api/orders?orderStatus=awaiting_shipment&pageSize=1'),
-        fetch('/api/orders?orderStatus=shipped&pageSize=1'),
-        fetch('/api/orders?orderStatus=cancelled&pageSize=1'),
+        fetch('/api/orders?orderStatus=awaiting_shipment&pageSize=10000'),
+        fetch('/api/orders?orderStatus=shipped&pageSize=10000'),
+        fetch('/api/orders?orderStatus=cancelled&pageSize=10000'),
       ])
       const [awaitingData, shippedData, cancelledData] = await Promise.all([
         awaitingRes.json(),
         shippedRes.json(),
         cancelledRes.json(),
       ])
+      
+      // Filter orders by visibility: only count orders from visible clients
+      const countVisibleOrders = (orders: any[]) => {
+        return orders.filter(o => visibilityState[o.clientId] !== false).length
+      }
+      
       setStatusCounts({
-        awaiting_shipment: awaitingData.total || 0,
-        shipped: shippedData.total || 0,
-        cancelled: cancelledData.total || 0,
+        awaiting_shipment: countVisibleOrders(awaitingData.orders || []),
+        shipped: countVisibleOrders(shippedData.orders || []),
+        cancelled: countVisibleOrders(cancelledData.orders || []),
       })
     } catch (error) {
       console.error('Failed to fetch status counts:', error)

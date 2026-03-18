@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { CarrierAccountDto, InitStoreDto } from '@prepshipv2/contracts/init/contracts'
 import { useOrdersWithDetails, useStores } from '../../hooks'
+import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
 import OrdersTable from '../Tables/OrdersTable'
 import { ALL_COLUMNS } from '../Tables/columnDefs'
 import type { TableCarrierAccount, TableOrder } from '../Tables/orders-table-parity'
@@ -270,11 +271,16 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     return Array.from(set).sort()
   }, [orders])
 
+  const { useStoreVisibility } = useStoreVisibilityContext()
+
   const filteredOrders = useMemo(() => {
     let filtered = orders as TableOrder[]
 
     filtered = filtered.filter((order) => orderMatchesSearch(order, searchText))
     filtered = filtered.filter((order) => orderMatchesSku(order, skuFilter))
+    
+    // Filter by visibility: only show orders from visible clients
+    filtered = filtered.filter((order) => useStoreVisibility(order.clientId ?? 0))
     
     // Filter by selected client's storeIds
     if (selectedClientId !== null && selectedClientId !== undefined) {
@@ -293,7 +299,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts, selectedClientId, stores])
+  }, [orders, searchText, skuFilter, sortKey, sortDir, storeMap, carrierAccounts, selectedClientId, stores, useStoreVisibility])
 
   const tableOrders = useMemo(() => filteredOrders.map(convertToTableOrder), [filteredOrders])
 

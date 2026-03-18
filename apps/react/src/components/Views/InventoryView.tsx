@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast } from '../../hooks/useToast'
+import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1060,6 +1061,7 @@ function ClientsTab({ clients, onReload, showToast }: { clients: ClientDto[]; on
   const [storeIds, setStoreIds] = useState('')
   const [rateSource, setRateSource] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const { useStoreVisibility, toggleStoreVisibility } = useStoreVisibilityContext()
 
   const openForm = (c?: ClientDto) => {
     if (c) {
@@ -1123,25 +1125,35 @@ function ClientsTab({ clients, onReload, showToast }: { clients: ClientDto[]; on
           <table className="inv-table inv-clients-table" style={{ margin: 0, width: '100%' }}>
             <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Store IDs</th><th>Rate Source</th><th></th></tr></thead>
             <tbody>
-              {clients.map(c => (
-                <tr key={c.clientId}>
-                  {/* m-name: client name */}
-                  <td className="m-name" style={{ fontWeight: 600 }}>{c.name}</td>
-                  {/* m-contact: contact name (desktop only) + phone (mobile) */}
-                  <td className="m-contact" style={{ fontSize: 12 }}>{c.contactName || '—'}</td>
-                  {/* Desktop: email */}
-                  <td style={{ fontSize: 12 }}>{c.email || '—'}</td>
-                  {/* Desktop: store IDs */}
-                  <td style={{ fontSize: 12 }}>{(c.storeIds || []).join(', ') || '—'}</td>
-                  {/* Desktop: rate source */}
-                  <td style={{ fontSize: 12, fontWeight: 500 }}>{c.rateSourceName || 'DR PREPPER'}</td>
-                  {/* m-actions: edit + delete buttons */}
-                  <td className="m-actions">
-                    <button className="btn btn-ghost btn-xs" onClick={() => openForm(c)}>Edit</button>
-                    <button className="btn btn-ghost btn-xs" onClick={() => deleteClient(c)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
+              {clients.map(c => {
+                const isVisible = useStoreVisibility(c.clientId)
+                return (
+                  <tr key={c.clientId}>
+                    {/* m-name: client name */}
+                    <td className="m-name" style={{ fontWeight: 600 }}>{c.name}</td>
+                    {/* m-contact: contact name (desktop only) + phone (mobile) */}
+                    <td className="m-contact" style={{ fontSize: 12 }}>{c.contactName || '—'}</td>
+                    {/* Desktop: email */}
+                    <td style={{ fontSize: 12 }}>{c.email || '—'}</td>
+                    {/* Desktop: store IDs */}
+                    <td style={{ fontSize: 12 }}>{(c.storeIds || []).join(', ') || '—'}</td>
+                    {/* Desktop: rate source */}
+                    <td style={{ fontSize: 12, fontWeight: 500 }}>{c.rateSourceName || 'DR PREPPER'}</td>
+                    {/* m-actions: visibility toggle + edit + delete buttons */}
+                    <td className="m-actions">
+                      <button 
+                        className="btn btn-ghost btn-xs" 
+                        onClick={() => toggleStoreVisibility(c.clientId)}
+                        title={isVisible ? 'Hide from awaiting shipment' : 'Show in awaiting shipment'}
+                      >
+                        {isVisible ? '👁️' : '🚫'}
+                      </button>
+                      <button className="btn btn-ghost btn-xs" onClick={() => openForm(c)}>Edit</button>
+                      <button className="btn btn-ghost btn-xs" onClick={() => deleteClient(c)}>Delete</button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
