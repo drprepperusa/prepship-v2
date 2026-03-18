@@ -20,6 +20,11 @@ import type {
 } from "./shipping-gateway.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
 import type { AddressRecord, LabelOrderRecord, LabelShipmentRecord } from "../domain/label.ts";
+import {
+  generateFakeShipmentId,
+  generateFakeTrackingNumber,
+  serviceCodeToLabel,
+} from "./mock-label-generator.ts";
 
 // Rate limiting configuration
 const LABEL_RATE_LIMIT = 10; // max 10 labels per minute per client
@@ -267,13 +272,72 @@ export class LabelServices {
     const shipTo = normalizeAddress(body.shipTo, fallbackShipTo);
     const shipFrom = normalizeAddress(body.shipFrom, defaultShipFrom());
 
+    // ── OFFLINE TEST MODE ────────────────────────────────────────────────────
+    // When testLabel=true, skip ShipStation entirely. Generate a fake shipment
+    // with a local mock label URL. Zero postage cost, zero SS interaction.
+    if (body.testLabel === true) {
+      const fakeShipmentId = generateFakeShipmentId();
+      const fakeTracking = generateFakeTrackingNumber();
+      const shipDate = new Date().toISOString().slice(0, 10);
+      const mockLabelUrl = `/api/labels/mock/${fakeShipmentId}`;
+
+      this.repository.saveShipment({
+        shipmentId: fakeShipmentId,
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        carrierCode: body.carrierCode ?? "stamps_com",
+        serviceCode: body.serviceCode,
+        trackingNumber: fakeTracking,
+        shipDate,
+        labelUrl: mockLabelUrl,
+        shipmentCost: 0,
+        otherCost: 0,
+        voided: false,
+        updatedAt: Date.now(),
+        weightOz: effectiveWeightOz,
+        dimsLength: length,
+        dimsWidth: width,
+        dimsHeight: height,
+        createDate: new Date().toISOString(),
+        clientId,
+        providerAccountId: null,
+        source: "test_offline",
+        labelCreatedAt: Date.now(),
+        labelFormat: "html",
+        selectedRateJson: null,
+      });
+
+      this.repository.backfillOrderLocalTracking(order.orderId, fakeTracking, null, Math.floor(Date.now() / 1000));
+      this.repository.markOrderShipped(order.orderId, Date.now());
+
+      // Store mock label data in repo so /api/labels/mock/:id can serve it
+      this.repository.saveMockLabelData(fakeShipmentId, {
+        shipmentId: fakeShipmentId,
+        orderNumber: order.orderNumber,
+        trackingNumber: fakeTracking,
+        serviceLabel: serviceCodeToLabel(body.serviceCode),
+        weightOz: effectiveWeightOz,
+        shipFrom,
+        shipTo,
+        shipDate,
+      });
+
+      return {
+        shipmentId: fakeShipmentId,
+        trackingNumber: fakeTracking,
+        labelUrl: mockLabelUrl,
+        cost: 0,
+        voided: false,
+        orderStatus: "shipped",
+        apiVersion: "v2",
+      };
+    }
+    // ── END OFFLINE TEST MODE ────────────────────────────────────────────────
+
     const apiKeyV2 = context.v2ApiKey ?? this.secrets.shipstation?.api_key_v2;
     if (!apiKeyV2) throw new Error("No v2 API key configured for this account");
     const credentials = toV1Credentials(context.v1ApiKey, context.v1ApiSecret, this.secrets);
 
-    // NOTE: ShipStation v2 API does NOT support per-request test labels (unlike v1 API which had testLabel field)
-    // Test mode in v2 must be configured at the account/carrier level in ShipStation dashboard
-    // The testLabel flag here is used locally to skip order status updates, but does not affect ShipStation API call
     const created = await this.gateway.createLabel({
       apiKeyV2,
       carrierId: `se-${body.shippingProviderId}`,
@@ -516,6 +580,10 @@ export class LabelServices {
       reason,
       createdAt: new Date(createdAt).toISOString(),
     };
+  }
+
+  getMockLabelData(shipmentId: number) {
+    return this.repository.getMockLabelData(shipmentId);
   }
 
   async retrieve(orderLookup: number | string, fresh: boolean): Promise<RetrieveLabelResponseDto> {

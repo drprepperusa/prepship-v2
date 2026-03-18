@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { LabelRepository } from "../application/label-repository.ts";
+import type { MockLabelData } from "../application/mock-label-generator.ts";
 import type {
   ExistingLabelRecord,
   LabelOrderRecord,
@@ -37,6 +38,8 @@ interface ShipmentLookupRow {
 export class SqliteLabelRepository implements LabelRepository {
   private readonly db: DatabaseSync;
   private readonly mainApiKeyV2: string | null;
+  // In-memory store for mock label data — ephemeral, no DB needed
+  private readonly mockLabelStore = new Map<number, MockLabelData>();
 
   constructor(db: DatabaseSync, mainApiKeyV2: string | null) {
     this.db = db;
@@ -285,6 +288,14 @@ export class SqliteLabelRepository implements LabelRepository {
         shipping_account = CASE WHEN shipping_account IS NULL THEN excluded.shipping_account ELSE shipping_account END,
         updatedAt = excluded.updatedAt
     `).run(orderId, trackingNumber, providerAccountId, updatedAtSeconds);
+  }
+
+  saveMockLabelData(shipmentId: number, data: MockLabelData): void {
+    this.mockLabelStore.set(shipmentId, data);
+  }
+
+  getMockLabelData(shipmentId: number): MockLabelData | null {
+    return this.mockLabelStore.get(shipmentId) ?? null;
   }
 
   private mapShipment(row: ShipmentLookupRow): LabelShipmentRecord {

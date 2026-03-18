@@ -8,6 +8,7 @@ import type {
   ShipmentEnrichmentInput,
   ShippingAccountContext,
 } from "../domain/label.ts";
+import type { MockLabelData } from "./mock-label-generator.ts";
 
 export interface LabelRepository {
   getOrder(orderId: number): LabelOrderRecord | null;
@@ -23,4 +24,6 @@ export interface LabelRepository {
   updateShipmentLabelUrl(shipmentId: number, labelUrl: string): void;
   backfillOrderLocalTracking(orderId: number, trackingNumber: string, providerAccountId: number | null, updatedAtSeconds: number): void;
   enrichShipment(input: ShipmentEnrichmentInput): void;
+  saveMockLabelData(shipmentId: number, data: MockLabelData): void;
+  getMockLabelData(shipmentId: number): MockLabelData | null;
 }

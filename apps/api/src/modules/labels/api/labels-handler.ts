@@ -5,6 +5,7 @@ import type {
 } from "../../../../../../../packages/contracts/src/labels/contracts.ts";
 import { InputValidationError } from "../../../../../../packages/contracts/src/common/input-validation.ts";
 import type { LabelServices } from "../application/label-services.ts";
+import { generateMockLabelHtml } from "../application/mock-label-generator.ts";
 
 export class LabelsHttpHandler {
   private readonly services: LabelServices;
@@ -50,5 +51,20 @@ export class LabelsHttpHandler {
 
   handleRetrieve(orderLookup: number | string, fresh: boolean) {
     return this.services.retrieve(orderLookup, fresh);
+  }
+
+  handleMockLabel(shipmentId: number): Response {
+    const data = this.services.getMockLabelData(shipmentId);
+    if (!data) {
+      return new Response("Mock label not found (server may have restarted)", {
+        status: 404,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    const html = generateMockLabelHtml(data);
+    return new Response(html, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
   }
 }

@@ -1388,6 +1388,8 @@ class MemoryLabelRepository implements LabelRepository {
 
   backfillOrderLocalTracking(_orderId: number, _trackingNumber: string, _providerAccountId: number | null, _updatedAtSeconds: number): void {}
   enrichShipment(_input: import("../../modules/labels/domain/label.ts").ShipmentEnrichmentInput): void {}
+  saveMockLabelData(_shipmentId: number, _data: import("../../modules/labels/application/mock-label-generator.ts").MockLabelData): void {}
+  getMockLabelData(_shipmentId: number): import("../../modules/labels/application/mock-label-generator.ts").MockLabelData | null { return null; }
 }
 
 class MemoryShipmentRepository implements ShipmentRepository {

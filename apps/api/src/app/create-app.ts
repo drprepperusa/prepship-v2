@@ -894,6 +894,16 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/api/orders/store-counts") {
+      try {
+        const counts = dependencies.ordersHandler.handleStoreCounts(url);
+        return jsonResponse(200, counts);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
     const fullOrderMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/full$/);
     if (request.method === "GET" && fullOrderMatch) {
       const payload = dependencies.ordersHandler.handleGetFull(Number.parseInt(fullOrderMatch[1] ?? "0", 10));
@@ -1148,6 +1158,12 @@ export function createApp(dependencies: AppDependencies) {
               : 500;
         return jsonResponse(status, { error: message, ...(err.details ?? {}) });
       }
+    }
+
+    // ── MOCK LABEL (offline test mode) ────────────────────────────────────────
+    const labelMockMatch = url.pathname.match(/^\/api\/labels\/mock\/(-?\d+)$/);
+    if (request.method === "GET" && labelMockMatch) {
+      return dependencies.labelsHandler.handleMockLabel(Number.parseInt(labelMockMatch[1] ?? "0", 10));
     }
 
     const labelVoidMatch = url.pathname.match(/^\/api\/labels\/(\d+)\/void$/);
