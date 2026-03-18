@@ -3,8 +3,8 @@ import type { OrderRecord } from "../modules/orders/domain/order.ts";
 
 export interface DualWriteConfig {
   syncLogRepository: SyncLogRepository;
-  v2QueueHandler?: (operation: DualWriteOperation, order: OrderRecord) => Promise<void>;
-  v3QueueHandler?: (operation: DualWriteOperation, order: OrderRecord) => Promise<void>;
+  v2QueueHandler?: (operation: DualWriteOperation, orderId: number) => Promise<void>;
+  v3QueueHandler?: (operation: DualWriteOperation, orderId: number) => Promise<void>;
   logger?: {
     error: (msg: string, err?: unknown) => void;
     info: (msg: string) => void;
@@ -25,6 +25,7 @@ export interface DualWriteResult {
  * - V2 writes block the response (must succeed, if handler present)
  * - V3 writes are best-effort (logged but don't block V2)
  * - If no handlers are configured, operations are logged and tracked
+ * - Handlers receive orderId instead of full OrderRecord for lightweight operation
  */
 export function createDualWriteNotifier(config: DualWriteConfig) {
   const defaultLogger = {
@@ -35,9 +36,8 @@ export function createDualWriteNotifier(config: DualWriteConfig) {
 
   return async function dualWriteNotifier(
     operation: DualWriteOperation,
-    order: OrderRecord,
+    orderId: number,
   ): Promise<DualWriteResult> {
-    const orderId = order.orderId;
     const timestamp = new Date().toISOString();
 
     let v2Status: "success" | "failed" | "skipped" = "skipped";
@@ -47,7 +47,7 @@ export function createDualWriteNotifier(config: DualWriteConfig) {
       // 1. Send to V2 queue (must succeed if handler is present)
       if (config.v2QueueHandler) {
         try {
-          await config.v2QueueHandler(operation, order);
+          await config.v2QueueHandler(operation, orderId);
           v2Status = "success";
           logger.info(`[Dual-Write] V2 notification sent for order ${orderId} (${operation})`);
         } catch (v2Error) {
@@ -62,7 +62,7 @@ export function createDualWriteNotifier(config: DualWriteConfig) {
       // 2. Send to V3 queue (best-effort, non-blocking)
       if (config.v3QueueHandler) {
         try {
-          await config.v3QueueHandler(operation, order);
+          await config.v3QueueHandler(operation, orderId);
           v3Status = "success";
           logger.info(`[Dual-Write] V3 notification sent for order ${orderId} (${operation})`);
         } catch (v3Error) {

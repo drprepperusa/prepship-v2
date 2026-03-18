@@ -114,7 +114,6 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   // Extract db from any repository that wraps it
   const dbInstance = (dataStore.orderRepository as any).db || (dataStore.shipmentRepository as any).db;
   const workerSyncEnabled = env.WORKER_SYNC_ENABLED === "true" || env.WORKER_SYNC_ENABLED === "1";
-  console.log("[bootstrap] WORKER_SYNC_ENABLED env:", env.WORKER_SYNC_ENABLED, "-> parsed as:", workerSyncEnabled);
   const healthSyncService = new HealthSyncService(dataStore, config.secrets, dbInstance, workerSyncEnabled);
   const healthHandler = new HealthHttpHandler(healthSyncService);
 

@@ -951,12 +951,9 @@ export function createApp(dependencies: AppDependencies) {
         const result = dependencies.ordersHandler.handleSetExternalShipped(orderId, body);
         
         // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
-        const order = dependencies.ordersHandler.handleGetById(orderId);
-        if (order) {
-          void dualWriteNotifier("update", order).catch((err) => {
-            console.error("[Dual-Write] Failed to track order mutation:", err);
-          });
-        }
+        void dualWriteNotifier("update", orderId).catch((err) => {
+          console.error("[Dual-Write] Failed to track order mutation:", err);
+        });
         
         return jsonResponse(200, result);
       } catch (error) {
@@ -973,12 +970,9 @@ export function createApp(dependencies: AppDependencies) {
         const result = dependencies.ordersHandler.handleSetResidential(orderId, body);
         
         // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
-        const order = dependencies.ordersHandler.handleGetById(orderId);
-        if (order) {
-          void dualWriteNotifier("update", order).catch((err) => {
-            console.error("[Dual-Write] Failed to track order mutation:", err);
-          });
-        }
+        void dualWriteNotifier("update", orderId).catch((err) => {
+          console.error("[Dual-Write] Failed to track order mutation:", err);
+        });
         
         return jsonResponse(200, result);
       } catch (error) {
@@ -995,12 +989,9 @@ export function createApp(dependencies: AppDependencies) {
         const result = dependencies.ordersHandler.handleSetSelectedPid(orderId, body);
         
         // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
-        const order = dependencies.ordersHandler.handleGetById(orderId);
-        if (order) {
-          void dualWriteNotifier("update", order).catch((err) => {
-            console.error("[Dual-Write] Failed to track order mutation:", err);
-          });
-        }
+        void dualWriteNotifier("update", orderId).catch((err) => {
+          console.error("[Dual-Write] Failed to track order mutation:", err);
+        });
         
         return jsonResponse(200, result);
       } catch (error) {
@@ -1019,12 +1010,9 @@ export function createApp(dependencies: AppDependencies) {
         });
         
         // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
-        const order = dependencies.ordersHandler.handleGetById(orderId);
-        if (order) {
-          void dualWriteNotifier("update", order).catch((err) => {
-            console.error("[Dual-Write] Failed to track order mutation:", err);
-          });
-        }
+        void dualWriteNotifier("update", orderId).catch((err) => {
+          console.error("[Dual-Write] Failed to track order mutation:", err);
+        });
         
         return jsonResponse(200, result);
       } catch (error) {
@@ -1041,12 +1029,9 @@ export function createApp(dependencies: AppDependencies) {
         const result = dependencies.ordersHandler.handleSetBestRate(orderId, body);
         
         // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
-        const order = dependencies.ordersHandler.handleGetById(orderId);
-        if (order) {
-          void dualWriteNotifier("update", order).catch((err) => {
-            console.error("[Dual-Write] Failed to track order mutation:", err);
-          });
-        }
+        void dualWriteNotifier("update", orderId).catch((err) => {
+          console.error("[Dual-Write] Failed to track order mutation:", err);
+        });
         
         return jsonResponse(200, result);
       } catch (error) {
