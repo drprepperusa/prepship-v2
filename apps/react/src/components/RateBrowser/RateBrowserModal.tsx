@@ -395,7 +395,7 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
           borderRadius: 12,
           boxShadow: '0 20px 60px rgba(0,0,0,.4)',
           width: '100%',
-          maxWidth: 960,
+          maxWidth: 1400,
           height: '90vh',
           display: 'flex',
           flexDirection: 'column',
@@ -430,10 +430,10 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
           </button>
         </div>
 
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 0 }}>
           {/* ── Left Sidebar: Controls + Carrier List ── */}
           <div style={{
-            width: 240,
+            width: 260,
             borderRight: '1px solid var(--border)',
             display: 'flex',
             flexDirection: 'column',
@@ -599,7 +599,7 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
           </div>
 
           {/* ── Right Panel: Rates ── */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 300, overflow: 'hidden' }}>
             {/* Rates header */}
             <div style={{
               padding: '10px 16px',
