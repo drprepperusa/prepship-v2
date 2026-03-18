@@ -72,6 +72,16 @@ export class OrdersHttpHandler {
     return this.orderExportService.execute(query);
   }
 
+  handleStoreCounts(requestUrl: URL) {
+    const orderStatus = requestUrl.searchParams.get('orderStatus');
+    if (!orderStatus) {
+      throw new InputValidationError('orderStatus query parameter is required');
+    }
+    const dateStart = requestUrl.searchParams.get('dateStart') ?? undefined;
+    const dateEnd = requestUrl.searchParams.get('dateEnd') ?? undefined;
+    return this.updateOrderOverridesService.repository.getStoreCounts(orderStatus, dateStart, dateEnd);
+  }
+
   handleSetExternalShipped(orderId: number, payload: { flag?: number | boolean; source?: string }) {
     const flag = payload.flag;
     const source = payload.source ?? null;
