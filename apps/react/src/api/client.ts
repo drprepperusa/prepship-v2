@@ -43,63 +43,79 @@ export class ApiClient {
       signal?: AbortSignal;
     }
   ): Promise<T> {
-    const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-    // Add query params
-    if (options?.query) {
-      Object.entries(options.query).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          url.searchParams.append(key, String(value));
-        }
-      });
-    }
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
 
-    const fetchOptions: RequestInit = {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    };
-
-    if (options?.body) {
-      fetchOptions.body = JSON.stringify(options.body);
-    }
-
-    if (options?.signal) {
-      fetchOptions.signal = options.signal;
-    }
-
-    try {
-      const response = await fetch(url.toString(), fetchOptions);
-
-      if (!response.ok) {
-        let details: unknown;
-        try {
-          details = await response.json();
-        } catch {
-          // Response wasn't JSON
-        }
-
-        const error: ApiError = {
-          status: response.status,
-          message: `API request failed: ${response.statusText}`,
-          details,
-        };
-        console.error(`[API ${method} ${endpoint}]`, error);
-        throw new Error(error.message);
+      // Add query params
+      if (options?.query) {
+        Object.entries(options.query).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            url.searchParams.append(key, String(value));
+          }
+        });
       }
 
-      const data = await response.json();
-      return data as T;
-    } catch (err) {
-      if (err instanceof Error) {
-        throw err;
+      const fetchOptions: RequestInit = {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      };
+
+      if (options?.body) {
+        fetchOptions.body = JSON.stringify(options.body);
       }
 
-      const message = `Network error: ${typeof err === 'string' ? err : 'Unknown error'}`;
-      console.error(`[API ${method} ${endpoint}]`, message);
-      throw new Error(message);
+      if (options?.signal) {
+        fetchOptions.signal = options.signal;
+      }
+
+      try {
+        const response = await fetch(url.toString(), fetchOptions);
+
+        // Handle 429 (Too Many Requests) with exponential backoff
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
+          const waitTime = Math.min(retryAfter * 1000 * Math.pow(2, attempt), 10000); // Cap at 10s
+          console.warn(`[API ${method} ${endpoint}] Rate limited (429). Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue; // Retry
+        }
+
+        if (!response.ok) {
+          let details: unknown;
+          try {
+            details = await response.json();
+          } catch {
+            // Response wasn't JSON
+          }
+
+          const error: ApiError = {
+            status: response.status,
+            message: `API request failed: ${response.statusText}`,
+            details,
+          };
+          console.error(`[API ${method} ${endpoint}]`, error);
+          throw new Error(error.message);
+        }
+
+        const data = await response.json();
+        return data as T;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error');
+        
+        // Don't retry on last attempt
+        if (attempt === maxRetries - 1) {
+          throw lastError;
+        }
+      }
     }
+
+    // Should not reach here, but just in case
+    throw lastError || new Error(`Failed after ${maxRetries} attempts`);
   }
 
   // ====== Orders ======
