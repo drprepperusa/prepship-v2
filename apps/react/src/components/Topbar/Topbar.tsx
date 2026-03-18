@@ -100,7 +100,7 @@ export default function Topbar({
       <div className="topbar-title">{viewTitle}</div>
 
       {selectedOrdersCount > 0 && (
-        <div className="batch-bar">
+        <div className="batch-bar show">
           <span>{selectedOrdersCount} selected</span>
           <div className="batch-btns">
             <button className="batch-btn" onClick={onShowBatchPanel}>🗂️ Batch</button>
