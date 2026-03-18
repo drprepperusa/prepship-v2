@@ -1,34 +1,41 @@
 /* StatsBar — uses design tokens from App.css */
 .stats-wrap {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 24px;
   flex-shrink: 0;
+  padding: 6px 14px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
 }
 
-/* Daily Strip / Shift Window Banner (gap #5) */
+/* Daily Strip / Shift Window Banner (gap #5) — now inline on the left */
 .shift-banner {
-  background: var(--ss-blue-bg);
-  border-bottom: 1px solid var(--ss-blue-border);
-  padding: 5px 14px;
+  background: transparent;
+  border-bottom: none;
+  padding: 0;
   font-size: 11.5px;
   color: var(--ss-blue);
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
-/* Stats bar — neutral gray (gap #6) */
+/* Stats bar — neutral gray (gap #6) — now flex items inside wrap */
 .stats-bar {
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 6px 14px;
-  background: var(--surface2);
-  border-bottom: 1px solid var(--border);
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
   flex-shrink: 0;
   overflow-x: auto;
+  flex: 1;
 }
 
 .stat-item {
