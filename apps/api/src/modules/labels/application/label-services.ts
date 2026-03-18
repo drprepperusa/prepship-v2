@@ -236,6 +236,9 @@ export class LabelServices {
       throw new Error(`Cannot create label for ${order.orderStatus} order`);
     }
 
+    // Resolve shipping account context for this order's store
+    const context = this.repository.getShippingAccountContext(order.storeId);
+
     // Resolve client and check rate limit before continuing
     const clientId = context.clientId ?? order.clientId;
     if (!clientId) throw new Error(`Cannot resolve clientId for storeId ${order.storeId}`);
