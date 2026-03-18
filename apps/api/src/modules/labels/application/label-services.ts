@@ -236,6 +236,11 @@ export class LabelServices {
       throw new Error(`Cannot create label for ${order.orderStatus} order`);
     }
 
+    // Resolve client and check rate limit before continuing
+    const clientId = context.clientId ?? order.clientId;
+    if (!clientId) throw new Error(`Cannot resolve clientId for storeId ${order.storeId}`);
+    checkLabelRateLimit(clientId);
+
     const existing = this.repository.findActiveLabelForOrder(order.orderId);
     if (existing) {
       const error = new Error("Label already exists for this order") as Error & { details?: Record<string, unknown> };
@@ -259,7 +264,6 @@ export class LabelServices {
     const shipTo = normalizeAddress(body.shipTo, fallbackShipTo);
     const shipFrom = normalizeAddress(body.shipFrom, defaultShipFrom());
 
-    const context = this.repository.getShippingAccountContext(order.storeId);
     const apiKeyV2 = context.v2ApiKey ?? this.secrets.shipstation?.api_key_v2;
     if (!apiKeyV2) throw new Error("No v2 API key configured for this account");
     const credentials = toV1Credentials(context.v1ApiKey, context.v1ApiSecret, this.secrets);
@@ -302,9 +306,6 @@ export class LabelServices {
     };
 
     if (!body.testLabel) {
-      const clientId = context.clientId ?? order.clientId;
-      if (!clientId) throw new Error(`Cannot insert shipment: clientId lookup failed for storeId ${order.storeId}`);
-
       // Persist V2 data immediately — otherCost/createDate will be enriched in the background.
       this.repository.saveShipment({
         shipmentId: created.shipmentId,
@@ -414,38 +415,44 @@ export class LabelServices {
   async createBatch(body: CreateBatchLabelRequestDto): Promise<CreateBatchLabelResponseDto> {
     const created: BatchLabelResultItem[] = [];
     const failed: BatchLabelResultItem[] = [];
+    const lock = { created, failed }; // Shared reference for thread-safe mutations
 
-    for (const orderId of body.orderIds) {
-      try {
-        const result = await this.create({
-          orderId,
-          serviceCode: body.serviceCode,
-          carrierCode: body.carrierCode,
-          packageCode: body.packageCode,
-          confirmation: body.confirmation,
-          testLabel: body.testLabel,
-          shippingProviderId: body.shippingProviderId,
-        });
-        created.push({
-          orderId,
-          success: true,
-          shipmentId: result.shipmentId,
-          trackingNumber: result.trackingNumber,
-          cost: result.cost,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
-        failed.push({ orderId, success: false, error: message });
-      }
-    }
+    // Use concurrency control (max 5 parallel) instead of sequential for...of loop
+    await withConcurrency(
+      body.orderIds,
+      async (orderId) => {
+        try {
+          const result = await this.create({
+            orderId,
+            serviceCode: body.serviceCode,
+            carrierCode: body.carrierCode,
+            packageCode: body.packageCode,
+            confirmation: body.confirmation,
+            testLabel: body.testLabel,
+            shippingProviderId: body.shippingProviderId,
+          });
+          lock.created.push({
+            orderId,
+            success: true,
+            shipmentId: result.shipmentId,
+            trackingNumber: result.trackingNumber,
+            cost: result.cost,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown error";
+          lock.failed.push({ orderId, success: false, error: message });
+        }
+      },
+      5, // max 5 parallel
+    );
 
     return {
-      created,
-      failed,
+      created: lock.created,
+      failed: lock.failed,
       summary: {
         total: body.orderIds.length,
-        created: created.length,
-        failed: failed.length,
+        created: lock.created.length,
+        failed: lock.failed.length,
       },
     };
   }
