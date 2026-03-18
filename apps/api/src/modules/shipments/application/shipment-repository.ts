@@ -10,4 +10,6 @@ export interface ShipmentRepository {
   getOrderClientId(orderId: number): number | null;
   upsertShipmentBatch(shipments: ShipmentSyncRecord[]): void;
   backfillOrderLocalFromShipments(shipments: ShipmentSyncRecord[]): void;
+  storeExists(storeId: number): boolean;
+  getOrderNumbersByStoreId(storeId: number): string[];
 }

@@ -910,6 +910,325 @@ function SkuDrawer({ invSkuId, onClose }: { invSkuId: number; onClose: () => voi
   )
 }
 
+// ── Create Parent SKU Modal ───────────────────────────────────────────────────
+
+function CreateParentSkuModal({
+  clients,
+  selectedClientId,
+  onClientChange,
+  onClose,
+  onDone,
+  showToast,
+}: {
+  clients: ClientDto[]
+  selectedClientId: string
+  onClientChange: (id: string) => void
+  onClose: () => void
+  onDone: () => void
+  showToast: (msg: string) => void
+}) {
+  const [sku, setSku] = useState('')
+  const [name, setName] = useState('')
+  const [weight, setWeight] = useState('')
+  const [length, setLength] = useState('')
+  const [width, setWidth] = useState('')
+  const [height, setHeight] = useState('')
+  const [supplierCost, setSupplierCost] = useState('')
+  const [marginPercent, setMarginPercent] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    // Validation
+    if (!selectedClientId.trim()) {
+      showToast('⚠ Select a client')
+      return
+    }
+    if (!sku.trim()) {
+      showToast('⚠ SKU is required')
+      return
+    }
+    if (!name.trim()) {
+      showToast('⚠ Product name is required')
+      return
+    }
+    if (!weight.trim() || parseFloat(weight) <= 0) {
+      showToast('⚠ Weight must be > 0')
+      return
+    }
+    if (!length.trim() || parseFloat(length) < 0 ||
+        !width.trim() || parseFloat(width) < 0 ||
+        !height.trim() || parseFloat(height) < 0) {
+      showToast('⚠ All dimensions must be ≥ 0')
+      return
+    }
+
+    setSaving(true)
+    try {
+      // Step 1: Create parent SKU
+      const parentRes = await fetch('/api/parent-skus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: parseInt(selectedClientId),
+          name: name.trim(),
+          sku: sku.trim(),
+          baseUnitQty: 1,
+        }),
+      })
+
+      const parentData = await parentRes.json()
+      if (!parentData.parentSkuId) {
+        showToast('❌ Failed to create parent SKU')
+        setSaving(false)
+        return
+      }
+
+      // Step 2: Create inventory SKU via receive endpoint (creates with 0 stock)
+      const invRes = await fetch('/api/inventory/receive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: parseInt(selectedClientId),
+          items: [
+            {
+              sku: sku.trim(),
+              name: name.trim(),
+              qty: 0,
+            },
+          ],
+          note: 'Created via Create Product modal',
+        }),
+      })
+
+      const invData = await invRes.json()
+      if (!invData.received || invData.received.length === 0) {
+        showToast('❌ Failed to create inventory SKU')
+        setSaving(false)
+        return
+      }
+
+      const invSkuId = invData.received[0].invSkuId
+
+      // Step 3: Update the newly created SKU with parent relationship and dimensions
+      if (invSkuId) {
+        const parentRes = await fetch(`/api/inventory/${invSkuId}/set-parent`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parentSkuId: parentData.parentSkuId,
+            baseUnitQty: 1,
+          }),
+        })
+
+        if (parentRes.ok) {
+          // Step 4: Update dimensions and weight
+          await fetch(`/api/inventory/${invSkuId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: name.trim(),
+              minStock: 0,
+              weightOz: parseFloat(weight) || 0,
+              length: parseFloat(length) || 0,
+              width: parseFloat(width) || 0,
+              height: parseFloat(height) || 0,
+            }),
+          })
+        }
+      }
+
+      showToast(`✅ Product "${name}" created with SKU ${sku.trim()}`)
+      setSku('')
+      setName('')
+      setWeight('')
+      setLength('')
+      setWidth('')
+      setHeight('')
+      setSupplierCost('')
+      setMarginPercent('')
+      onDone()
+    } catch (e: any) {
+      showToast('❌ ' + (e.message || 'Error creating product'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelS: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }
+  const inputS: React.CSSProperties = { fontSize: 12, padding: '7px 10px', border: '1px solid var(--border2)', borderRadius: 6, background: 'var(--surface2)', color: 'var(--text)' }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', overflowY: 'auto', padding: 20 }} onClick={onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: 10, padding: '22px 24px', width: 500, maxWidth: '95vw', boxShadow: '0 8px 40px rgba(0,0,0,.3)', margin: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>➕ Create Parent SKU</div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>Add a new product to inventory</div>
+
+        {/* Client selector */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelS}>Client *</label>
+          <select
+            value={selectedClientId}
+            onChange={e => onClientChange(e.target.value)}
+            className="ship-select"
+            style={{ width: '100%', ...inputS }}
+          >
+            <option value="">Select Client…</option>
+            {clients.map(c => (
+              <option key={c.clientId} value={c.clientId}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* SKU field */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelS}>SKU *</label>
+          <input
+            type="text"
+            placeholder="e.g. SKU-001"
+            value={sku}
+            onChange={e => setSku(e.target.value)}
+            autoFocus
+            style={{ width: '100%', ...inputS }}
+          />
+        </div>
+
+        {/* Product Name field */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelS}>Product Name *</label>
+          <input
+            type="text"
+            placeholder="e.g. Samyang Ramen 5-Pack"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            style={{ width: '100%', ...inputS }}
+          />
+        </div>
+
+        {/* Weight field */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelS}>Weight (oz) *</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            placeholder="e.g. 8.5"
+            value={weight}
+            onChange={e => setWeight(e.target.value)}
+            style={{ width: '100%', ...inputS }}
+          />
+        </div>
+
+        {/* Dimensions row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+          <div>
+            <label style={labelS}>Length (in) *</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              placeholder="L"
+              value={length}
+              onChange={e => setLength(e.target.value)}
+              style={{ width: '100%', ...inputS }}
+            />
+          </div>
+          <div>
+            <label style={labelS}>Width (in) *</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              placeholder="W"
+              value={width}
+              onChange={e => setWidth(e.target.value)}
+              style={{ width: '100%', ...inputS }}
+            />
+          </div>
+          <div>
+            <label style={labelS}>Height (in) *</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              placeholder="H"
+              value={height}
+              onChange={e => setHeight(e.target.value)}
+              style={{ width: '100%', ...inputS }}
+            />
+          </div>
+        </div>
+
+        {/* Supplier Cost field (optional) */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelS}>Supplier Cost ($) — Optional</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="e.g. 2.50"
+            value={supplierCost}
+            onChange={e => setSupplierCost(e.target.value)}
+            style={{ width: '100%', ...inputS }}
+          />
+        </div>
+
+        {/* Margin % field (optional) */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelS}>Margin / Markup (%) — Optional</label>
+          <input
+            type="number"
+            step="1"
+            min="0"
+            placeholder="e.g. 30"
+            value={marginPercent}
+            onChange={e => setMarginPercent(e.target.value)}
+            style={{ width: '100%', ...inputS }}
+          />
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              padding: '7px 16px',
+              borderRadius: 6,
+              border: '1px solid var(--border2)',
+              background: 'var(--surface2)',
+              color: 'var(--text)',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            style={{
+              padding: '7px 16px',
+              borderRadius: 6,
+              border: 'none',
+              background: 'var(--ss-blue)',
+              color: '#fff',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? '⏳ Creating…' : '✅ Create Product'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function drawChart(canvas: HTMLCanvasElement, dailySales: Array<{ day: string; units: number }>) {
   const dpr = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()

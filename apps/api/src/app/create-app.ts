@@ -604,6 +604,21 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/api/sync/backfill-store-shipments") {
+      try {
+        const body = await readJson() as Record<string, unknown>;
+        const storeId = body.storeId;
+        if (!Number.isFinite(storeId)) {
+          return jsonResponse(400, { error: "storeId must be a number" });
+        }
+        return jsonResponse(200, await dependencies.shipmentsHandler.handleBackfillStoreShipments(Number(storeId)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        const status = message.includes("not found") ? 404 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
     const packageLedgerMatch = url.pathname.match(/^\/api\/packages\/(\d+)\/ledger$/);
     if (packageLedgerMatch && request.method === "GET") {
       return jsonResponse(200, dependencies.packagesHandler.handleLedger(Number.parseInt(packageLedgerMatch[1] ?? "0", 10)));

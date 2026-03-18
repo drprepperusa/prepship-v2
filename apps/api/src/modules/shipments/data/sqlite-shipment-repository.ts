@@ -140,4 +140,14 @@ export class SqliteShipmentRepository implements ShipmentRepository {
       }
     }
   }
+
+  storeExists(storeId: number): boolean {
+    const row = this.db.prepare(`SELECT 1 AS present FROM orders WHERE storeId = ? LIMIT 1`).get(storeId) as { present: number } | undefined;
+    return Boolean(row?.present);
+  }
+
+  getOrderNumbersByStoreId(storeId: number): string[] {
+    const rows = this.db.prepare(`SELECT DISTINCT orderNumber FROM orders WHERE storeId = ? AND orderNumber IS NOT NULL`).all(storeId) as Array<{ orderNumber: string }>;
+    return rows.map(row => row.orderNumber);
+  }
 }

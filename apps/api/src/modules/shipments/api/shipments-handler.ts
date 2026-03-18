@@ -26,4 +26,8 @@ export class ShipmentsHttpHandler {
   handleList(url: URL) {
     return this.services.list(url.searchParams);
   }
+
+  async handleBackfillStoreShipments(storeId: number) {
+    return this.services.backfillStoreShipments(storeId);
+  }
 }

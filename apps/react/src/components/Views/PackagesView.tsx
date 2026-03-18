@@ -9,6 +9,8 @@ interface PackageDto {
   weight: number
   cost: number
   status: 'active' | 'inactive'
+  stockQty?: number | null
+  unitCost?: number | null
 }
 
 interface PackageFormData {
@@ -21,7 +23,21 @@ interface PackageFormData {
   status: 'active' | 'inactive'
 }
 
-type ModalMode = 'none' | 'add' | 'edit' | 'delete'
+interface ReceiveFormData {
+  quantity: string
+  costPerUnit: string
+  note: string
+  date: string
+}
+
+interface AdjustFormData {
+  oldCount: string
+  newCount: string
+  reason: string
+  note: string
+}
+
+type ModalMode = 'none' | 'add' | 'edit' | 'delete' | 'receive' | 'adjust'
 
 export default function PackagesView() {
   const [packages, setPackages] = useState<PackageDto[]>([])
@@ -35,11 +51,19 @@ export default function PackagesView() {
   const [editTarget, setEditTarget] = useState<PackageDto | null>(null)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const emptyForm: PackageFormData = {
     name: '', length: '', width: '', height: '', weight: '', cost: '', status: 'active',
   }
   const [form, setForm] = useState<PackageFormData>(emptyForm)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const emptyReceiveForm: ReceiveFormData = { quantity: '1', costPerUnit: '', note: '', date: today }
+  const [receiveForm, setReceiveForm] = useState<ReceiveFormData>(emptyReceiveForm)
+
+  const emptyAdjustForm: AdjustFormData = { oldCount: '', newCount: '', reason: 'inventory_count', note: '' }
+  const [adjustForm, setAdjustForm] = useState<AdjustFormData>(emptyAdjustForm)
 
   const load = async () => {
     setLoading(true)
@@ -91,6 +115,23 @@ export default function PackagesView() {
     setModal('delete')
   }
 
+  const openReceive = (pkg: PackageDto) => {
+    setEditTarget(pkg)
+    setReceiveForm(emptyReceiveForm)
+    setModal('receive')
+  }
+
+  const openAdjust = (pkg: PackageDto) => {
+    setEditTarget(pkg)
+    setAdjustForm({ ...emptyAdjustForm, oldCount: String(pkg.stockQty || 0) })
+    setModal('adjust')
+  }
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 4000)
+  }
+
   const handleSave = async () => {
     if (!form.name) return
     setSaving(true)
@@ -137,6 +178,74 @@ export default function PackagesView() {
       await load()
     } catch (err: any) {
       setError(err.message || 'Failed to delete')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReceive = async () => {
+    if (!editTarget || !receiveForm.quantity) return
+    setSaving(true)
+    try {
+      const qty = parseInt(receiveForm.quantity) || 0
+      if (qty <= 0) { showToast('⚠️ Quantity must be > 0'); setSaving(false); return }
+      
+      const body: any = { qty, note: receiveForm.note || 'Package receive' }
+      if (receiveForm.costPerUnit) body.costPerUnit = parseFloat(receiveForm.costPerUnit) || null
+      
+      const res = await fetch(`/api/packages/${editTarget.packageId}/receive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      
+      if (res.ok) {
+        const result = await res.json()
+        showToast(`✅ Received ${qty} units of ${editTarget.name}. New stock: ${result.package?.stockQty || 0}`)
+        setModal('none')
+        await load()
+      } else {
+        const err = await res.text()
+        showToast(`❌ Receive failed: ${err}`)
+      }
+    } catch (err: any) {
+      showToast(`❌ Error: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAdjust = async () => {
+    if (!editTarget || !adjustForm.newCount) return
+    setSaving(true)
+    try {
+      const oldCount = parseInt(adjustForm.oldCount) || 0
+      const newCount = parseInt(adjustForm.newCount) || 0
+      const delta = newCount - oldCount
+      
+      const body: any = { 
+        qty: delta, 
+        note: adjustForm.note || `Count adjustment (${adjustForm.reason}): was ${oldCount}, now ${newCount}` 
+      }
+      
+      const res = await fetch(`/api/packages/${editTarget.packageId}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      
+      if (res.ok) {
+        const result = await res.json()
+        const direction = delta > 0 ? `+${delta}` : String(delta)
+        showToast(`✅ Adjusted ${editTarget.name} by ${direction}. New stock: ${result.package?.stockQty || 0}`)
+        setModal('none')
+        await load()
+      } else {
+        const err = await res.text()
+        showToast(`❌ Adjust failed: ${err}`)
+      }
+    } catch (err: any) {
+      showToast(`❌ Error: ${err.message}`)
     } finally {
       setSaving(false)
     }
@@ -261,6 +370,7 @@ export default function PackagesView() {
                 <th style={{ ...thStyle('length'), cursor: 'default' }}>Dims (W×H×D)</th>
                 <th onClick={() => handleSort('weight')} style={thStyle('weight')}>Weight {sortKey === 'weight' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
                 <th onClick={() => handleSort('cost')} style={thStyle('cost')}>Cost {sortKey === 'cost' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th style={{ ...thStyle('name'), cursor: 'default', textAlign: 'center' }}>Stock</th>
                 <th onClick={() => handleSort('status')} style={thStyle('status')}>Status</th>
                 <th style={{ ...thStyle('name'), cursor: 'default' }}>Actions</th>
               </tr>
@@ -268,7 +378,7 @@ export default function PackagesView() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
                     <div style={{ fontSize: '32px', marginBottom: '8px' }}>📐</div>
                     <div>No packages found</div>
                     <button onClick={openAdd} className="btn btn-primary btn-sm" style={{ marginTop: '12px' }}>+ Add Package</button>
@@ -291,6 +401,9 @@ export default function PackagesView() {
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: '12px' }}>
                     {pkg.cost ? `$${pkg.cost.toFixed(2)}` : '—'}
                   </td>
+                  <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: '13px', fontWeight: '600', textAlign: 'center', color: (pkg.stockQty || 0) === 0 ? 'var(--red)' : 'var(--text)' }}>
+                    {pkg.stockQty || 0}
+                  </td>
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
                     <span style={{
                       fontSize: '10px',
@@ -305,18 +418,32 @@ export default function PackagesView() {
                     </span>
                   </td>
                   <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', gap: '5px' }}>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => openReceive(pkg)}
+                        title="Receive stock"
+                        style={{ padding: '3px 8px', fontSize: '11px', background: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '3px', cursor: 'pointer', color: '#0369a1', fontWeight: '600' }}
+                      >
+                        📦 Receive
+                      </button>
+                      <button
+                        onClick={() => openAdjust(pkg)}
+                        title="Adjust stock count"
+                        style={{ padding: '3px 8px', fontSize: '11px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '3px', cursor: 'pointer', color: '#92400e', fontWeight: '600' }}
+                      >
+                        ± Adjust
+                      </button>
                       <button
                         onClick={() => openEdit(pkg)}
-                        style={{ padding: '3px 10px', fontSize: '11px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', cursor: 'pointer', color: 'var(--text)' }}
+                        style={{ padding: '3px 8px', fontSize: '11px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '3px', cursor: 'pointer', color: 'var(--text)' }}
                       >
-                        Edit
+                        ✏️ Edit
                       </button>
                       <button
                         onClick={() => openDelete(pkg)}
-                        style={{ padding: '3px 10px', fontSize: '11px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', color: '#dc2626' }}
+                        style={{ padding: '3px 8px', fontSize: '11px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', color: '#dc2626' }}
                       >
-                        Delete
+                        🗑️ Delete
                       </button>
                     </div>
                   </td>
@@ -414,6 +541,182 @@ export default function PackagesView() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Receive Modal */}
+      {modal === 'receive' && editTarget && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9000, backgroundColor: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setModal('none')}
+        >
+          <div
+            style={{ backgroundColor: 'var(--surface)', borderRadius: '10px', boxShadow: 'var(--shadow-lg)', width: '420px', maxWidth: '95vw', padding: '24px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>📦 Receive Stock</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px', fontFamily: 'monospace' }}>{editTarget.name}</p>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Quantity to Receive *</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={receiveForm.quantity}
+                onChange={e => setReceiveForm({ ...receiveForm, quantity: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '13px', fontWeight: '600', boxSizing: 'border-box' }}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Cost Per Unit ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={receiveForm.costPerUnit}
+                onChange={e => setReceiveForm({ ...receiveForm, costPerUnit: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '13px', boxSizing: 'border-box' }}
+                placeholder="Optional"
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Note / Reference</label>
+              <input
+                type="text"
+                value={receiveForm.note}
+                onChange={e => setReceiveForm({ ...receiveForm, note: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '12px', boxSizing: 'border-box' }}
+                placeholder="PO#, supplier, etc."
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                onClick={() => setModal('none')}
+                style={{ padding: '8px 16px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReceive}
+                disabled={saving || !receiveForm.quantity}
+                style={{ padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', opacity: saving ? 0.7 : 1 }}
+              >
+                {saving ? '⏳ Saving…' : '✅ Receive'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Modal */}
+      {modal === 'adjust' && editTarget && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9000, backgroundColor: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setModal('none')}
+        >
+          <div
+            style={{ backgroundColor: 'var(--surface)', borderRadius: '10px', boxShadow: 'var(--shadow-lg)', width: '420px', maxWidth: '95vw', padding: '24px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>± Stock Adjustment</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px', fontFamily: 'monospace' }}>{editTarget.name}</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Old Count</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={adjustForm.oldCount}
+                  onChange={e => setAdjustForm({ ...adjustForm, oldCount: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '13px', boxSizing: 'border-box' }}
+                  disabled
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>New Count *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={adjustForm.newCount}
+                  onChange={e => setAdjustForm({ ...adjustForm, newCount: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '13px', fontWeight: '600', boxSizing: 'border-box' }}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Reason</label>
+              <select
+                value={adjustForm.reason}
+                onChange={e => setAdjustForm({ ...adjustForm, reason: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '13px', boxSizing: 'border-box' }}
+              >
+                <option value="inventory_count">Physical Count</option>
+                <option value="damaged">Damaged / Defective</option>
+                <option value="missing">Missing / Lost</option>
+                <option value="return">Customer Return</option>
+                <option value="correction">Data Correction</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: 'var(--text2)', textTransform: 'uppercase' }}>Additional Note</label>
+              <input
+                type="text"
+                value={adjustForm.note}
+                onChange={e => setAdjustForm({ ...adjustForm, note: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--border2)', borderRadius: '4px', backgroundColor: 'var(--surface2)', color: 'var(--text)', fontSize: '12px', boxSizing: 'border-box' }}
+                placeholder="Optional details"
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                onClick={() => setModal('none')}
+                style={{ padding: '8px 16px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdjust}
+                disabled={saving || !adjustForm.newCount}
+                style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer', fontSize: '13px', opacity: saving ? 0.7 : 1 }}
+              >
+                {saving ? '⏳ Saving…' : '✅ Adjust'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            fontSize: '13px',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 10000,
+            animation: 'slideIn 0.3s ease-out',
+          }}
+        >
+          {toast}
         </div>
       )}
     </div>

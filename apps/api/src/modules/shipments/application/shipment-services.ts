@@ -86,6 +86,110 @@ export class ShipmentServices {
     return result.raw;
   }
 
+  async backfillStoreShipments(storeId: number): Promise<{ synced: number; skipped: number }> {
+    // Validate store exists
+    if (!this.repository.storeExists(storeId)) {
+      throw new Error(`Store ${storeId} not found`);
+    }
+
+    const accounts = this.repository.listSyncAccounts();
+    const updatedAt = Date.now();
+    let totalSynced = 0;
+    let totalSkipped = 0;
+
+    // Get all order numbers for this store
+    const orderNumbers = this.repository.getOrderNumbersByStoreId(storeId);
+    if (orderNumbers.length === 0) {
+      return { synced: 0, skipped: 0 };
+    }
+
+    try {
+      for (const account of accounts) {
+        if (!account.v1ApiKey || !account.v1ApiSecret) continue;
+
+        const credentials = credentialsOrThrow(account.v1ApiKey, account.v1ApiSecret, this.secrets);
+        const carrierLookup = new Map<string, number>();
+
+        // Build carrier lookup from V2 if available
+        if (account.v2ApiKey) {
+          let page = 1;
+          while (true) {
+            const rows = await this.gateway.listShipmentsV2(account.v2ApiKey, page);
+            if (rows.length === 0) break;
+            for (const row of rows) {
+              if (!row.orderNumber || !row.carrierId) continue;
+              const numeric = Number.parseInt(row.carrierId.replace(/^se-/, ""), 10);
+              if (Number.isFinite(numeric)) carrierLookup.set(row.orderNumber, numeric);
+            }
+            if (rows.length < 500) break;
+            page += 1;
+          }
+        }
+
+        // Query V1 ShipStation for shipments for these order numbers
+        const normalized = [];
+        for (const orderNumber of orderNumbers) {
+          const params = new URLSearchParams({
+            orderNumber,
+            pageSize: "500",
+            sortBy: "CreateDate",
+            sortDir: "DESC",
+          });
+
+          const result = await this.gateway.listShipments(credentials, params);
+          if (result.shipments.length === 0) {
+            totalSkipped += 1;
+            continue;
+          }
+
+          for (const shipment of result.shipments) {
+            let orderId = shipment.orderId;
+            if (shipment.orderNumber) {
+              const resolved = this.repository.resolveOrderIdByOrderNumber(shipment.orderNumber);
+              if (resolved) orderId = resolved;
+            }
+            if (!this.repository.orderExists(orderId)) {
+              totalSkipped += 1;
+              continue;
+            }
+
+            normalized.push({
+              shipmentId: shipment.shipmentId,
+              orderId,
+              orderNumber: shipment.orderNumber,
+              shipmentCost: shipment.shipmentCost,
+              otherCost: shipment.otherCost,
+              carrierCode: shipment.carrierCode,
+              serviceCode: shipment.serviceCode,
+              trackingNumber: shipment.trackingNumber,
+              shipDate: shipment.shipDate,
+              voided: shipment.voided,
+              providerAccountId: shipment.orderNumber ? carrierLookup.get(shipment.orderNumber) ?? null : null,
+              createDate: shipment.createDate,
+              weightOz: shipment.weightOz,
+              dimsLength: shipment.dimsLength,
+              dimsWidth: shipment.dimsWidth,
+              dimsHeight: shipment.dimsHeight,
+              updatedAt,
+              clientId: this.repository.getOrderClientId(orderId) ?? account.clientId,
+              source: "v2-backfill",
+            });
+          }
+        }
+
+        if (normalized.length > 0) {
+          this.repository.upsertShipmentBatch(normalized);
+          this.repository.backfillOrderLocalFromShipments(normalized);
+          totalSynced += normalized.length;
+        }
+      }
+
+      return { synced: totalSynced, skipped: totalSkipped };
+    } catch (error) {
+      throw new Error(`Backfill failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private async runSync(mode: "incremental" | "full"): Promise<void> {
     const accounts = this.repository.listSyncAccounts();
     const lastSync = this.repository.getLastShipmentSync();
