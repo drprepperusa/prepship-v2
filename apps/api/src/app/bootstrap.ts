@@ -1,4 +1,5 @@
 import { createApp } from "./create-app.ts";
+import { createAuthMiddleware } from "./auth-middleware.ts";
 import { loadAppConfig } from "../config/app-config.ts";
 import { CARRIER_ACCOUNTS_V2, EXCLUDED_STORE_IDS } from "../common/prepship-config.ts";
 import type { ApiDataStore } from "./datastore.ts";
@@ -119,8 +120,10 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
     orderExportService,
   );
 
+  const rawApp = createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler });
+
   return {
     config,
-    app: createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler }),
+    app: createAuthMiddleware(rawApp, config.sessionToken),
   };
 }
