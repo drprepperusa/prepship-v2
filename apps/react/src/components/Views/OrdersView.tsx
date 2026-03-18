@@ -748,7 +748,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
           </div>
         </div>
 
-        <div className="pagination-bar" style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+        <div className="pagination-bar" style={{ position: 'fixed', bottom: 0, left: 'var(--sidebar-w, 240px)', right: 0, zIndex: 100 }}>
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
               {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
             </span>

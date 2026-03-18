@@ -6,7 +6,7 @@ import { state } from './state.js';
 import { applyOrdersData, loadOrdersData } from './orders.js';
 import { didOrdersResponseChange } from './orders-sync.js';
 
-const POLL_INTERVAL_MS = 2000; // 2 seconds — faster rate updates during initial load
+const POLL_INTERVAL_MS = 15000; // 15 seconds — avoid rate-limit hammering on /api/orders
 let pollingActive = false;
 let pollingTimer = null;
 let lastPollTime = 0;
