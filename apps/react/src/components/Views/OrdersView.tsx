@@ -726,29 +726,44 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
 
       <StatsBar />
 
-      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
-            <OrdersTable
-              status={status}
-              orders={tableOrders}
-              markups={markups}
-              selectedOrders={selectedOrders}
-              onSelectOrder={handleSelectOrder}
-              onSelectAll={handleSelectAll}
-              onOpenPanel={handleOpenPanelLocal}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onSort={handleSort}
-              focusedRowIndex={focusedRowIndex}
-              panelOrderId={panelOrderId}
-              visibleColKeys={visibleColKeys}
-              storeMap={storeMap}
-              carrierAccounts={carrierAccounts}
-              columnWidths={columnWidths}
-              onColumnWidthsChange={setColumnWidths}
-            />
+      <div className="content-split-outer" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
+          <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
+              <OrdersTable
+                status={status}
+                orders={tableOrders}
+                markups={markups}
+                selectedOrders={selectedOrders}
+                onSelectOrder={handleSelectOrder}
+                onSelectAll={handleSelectAll}
+                onOpenPanel={handleOpenPanelLocal}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+                focusedRowIndex={focusedRowIndex}
+                panelOrderId={panelOrderId}
+                visibleColKeys={visibleColKeys}
+                storeMap={storeMap}
+                carrierAccounts={carrierAccounts}
+                columnWidths={columnWidths}
+                onColumnWidthsChange={setColumnWidths}
+              />
+            </div>
           </div>
+
+          {panelOrderId && (
+            <div style={{ width: '420px', height: '100%', borderLeft: '1px solid var(--border)', overflowY: 'auto', backgroundColor: 'var(--panel-bg)' }}>
+              <OrderPanel 
+                orderId={panelOrderId} 
+                orderSnapshot={orders.find((order) => order.orderId === panelOrderId) ?? null}
+                orderIds={tableOrders.map((order) => order.orderId)}
+                onOpenOrder={handleOpenPanelLocal}
+                onClose={() => setPanelOrderId(null)}
+                onRefresh={refetch}
+              />
+            </div>
+          )}
         </div>
 
         <div className="pagination-bar" style={{ position: 'relative', bottom: 'auto', left: 'auto', right: 'auto', zIndex: 100, flexShrink: 0, borderTop: '1px solid var(--border)' }}>
@@ -784,15 +799,6 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
               <option value={100}>100 rows</option>
             </select>
           </div>
-
-        <OrderPanel
-          orderId={panelOrderId}
-          orderSnapshot={orders.find((order) => order.orderId === panelOrderId) ?? null}
-          orderIds={tableOrders.map((order) => order.orderId)}
-          onOpenOrder={handleOpenPanelLocal}
-          onClose={handleClosePanel}
-          onRefresh={refetch}
-        />
       </div>
     </div>
   )
