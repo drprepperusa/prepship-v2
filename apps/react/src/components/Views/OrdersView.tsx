@@ -321,6 +321,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+    showToast('CSV exported successfully. Check your Downloads folder.', 'success')
   }
 
   const handlePicklist = async () => {
