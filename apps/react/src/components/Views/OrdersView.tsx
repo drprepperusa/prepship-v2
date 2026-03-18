@@ -726,8 +726,8 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
 
       <StatsBar />
 
-      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
-        <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: '75px' }}>
+      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
             <OrdersTable
               status={status}
@@ -751,7 +751,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
           </div>
         </div>
 
-        <div className="pagination-bar" style={{ position: 'fixed', bottom: 0, left: 'var(--sidebar-w, 240px)', right: 0, zIndex: 100 }}>
+        <div className="pagination-bar" style={{ position: 'relative', bottom: 'auto', left: 'auto', right: 'auto', zIndex: 100, flexShrink: 0, borderTop: '1px solid var(--border)' }}>
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
               {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
             </span>
