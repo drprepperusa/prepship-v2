@@ -75,11 +75,19 @@ export function createDualWriteNotifier(config: DualWriteConfig) {
 
       // 3. Log to sync_log table
       try {
+        // Map v3Status to valid sync log values
+        const v3StatusForLog: "success" | "failed" | "skipped" = 
+          v3Status === "success" 
+            ? "success" 
+            : (v3Status === "best-effort" || v3Status === "failed")
+            ? "failed"
+            : "skipped";
+        
         void config.syncLogRepository.recordSync({
           orderId,
           operation,
           v2_status: v2Status,
-          v3_status: v3Status === "best-effort" ? "failed" : v3Status,
+          v3_status: v3StatusForLog,
           resolved: v2Status === "success",
         });
       } catch (logError) {
@@ -96,11 +104,19 @@ export function createDualWriteNotifier(config: DualWriteConfig) {
     } catch (error) {
       // Log final sync state with failure
       try {
+        // Map v3Status to valid sync log values
+        const v3StatusForLog: "success" | "failed" | "skipped" = 
+          v3Status === "success" 
+            ? "success" 
+            : (v3Status === "best-effort" || v3Status === "failed")
+            ? "failed"
+            : "skipped";
+        
         void config.syncLogRepository.recordSync({
           orderId,
           operation,
           v2_status: v2Status,
-          v3_status: v3Status === "best-effort" ? "failed" : v3Status,
+          v3_status: v3StatusForLog,
           resolved: v2Status === "success",
         });
       } catch (logError) {
