@@ -43,44 +43,32 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
 
   const fetchStatusCounts = async () => {
     try {
+      // Use server-side store aggregation endpoint for fast, accurate counts
       const [awaitingRes, shippedRes, cancelledRes] = await Promise.all([
-        fetch('/api/orders?orderStatus=awaiting_shipment&pageSize=10000'),
-        fetch('/api/orders?orderStatus=shipped&pageSize=10000'),
-        fetch('/api/orders?orderStatus=cancelled&pageSize=10000'),
-      ])
-      const [awaitingData, shippedData, cancelledData] = await Promise.all([
-        awaitingRes.json(),
-        shippedRes.json(),
-        cancelledRes.json(),
+        fetch('/api/orders/store-counts?orderStatus=awaiting_shipment'),
+        fetch('/api/orders/store-counts?orderStatus=shipped'),
+        fetch('/api/orders/store-counts?orderStatus=cancelled'),
       ])
       
-      // Filter orders by visibility: only count orders from visible clients
-      const filterAndGroupByStore = (orders: any[]) => {
-        const visible = orders.filter(o => visibilityState[o.clientId] !== false)
-        const countsByStore: Record<number, number> = {}
-        visible.forEach(order => {
-          const storeIds = order.storeIds || (order.storeId ? [order.storeId] : [])
-          storeIds.forEach(sid => {
-            countsByStore[sid] = (countsByStore[sid] || 0) + 1
-          })
-        })
-        return { total: visible.length, byStore: countsByStore }
-      }
+      const [awaitingCounts, shippedCounts, cancelledCounts] = await Promise.all([
+        awaitingRes.json() as Promise<Record<number, number>>,
+        shippedRes.json() as Promise<Record<number, number>>,
+        cancelledRes.json() as Promise<Record<number, number>>,
+      ])
       
-      const awaiting = filterAndGroupByStore(awaitingData.orders || [])
-      const shipped = filterAndGroupByStore(shippedData.orders || [])
-      const cancelled = filterAndGroupByStore(cancelledData.orders || [])
+      // Calculate totals from store counts
+      const getTotal = (counts: Record<number, number>) => Object.values(counts).reduce((a, b) => a + b, 0)
       
       setStatusCounts({
-        awaiting_shipment: awaiting.total,
-        shipped: shipped.total,
-        cancelled: cancelled.total,
+        awaiting_shipment: getTotal(awaitingCounts),
+        shipped: getTotal(shippedCounts),
+        cancelled: getTotal(cancelledCounts),
       })
       
       setStoreCountsByStatus({
-        awaiting_shipment: awaiting.byStore,
-        shipped: shipped.byStore,
-        cancelled: cancelled.byStore,
+        awaiting_shipment: awaitingCounts,
+        shipped: shippedCounts,
+        cancelled: cancelledCounts,
       })
     } catch (error) {
       console.error('Failed to fetch status counts:', error)
