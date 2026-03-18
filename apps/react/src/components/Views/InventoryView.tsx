@@ -444,7 +444,7 @@ function ClientStockGroup({
       )}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table className="inv-table" style={{ margin: 0, width: '100%', borderCollapse: 'collapse' }}>
+          <table className="inv-table inv-stock-table" style={{ margin: 0, width: '100%', borderCollapse: 'collapse' }}>
             {bulkDimsMode ? (
               <>
                 <thead>
@@ -494,7 +494,7 @@ function ClientStockGroup({
                     <th></th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody style={{ display: 'contents' }}>
                   {group.rows.map(r => {
                     const badge = r.status === 'out'
                       ? <span className="stock-badge stock-out">OUT</span>
@@ -513,13 +513,19 @@ function ClientStockGroup({
                         : 0)
                     return (
                       <tr key={r.id}>
-                        <td style={{ fontFamily: 'monospace', fontSize: '11.5px', cursor: 'pointer', color: 'var(--ss-blue)' }} onClick={() => onOpenDrawer(r.id)} title="View orders & sales trend">{r.sku}</td>
-                        <td style={{ padding: '4px 6px' }}>
+                        {/* m-img: product image (mobile card) */}
+                        <td className="m-img" style={{ padding: '4px 6px' }}>
                           {r.imageUrl
                             ? <img src={r.imageUrl} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 5, display: 'block', cursor: 'zoom-in' }} onError={e => { (e.target as HTMLImageElement).outerHTML = '<div style="width:40px;height:40px;background:var(--surface3);border-radius:5px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>' }} />
-                            : <div style={{ width: 40, height: 40, background: 'var(--surface3)', border: '1px dashed var(--border)', borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'var(--text4)', textAlign: 'center', lineHeight: 1.2 }}>no<br />img</div>}
+                            : <div className="no-img" style={{ width: 40, height: 40, background: 'var(--surface3)', border: '1px dashed var(--border)', borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'var(--text4)', textAlign: 'center', lineHeight: 1.2 }}>no<br />img</div>}
                         </td>
-                        <td style={{ fontSize: '12px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }} onClick={() => onOpenDrawer(r.id)}>{r.name || <span style={{ color: 'var(--text3)' }}>—</span>}</td>
+                        {/* m-name: SKU + name stacked (mobile), name only (desktop) */}
+                        <td className="m-name" style={{ fontSize: '12px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }} onClick={() => onOpenDrawer(r.id)}>
+                          <span className="mob-sku">{r.sku}</span>
+                          <span className="mob-name">{r.name || '—'}</span>
+                        </td>
+                        {/* Desktop SKU column (hidden on mobile) */}
+                        <td style={{ fontFamily: 'monospace', fontSize: '11.5px', cursor: 'pointer', color: 'var(--ss-blue)' }} onClick={() => onOpenDrawer(r.id)} title="View orders & sales trend">{r.sku}</td>
                         <td style={{ textAlign: 'right', fontSize: '11.5px' }}>{wtDisplay}</td>
                         <td style={{ textAlign: 'center', fontSize: '11.5px', fontFamily: 'monospace' }}>{dimsDisplay}</td>
                         <td style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text3)' }}>
@@ -528,7 +534,8 @@ function ClientStockGroup({
                             : <span style={{ color: 'var(--text4)' }}>—</span>}
                         </td>
                         <td style={{ fontSize: '11.5px' }}>{pkgDisplay}</td>
-                        <td style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: r.currentStock <= 0 ? 'var(--red)' : 'var(--text)' }}>{r.currentStock}</td>
+                        {/* m-stock: stock number (mobile) */}
+                        <td className="m-stock" style={{ textAlign: 'center', fontWeight: 700, fontSize: 13, color: r.currentStock <= 0 ? 'var(--red)' : 'var(--text)' }}>{r.currentStock}</td>
                         <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text3)' }}>
                           {r.units_per_pack > 1
                             ? <span style={{ background: 'var(--ss-blue-bg)', color: 'var(--ss-blue)', fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>×{r.units_per_pack}</span>
@@ -536,8 +543,10 @@ function ClientStockGroup({
                         </td>
                         <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--text2)' }}>{r.units_per_pack > 1 ? <strong>{r.currentStock * r.units_per_pack}</strong> : '—'}</td>
                         <td style={{ textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>{r.minStock}</td>
-                        <td style={{ textAlign: 'center' }}>{badge}</td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
+                        {/* m-status: status badge (mobile) */}
+                        <td className="m-status" style={{ textAlign: 'center' }}>{badge}</td>
+                        {/* m-actions: edit + adjust buttons (mobile) */}
+                        <td className="m-actions" style={{ whiteSpace: 'nowrap' }}>
                           <button className="btn btn-ghost btn-xs" onClick={() => onEdit(r)} title="Edit SKU details">✏️</button>
                           <button className="btn btn-ghost btn-xs" onClick={() => onAdjust(r.id, r.sku)} title="Add / Remove Stock" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ss-blue)' }}>+</button>
                         </td>
@@ -1111,17 +1120,23 @@ function ClientsTab({ clients, onReload, showToast }: { clients: ClientDto[]; on
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <table className="inv-table" style={{ margin: 0, width: '100%' }}>
+          <table className="inv-table inv-clients-table" style={{ margin: 0, width: '100%' }}>
             <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Store IDs</th><th>Rate Source</th><th></th></tr></thead>
             <tbody>
               {clients.map(c => (
                 <tr key={c.clientId}>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
-                  <td style={{ fontSize: 12 }}>{c.contactName || '—'}</td>
+                  {/* m-name: client name */}
+                  <td className="m-name" style={{ fontWeight: 600 }}>{c.name}</td>
+                  {/* m-contact: contact name (desktop only) + phone (mobile) */}
+                  <td className="m-contact" style={{ fontSize: 12 }}>{c.contactName || '—'}</td>
+                  {/* Desktop: email */}
                   <td style={{ fontSize: 12 }}>{c.email || '—'}</td>
+                  {/* Desktop: store IDs */}
                   <td style={{ fontSize: 12 }}>{(c.storeIds || []).join(', ') || '—'}</td>
+                  {/* Desktop: rate source */}
                   <td style={{ fontSize: 12, fontWeight: 500 }}>{c.rateSourceName || 'DR PREPPER'}</td>
-                  <td>
+                  {/* m-actions: edit + delete buttons */}
+                  <td className="m-actions">
                     <button className="btn btn-ghost btn-xs" onClick={() => openForm(c)}>Edit</button>
                     <button className="btn btn-ghost btn-xs" onClick={() => deleteClient(c)}>Delete</button>
                   </td>
