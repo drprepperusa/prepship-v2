@@ -366,6 +366,24 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
     onClose();
   }
 
+  // Auto-fetch rates when form is ready (weight + zip present)
+  useEffect(() => {
+    if (!isOpen || !order) return;
+    if (isFetching || Object.keys(ratesByCarrier).length > 0) return; // Already fetching or fetched
+    
+    const totalWt = weightLb * 16 + weightOz;
+    const hasWeight = totalWt > 0;
+    const hasZip = !!zip;
+    
+    if (hasWeight && hasZip && carriers.length > 0) {
+      // Auto-fetch after a small delay to ensure state is settled
+      const timeoutId = setTimeout(() => {
+        handleBrowseRates();
+      }, 200);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isOpen, order?.orderId, carriers.length, zip, weightLb, weightOz, handleBrowseRates, isFetching, ratesByCarrier]);
+
   const hasWeight = totalWeightOz > 0;
   const hasDims = length > 0 && width > 0 && height > 0;
   const canFetch = hasWeight && !!zip;
