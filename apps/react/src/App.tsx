@@ -22,6 +22,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
+type OrdersDateFilter = '' | 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'custom'
 
 function AppInner() {
   const [currentView, setCurrentView] = useState<ViewType>('orders')
@@ -32,6 +33,7 @@ function AppInner() {
   const [allOrders, setAllOrders] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null)
+  const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('')
 
   const { setIsOpen: setQueueOpen } = useQueue()
 
@@ -111,6 +113,8 @@ function AppInner() {
             onOrdersLoaded={setAllOrders}
             searchQuery={searchQuery}
             selectedClientId={selectedClientId}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
           />
         )
       case 'inventory':
@@ -137,6 +141,8 @@ function AppInner() {
             setSelectedOrders={handleSetSelectedOrders}
             onOpenPanel={() => {}}
             selectedClientId={selectedClientId}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
           />
         )
     }
@@ -155,6 +161,7 @@ function AppInner() {
         onSearch={handleSearch}
         onSelectStore={handleSelectStore}
         activeStore={selectedClientId}
+        dateFilter={dateFilter}
       />
 
       <div className="main">

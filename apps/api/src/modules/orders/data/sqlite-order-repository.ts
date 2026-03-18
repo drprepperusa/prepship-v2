@@ -710,15 +710,34 @@ export class SqliteOrderRepository implements OrderRepository {
    * Get aggregated store counts by orderStatus
    * Returns a map of storeId -> count for efficient sidebar rendering
    */
-  getStoreCounts(orderStatus: string): Record<number, number> {
+  getStoreCounts(orderStatus: string, dateStart?: string, dateEnd?: string): Record<number, number> {
+    const clauses: string[] = ["o.orderStatus = ?"];
+    const params: Array<string | number> = [orderStatus];
+    
+    if (this.excludedStoreIds.length > 0) {
+      clauses.push(`o.storeId NOT IN (${this.excludedStoreIds.map(() => "?").join(", ")})`);
+      params.push(...this.excludedStoreIds);
+    }
+    
+    if (dateStart) {
+      clauses.push("o.orderDate >= ?");
+      params.push(dateStart);
+    }
+    
+    if (dateEnd) {
+      clauses.push("o.orderDate <= ?");
+      params.push(dateEnd);
+    }
+    
+    const whereClause = clauses.join(" AND ");
     const query = `
       SELECT o.storeId, COUNT(*) as count
       FROM orders o
-      WHERE o.orderStatus = ? ${this.excludedStoreIds.length > 0 ? `AND o.storeId NOT IN (${this.excludedStoreIds.map(() => "?").join(", ")})` : ""}
+      WHERE ${whereClause}
       GROUP BY o.storeId
       ORDER BY COUNT(*) DESC
     `;
-    const params: Array<string | number> = [orderStatus, ...this.excludedStoreIds];
+    
     const rows = this.db.prepare(query).all(...params) as Array<{ storeId: number | null; count: number }>;
     const counts: Record<number, number> = {};
     rows.forEach((row) => {

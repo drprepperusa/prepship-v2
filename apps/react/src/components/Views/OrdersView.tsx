@@ -29,6 +29,8 @@ interface OrdersViewProps {
   onOrdersLoaded?: (orders: any[]) => void
   searchQuery?: string
   selectedClientId?: number | null
+  dateFilter?: OrdersDateFilter
+  setDateFilter?: (filter: OrdersDateFilter) => void
 }
 
 function convertToTableOrder(dto: any): TableOrder {
@@ -82,11 +84,12 @@ function getDefaultColWidths(): Record<string, number> {
   return widths
 }
 
-export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedClientId }: OrdersViewProps) {
+export default function OrdersView({ status, selectedOrders, setSelectedOrders, onOpenPanel, onOrdersLoaded, searchQuery, selectedClientId, dateFilter: propDateFilter, setDateFilter: propSetDateFilter }: OrdersViewProps) {
   const { showToast } = useToast()
   const [searchText, setSearchText] = useState(searchQuery || '')
   const [skuFilter, setSkuFilter] = useState('all')
-  const [dateFilter, setDateFilter] = useState<OrdersDateFilter>(status === 'awaiting_shipment' ? '' : 'last-30')
+  const dateFilter = propDateFilter ?? (status === 'awaiting_shipment' ? '' : 'last-30')
+  const setDateFilter = propSetDateFilter || (() => {})
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [sortKey, setSortKey] = useState('date')

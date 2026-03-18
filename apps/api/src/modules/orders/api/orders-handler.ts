@@ -73,10 +73,12 @@ export class OrdersHttpHandler {
   }
 
   handleStoreCounts(requestUrl: URL) {
-    // Get store-level aggregated counts for a given order status
+    // Get store-level aggregated counts for a given order status, optionally filtered by date
     const orderStatus = requestUrl.searchParams.get("orderStatus") || "shipped";
+    const startDate = requestUrl.searchParams.get("startDate") || undefined;
+    const endDate = requestUrl.searchParams.get("endDate") || undefined;
     const repo = this.listOrdersService.repository;
-    const counts = repo.getStoreCounts(orderStatus);
+    const counts = repo.getStoreCounts(orderStatus, startDate, endDate);
     return counts;
   }
 

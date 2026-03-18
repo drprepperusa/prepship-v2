@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStoreOrders, useStores } from '../../hooks'
 import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
+import { getOrdersDateRange } from '../Views/orders-view-filters'
 import './Sidebar.css'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
+type OrdersDateFilter = '' | 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'custom'
 
 interface SidebarProps {
   currentStatus: OrderStatus
@@ -15,9 +17,10 @@ interface SidebarProps {
   onSearch?: (query: string) => void
   onSelectStore?: (clientId: number) => void
   activeStore?: number | null
+  dateFilter?: OrdersDateFilter
 }
 
-export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onCloseMobileMenu, onSearch, onSelectStore, activeStore }: SidebarProps) {
+export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onCloseMobileMenu, onSearch, onSelectStore, activeStore, dateFilter }: SidebarProps) {
   const [expandedSections, setExpandedSections] = useState<Set<OrderStatus>>(new Set(['awaiting_shipment']))
   const [statusCounts, setStatusCounts] = useState<Record<OrderStatus, number>>({
     awaiting_shipment: 0,
@@ -39,7 +42,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
 
   useEffect(() => {
     fetchStatusCounts()
-  }, [visibilityState])
+  }, [visibilityState, dateFilter])
 
   const fetchStatusCounts = async () => {
     const fetchWithRetry = async (url: string, maxRetries = 3): Promise<Record<number, number>> => {
@@ -69,11 +72,17 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
     }
     
     try {
+      // Build date range params if dateFilter is set
+      const dateRange = dateFilter ? getOrdersDateRange(dateFilter) : null
+      const dateParams = dateRange
+        ? `&startDate=${dateRange.start?.toISOString().split('T')[0]}&endDate=${dateRange.end?.toISOString().split('T')[0]}`
+        : ''
+      
       // Use server-side store aggregation endpoint for fast, accurate counts
       const [awaitingCounts, shippedCounts, cancelledCounts] = await Promise.all([
-        fetchWithRetry('/api/orders/store-counts?orderStatus=awaiting_shipment'),
-        fetchWithRetry('/api/orders/store-counts?orderStatus=shipped'),
-        fetchWithRetry('/api/orders/store-counts?orderStatus=cancelled'),
+        fetchWithRetry(`/api/orders/store-counts?orderStatus=awaiting_shipment${dateParams}`),
+        fetchWithRetry(`/api/orders/store-counts?orderStatus=shipped${dateParams}`),
+        fetchWithRetry(`/api/orders/store-counts?orderStatus=cancelled${dateParams}`),
       ])
       
       // Calculate totals from store counts
