@@ -14,58 +14,53 @@ export default function SettingsView() {
   const { loading: loadingMarkups, error: markupError } = useMarkups()
   const [tab, setTab] = useState<Tab>('markups')
   const [accounts, setAccounts] = useState<CarrierAccount[]>([])
-  const [loadingAccounts, setLoadingAccounts] = useState(tab === 'markups')
+  const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  
+  // Load accounts on mount
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch('/api/carrier-accounts')
+        if (!res.ok) {
+          console.error(`HTTP ${res.status}`)
+          return
+        }
+        const data = await res.json()
+        if (!Array.isArray(data)) {
+          console.error('Expected array', typeof data)
+          return
+        }
+        const seenMap: Record<number, boolean> = {}
+        const unique: CarrierAccount[] = []
+        for (const acc of data) {
+          const pid = acc.shippingProviderId
+          if (pid && !seenMap[pid]) {
+            seenMap[pid] = true
+            unique.push({
+              shippingProviderId: pid,
+              nickname: acc.nickname || acc.name || '',
+              name: acc.name || acc.nickname || ''
+            })
+          }
+        }
+        console.log('Loaded accounts:', unique.length)
+        setAccounts(unique)
+      } catch (e) {
+        console.error('Load failed:', e)
+      } finally {
+        setLoadingAccounts(false)
+      }
+    }
+    load()
+  }, [])
 
   const showMessage = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ text, type })
     setTimeout(() => setMessage(null), 3000)
   }
 
-  // Load carrier accounts when markups tab is active
-  useEffect(() => {
-    if (tab !== 'markups') {
-      setLoadingAccounts(false)
-      return
-    }
-    
-    setLoadingAccounts(true)
-    
-    fetch('/api/carrier-accounts')
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
-      })
-      .then((data: any) => {
-        if (!Array.isArray(data) || data.length === 0) {
-          setAccounts([])
-          return
-        }
-        
-        // Deduplicate by shippingProviderId (unique key for markups)
-        const seenMap: Record<number, boolean> = {}
-        const unique: CarrierAccount[] = []
-        
-        for (const account of data) {
-          const pid = account.shippingProviderId
-          if (pid && !seenMap[pid]) {
-            seenMap[pid] = true
-            unique.push({
-              shippingProviderId: pid,
-              nickname: account.nickname || account.name || '',
-              name: account.name || account.nickname || ''
-            })
-          }
-        }
-        
-        setAccounts(unique)
-      })
-      .catch(err => {
-        console.error('Failed to load carrier accounts:', err)
-        setAccounts([])
-      })
-      .finally(() => setLoadingAccounts(false))
-  }, [tab])
+
 
   const handleRefetchAllRates = async () => {
     try {
