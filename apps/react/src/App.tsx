@@ -143,7 +143,7 @@ function AppInner() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100%', overflow: 'hidden' }}>
       <div className="panel-backdrop" id="panelBackdrop"></div>
 
       <Sidebar

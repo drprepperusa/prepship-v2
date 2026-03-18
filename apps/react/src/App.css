@@ -34,8 +34,8 @@
   --panel-w:390px;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-html,body{height:100%;overflow:hidden;}
-#root{flex:1;min-width:0;overflow:hidden;}
+html,body{height:100%;overflow:hidden;zoom:1;}
+#root{flex:1;min-width:0;overflow:hidden;height:100vh;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);display:flex;height:100vh;font-size:13px;}
 
 /* ══════════════════════════════════════════════
@@ -105,7 +105,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 /* ══════════════════════════════════════════════
    MAIN AREA
 ══════════════════════════════════════════════ */
-.main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;min-height:100vh;}
 
 /* ── TOP BAR ── */
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;gap:8px;flex-shrink:0;box-shadow:var(--shadow);}
