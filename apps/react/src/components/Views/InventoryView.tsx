@@ -118,6 +118,8 @@ export default function InventoryView() {
   const [packages, setPackages] = useState<PackageDto[]>([])
   const [alerts, setAlerts] = useState<InventoryAlert[]>([])
   const [loading, setLoading] = useState(false)
+  const [showCreateParentSku, setShowCreateParentSku] = useState(false)
+  const [selectedClientForParent, setSelectedClientForParent] = useState('')
 
   const loadClients = useCallback(async () => {
     try {
@@ -187,7 +189,7 @@ export default function InventoryView() {
             {loading ? '⏳' : '↻'} Refresh
           </button>
         </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -206,6 +208,17 @@ export default function InventoryView() {
               {tab.icon} {tab.label}
             </button>
           ))}
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setSelectedClientForParent('')
+              setShowCreateParentSku(true)
+            }}
+            style={{ marginLeft: 'auto' }}
+            title="Create a new product parent SKU"
+          >
+            ➕ Create Product
+          </button>
         </div>
       </div>
 
@@ -231,6 +244,20 @@ export default function InventoryView() {
           <HistoryTab clients={clients} showToast={showToast} />
         )}
       </div>
+
+      {showCreateParentSku && (
+        <CreateParentSkuModal
+          clients={clients}
+          selectedClientId={selectedClientForParent}
+          onClientChange={setSelectedClientForParent}
+          onClose={() => setShowCreateParentSku(false)}
+          onDone={() => {
+            setShowCreateParentSku(false)
+            refresh()
+          }}
+          showToast={showToast}
+        />
+      )}
     </div>
   )
 }

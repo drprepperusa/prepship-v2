@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { CarrierAccountDto, InitStoreDto } from '@prepshipv2/contracts/init/contracts'
-import { useOrdersWithDetails, useStores } from '../../hooks'
+import { useOrdersWithDetails, useStores, useAutoPolling } from '../../hooks'
 import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
 import { useToast } from '../../hooks/useToast'
 import OrdersTable from '../Tables/OrdersTable'
@@ -266,6 +266,16 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     dateEnd: dateRange?.end?.toISOString(),
     clientId: selectedClientId,
   })
+
+  // Auto-refresh orders every 15 seconds after initial load
+  useAutoPolling(
+    '/api/orders',
+    {
+      enabled: !loading && orders.length > 0,
+      intervalMs: 15000, // 15 seconds
+      onData: () => refetch(),
+    }
+  )
 
   const skuList = useMemo(() => {
     const set = new Set<string>()
