@@ -55,6 +55,7 @@ function AppInner() {
   const handleSelectStatus = (status: OrderStatus) => {
     setCurrentStatus(status)
     setCurrentView('orders')
+    setSelectedClientId(null)  // Clear store filter when changing status
   }
 
   const handleSearch = (query: string) => {
