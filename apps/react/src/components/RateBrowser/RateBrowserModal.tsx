@@ -395,7 +395,7 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
           borderRadius: 12,
           boxShadow: '0 20px 60px rgba(0,0,0,.4)',
           width: '100%',
-          maxWidth: 1400,
+          maxWidth: 1200,
           height: '90vh',
           display: 'flex',
           flexDirection: 'column',
@@ -431,18 +431,24 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
         </div>
 
         <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 0 }}>
-          {/* ── Left Sidebar: Controls + Carrier List ── */}
+          {/* ── Left Column: Configure Rates (Controls Only) ── */}
           <div style={{
-            width: 260,
+            width: 200,
             borderRight: '1px solid var(--border)',
             display: 'flex',
             flexDirection: 'column',
             flexShrink: 0,
-            overflow: 'hidden',
+            overflow: 'auto',
+            padding: '12px 12px',
           }}>
+            {/* Header */}
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.5px', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+              CONFIGURE RATES
+            </div>
+            
             {/* Dims / Weight form */}
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.4px', marginBottom: 8 }}>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.4px', marginBottom: 6 }}>
                 Weight & Dims
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
@@ -519,14 +525,29 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
                 {isFetching ? `⏳ ${loadedCount}/${carrierCount}` : '🔍 Browse Rates'}
               </button>
             </div>
+          </div>
+
+          {/* ── Middle Column: Carrier Accounts ── */}
+          <div style={{
+            width: 200,
+            borderRight: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.5px', padding: '12px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              CARRIER ACCOUNTS
+            </div>
 
             {/* View toggle */}
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 4 }}>
+            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 4, background: 'var(--surface2)' }}>
               <button
                 onClick={() => setViewMode('all')}
                 style={{
-                  flex: 1, padding: '4px 8px', fontSize: 10, fontWeight: 700,
-                  background: viewMode === 'all' ? 'var(--ss-blue)' : 'var(--surface2)',
+                  flex: 1, padding: '4px 6px', fontSize: 9, fontWeight: 700,
+                  background: viewMode === 'all' ? 'var(--ss-blue)' : 'var(--surface)',
                   color: viewMode === 'all' ? '#fff' : 'var(--text2)',
                   border: '1px solid var(--border2)', borderRadius: 4, cursor: 'pointer',
                 }}
@@ -536,8 +557,8 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
               <button
                 onClick={() => setViewMode('carrier')}
                 style={{
-                  flex: 1, padding: '4px 8px', fontSize: 10, fontWeight: 700,
-                  background: viewMode === 'carrier' ? 'var(--ss-blue)' : 'var(--surface2)',
+                  flex: 1, padding: '4px 6px', fontSize: 9, fontWeight: 700,
+                  background: viewMode === 'carrier' ? 'var(--ss-blue)' : 'var(--surface)',
                   color: viewMode === 'carrier' ? '#fff' : 'var(--text2)',
                   border: '1px solid var(--border2)', borderRadius: 4, cursor: 'pointer',
                 }}
@@ -566,31 +587,29 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
                       setViewMode('carrier');
                     }}
                     style={{
-                      padding: '8px 12px',
+                      padding: '10px 10px',
                       borderBottom: '1px solid var(--border)',
                       cursor: 'pointer',
-                      background: isSelected ? 'var(--ss-blue-bg)' : 'transparent',
+                      background: isSelected ? 'rgba(20, 115, 230, 0.1)' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
+                      transition: 'background 0.1s',
                     }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = isSelected ? 'rgba(20, 115, 230, 0.1)' : 'transparent')}
                   >
                     <div style={{
-                      width: 8, height: 8, borderRadius: '50%',
-                      background: color, flexShrink: 0,
+                      width: 16, height: 16, borderRadius: '50%',
+                      background: color, flexShrink: 0, border: '2px solid var(--surface)',
                     }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {carrier.nickname}
                       </div>
-                      {carrier.name && carrier.name !== carrier.nickname && (
-                        <div style={{ fontSize: 10, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {carrier.name}
-                        </div>
-                      )}
                     </div>
                     {state?.status === 'loading' && <span style={{ fontSize: 10, color: 'var(--text3)' }}>⏳</span>}
-                    {state?.status === 'ok' && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)' }}>{rateCount}</span>}
+                    {state?.status === 'ok' && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ss-blue)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 10 }}>{rateCount}</span>}
                     {state?.status === 'error' && <span style={{ fontSize: 10, color: 'var(--red)' }}>✕</span>}
                   </div>
                 );
@@ -598,11 +617,11 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
             </div>
           </div>
 
-          {/* ── Right Panel: Rates ── */}
+          {/* ── Right Column: Rates ── */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 300, overflow: 'hidden' }}>
             {/* Rates header */}
             <div style={{
-              padding: '10px 16px',
+              padding: '12px 16px',
               borderBottom: '1px solid var(--border)',
               flexShrink: 0,
               display: 'flex',
@@ -610,9 +629,11 @@ export default function RateBrowserModal({ isOpen, order, onClose, onSelectRate 
               gap: 10,
               background: 'var(--surface2)',
             }}>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>
-                {viewMode === 'all' ? `All Rates (cheapest first)` : `${carriers.find(c => c.shippingProviderId === selectedCarrierPid)?.nickname || 'Carrier'} Rates`}
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--text3)', letterSpacing: '.5px' }}>
+                Rates
               </div>
+              {viewMode === 'all' && <div style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: 'var(--text2)' }}>Cheapest first</div>}
+              {viewMode === 'carrier' && <div style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, color: 'var(--text2)' }}>{carriers.find(c => c.shippingProviderId === selectedCarrierPid)?.nickname || 'Carrier'}</div>}
               {!hasDims && (
                 <div style={{ marginLeft: 'auto', fontSize: 10, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: 10, border: '1px solid #fcd34d' }}>
                   ⚠ No dims — rates may be inaccurate
