@@ -1301,6 +1301,25 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "POST" && url.pathname === "/api/prints/batch-print") {
+      try {
+        return jsonResponse(200, await dependencies.labelsHandler.handleBatchPrint(await readJson()));
+      } catch (error) {
+        const err = error as Error & { rateLimited?: boolean; retryAfterMs?: number };
+        const message = err instanceof Error ? err.message : "Unknown error";
+        if (err.rateLimited) {
+          const retryAfter = Math.ceil((err.retryAfterMs ?? 60000) / 1000);
+          return jsonResponse(429, {
+            error: message,
+            retryAfter,
+            rateLimited: true,
+          });
+        }
+        const status = isInputError(error, ["orderIds must be a non-empty array", "serviceCode is required", "shippingProviderId is required"]) ? 400 : 500;
+        return jsonResponse(status, { error: message });
+      }
+    }
+
     if (request.method === "POST" && url.pathname === "/api/labels/create") {
       try {
         const requestBody = await readJson();
