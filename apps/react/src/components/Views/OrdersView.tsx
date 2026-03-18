@@ -726,9 +726,9 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
 
       <StatsBar />
 
-      <div className="content-split-outer" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
-          <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div className="content-split-outer" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'row', position: 'relative' }}>
+          <div className="orders-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
               <OrdersTable
                 status={status}
