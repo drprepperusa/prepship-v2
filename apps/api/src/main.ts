@@ -13,7 +13,7 @@ try {
     if (trimmed && !trimmed.startsWith("#")) {
       const [key, ...valueParts] = trimmed.split("=");
       const value = valueParts.join("=");
-      if (key && !process.env[key]) {
+      if (key) {
         process.env[key] = value;
       }
     }
