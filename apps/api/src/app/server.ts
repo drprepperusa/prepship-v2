@@ -43,6 +43,12 @@ export function startHttpServer(handler: (request: Request) => Promise<Response>
     // Annotate successful /api/* responses with rate-limit headers.
     response = rateLimiter.annotate(response, clientIp);
 
+    // Add CORS headers
+    response.headers.set("Access-Control-Allow-Origin", "*");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.headers.set("Access-Control-Max-Age", "86400");
+
     res.statusCode = response.status;
 
     for (const [key, value] of response.headers.entries()) {

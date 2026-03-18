@@ -21,6 +21,78 @@ import type {
 import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
 import type { AddressRecord, LabelOrderRecord, LabelShipmentRecord } from "../domain/label.ts";
 
+// Rate limiting configuration
+const LABEL_RATE_LIMIT = 10; // max 10 labels per minute per client
+const LABEL_RATE_WINDOW_MS = 60_000; // 1 minute window
+
+// Per-client rate limiter: Map<clientId, {count, windowStart}>
+const labelRateLimitMap = new Map<number, { count: number; windowStart: number }>();
+
+/**
+ * Check and enforce per-client label rate limit.
+ * Throws error with rateLimited flag if limit exceeded.
+ */
+function checkLabelRateLimit(clientId: number): void {
+  const now = Date.now();
+  const bucket = labelRateLimitMap.get(clientId);
+
+  if (!bucket) {
+    // First request in window
+    labelRateLimitMap.set(clientId, { count: 1, windowStart: now });
+    return;
+  }
+
+  const elapsed = now - bucket.windowStart;
+  if (elapsed >= LABEL_RATE_WINDOW_MS) {
+    // Window expired, reset
+    labelRateLimitMap.set(clientId, { count: 1, windowStart: now });
+    return;
+  }
+
+  // Still in window, check limit
+  if (bucket.count >= LABEL_RATE_LIMIT) {
+    const retryAfterMs = LABEL_RATE_WINDOW_MS - elapsed;
+    const error = new Error(
+      `Label rate limit exceeded (${LABEL_RATE_LIMIT} labels per minute per client). Retry after ${Math.ceil(retryAfterMs / 1000)}s`
+    ) as Error & { rateLimited?: boolean; retryAfterMs?: number };
+    error.rateLimited = true;
+    error.retryAfterMs = retryAfterMs;
+    throw error;
+  }
+
+  // Increment count within current window
+  bucket.count += 1;
+}
+
+/**
+ * Helper to run async tasks with concurrency limit.
+ * Runs at most `maxConcurrent` tasks in parallel.
+ */
+async function withConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  maxConcurrent: number = 5,
+): Promise<void> {
+  const queue = [...items];
+  const running = new Set<Promise<void>>();
+
+  while (queue.length > 0 || running.size > 0) {
+    // Fill up to maxConcurrent
+    while (running.size < maxConcurrent && queue.length > 0) {
+      const item = queue.shift();
+      if (item !== undefined) {
+        const task = fn(item).finally(() => running.delete(task));
+        running.add(task);
+      }
+    }
+
+    // Wait for at least one to complete if we're at capacity or have pending items
+    if (running.size > 0) {
+      await Promise.race(running);
+    }
+  }
+}
+
 function parseOrderShipTo(raw: string, fallbackName: string | null): AddressRecord {
   try {
     const parsed = JSON.parse(raw) as { shipTo?: Record<string, unknown> };
