@@ -3,10 +3,14 @@
  *
  * Config defaults:
  *   - Window: 60 seconds
- *   - Limit:  100 requests per window per IP
+ *   - Limit:  500 requests per window per IP
  *
  * Applied to all /api/* routes.
  * /health is intentionally excluded.
+ *
+ * NOTE: Limit raised from 100→500 because the UI polls several endpoints
+ * concurrently (orders, sync-status, daily-stats) and a single user with
+ * multiple tabs was hitting the 100 req/min cap, breaking order loading.
  */
 
 export interface RateLimitConfig {
@@ -21,7 +25,7 @@ interface IpRecord {
 
 const DEFAULT_CONFIG: RateLimitConfig = {
   windowMs: 60_000, // 1 minute
-  max: 100,
+  max: 500,
 };
 
 export class RateLimiter {
