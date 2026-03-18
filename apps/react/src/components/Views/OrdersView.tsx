@@ -113,10 +113,12 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
 
   const { stores } = useStores()
 
-  // Reset date filter to sensible default when switching status tabs
+  // Set sensible default date filter when component mounts (don't override user selections during status switches)
   useEffect(() => {
-    setDateFilter(status === 'awaiting_shipment' ? '' : 'last-30')
-  }, [status])
+    if (!propDateFilter) {
+      setDateFilter(status === 'awaiting_shipment' ? '' : 'last-30')
+    }
+  }, []) // Empty dependency array: only run once on mount
 
   useEffect(() => {
     setSearchText(searchQuery || '')
