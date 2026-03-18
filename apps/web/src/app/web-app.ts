@@ -62,6 +62,14 @@ async function proxyApiRequest(
   const target = new URL(`${url.pathname}${url.search}`, apiBaseUrl);
   const headers = new Headers(request.headers);
   headers.delete("host");
+  
+  // Inject SESSION_TOKEN from environment into every proxied API request.
+  // This happens server-side; the token never reaches the browser.
+  const sessionToken = process.env.SESSION_TOKEN;
+  if (sessionToken) {
+    headers.set("x-app-token", sessionToken);
+  }
+  
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
 
   const upstream = await fetchImpl(target.toString(), {
