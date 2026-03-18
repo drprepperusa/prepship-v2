@@ -6,7 +6,11 @@ import type {
 } from "../application/sync-log-repository.ts";
 
 export class SqliteSyncLogRepository implements SyncLogRepository {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   async recordSync(
     entry: Omit<SyncLogEntry, "id" | "timestamp" | "created_at" | "updated_at">,
@@ -111,9 +115,12 @@ export class SqliteSyncLogRepository implements SyncLogRepository {
 
   async countUnresolvedDiscrepancies(): Promise<number> {
     const stmt = this.db.prepare(`
-      SELECT COUNT(DISTINCT orderId) as count
-      FROM order_sync_log
-      WHERE resolved = 0 AND discrepancy_type IS NOT NULL
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT DISTINCT orderId, discrepancy_type
+        FROM order_sync_log
+        WHERE resolved = 0 AND discrepancy_type IS NOT NULL
+      )
     `);
 
     const result = stmt.get() as { count: number };

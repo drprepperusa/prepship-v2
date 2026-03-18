@@ -14,16 +14,19 @@ export class HealthSyncService {
   private readonly datastore: ApiDataStore;
   private readonly secrets: TransitionalSecrets;
   private readonly db: any;
+  private readonly syncEnabled: boolean;
 
-  constructor(datastore: ApiDataStore, secrets: TransitionalSecrets, db?: any) {
+  constructor(datastore: ApiDataStore, secrets: TransitionalSecrets, db?: any, syncEnabled?: boolean) {
     this.datastore = datastore;
     this.secrets = secrets;
     // Get db from orderRepository which wraps it
     this.db = db || (datastore.orderRepository as any).db || (datastore.shipmentRepository as any).db;
+    // Use passed value or read from env
+    this.syncEnabled = syncEnabled !== undefined ? syncEnabled : (process.env.WORKER_SYNC_ENABLED === "true" || process.env.WORKER_SYNC_ENABLED === "1");
   }
 
   getSyncStatus(): HealthSyncStatusDto {
-    const syncEnabled = process.env.WORKER_SYNC_ENABLED === "true" || process.env.WORKER_SYNC_ENABLED === "1";
+    const syncEnabled = this.syncEnabled;
     
     // Get total orders count from the actual orders table
     let totalOrders = 0;

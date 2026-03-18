@@ -47,6 +47,7 @@ import type { ManifestRepository } from "../../modules/manifests/application/man
 import type { ManifestShipmentRecord } from "../../modules/manifests/domain/manifest.ts";
 import type { OrderListResult, OrderRepository } from "../../modules/orders/application/order-repository.ts";
 import type { OrderRecord } from "../../modules/orders/domain/order.ts";
+import type { SyncLogRepository, SyncLogEntry, Discrepancy } from "../../modules/orders/application/sync-log-repository.ts";
 import type { PackageRepository } from "../../modules/packages/application/package-repository.ts";
 import type { PackageRecord } from "../../modules/packages/domain/package.ts";
 import type { ProductRepository } from "../../modules/products/application/product-repository.ts";
@@ -1538,6 +1539,104 @@ class MemoryQueueRepository implements QueueRepository {
   }
 }
 
+class MemorySyncLogRepository implements SyncLogRepository {
+  private entries: SyncLogEntry[] = [];
+  private nextId = 1;
+
+  async recordSync(entry: Omit<SyncLogEntry, "id" | "timestamp" | "created_at" | "updated_at">): Promise<number> {
+    const now = Date.now();
+    const record: SyncLogEntry = {
+      id: this.nextId++,
+      timestamp: now,
+      created_at: now,
+      updated_at: now,
+      ...entry,
+      resolved: entry.resolved ?? false,
+    };
+    this.entries.push(record);
+    return record.id;
+  }
+
+  async recordDiscrepancy(
+    orderId: number,
+    discrepancy_type: "status_mismatch" | "missing_in_v3" | "timestamp_drift",
+    v2_status?: string,
+    v3_status?: string,
+  ): Promise<void> {
+    await this.recordSync({
+      orderId,
+      operation: "update",
+      v2_status,
+      v3_status,
+      discrepancy_type,
+      resolved: false,
+    });
+  }
+
+  async getUnresolvedDiscrepancies(limit: number = 100): Promise<Discrepancy[]> {
+    return this.entries
+      .filter((e) => !e.resolved && e.discrepancy_type)
+      .slice(0, limit)
+      .map((e) => ({
+        orderId: e.orderId,
+        discrepancy_type: e.discrepancy_type!,
+        v2_status: e.v2_status,
+        v3_status: e.v3_status,
+        last_sync_time: e.updated_at,
+      }));
+  }
+
+  async countUnresolvedDiscrepancies(): Promise<number> {
+    return this.entries.filter((e) => !e.resolved && e.discrepancy_type).length;
+  }
+
+  async markResolved(id: number, note?: string): Promise<void> {
+    const entry = this.entries.find((e) => e.id === id);
+    if (entry) {
+      entry.resolved = true;
+      entry.resolution_note = note;
+      entry.resolved_at = Date.now();
+      entry.updated_at = Date.now();
+    }
+  }
+
+  async getOrderSyncHistory(orderId: number, limit: number = 50): Promise<SyncLogEntry[]> {
+    return this.entries
+      .filter((e) => e.orderId === orderId)
+      .slice(0, limit);
+  }
+
+  async getAutoResolvableDiscrepancies(): Promise<Discrepancy[]> {
+    const now = Date.now();
+    const thirtySecondsAgo = now - 30 * 1000;
+
+    return this.entries
+      .filter(
+        (e) =>
+          !e.resolved &&
+          e.discrepancy_type === "timestamp_drift" &&
+          e.updated_at > thirtySecondsAgo,
+      )
+      .map((e) => ({
+        orderId: e.orderId,
+        discrepancy_type: e.discrepancy_type!,
+        v2_status: e.v2_status,
+        v3_status: e.v3_status,
+        last_sync_time: e.updated_at,
+      }));
+  }
+
+  async markAutoResolved(id: number, note: string): Promise<void> {
+    const entry = this.entries.find((e) => e.id === id);
+    if (entry) {
+      entry.resolved = true;
+      entry.resolution_note = note;
+      entry.resolved_at = Date.now();
+      entry.updated_at = Date.now();
+    }
+  }
+}
+
 export function createMemoryDataStore(seed: MemoryDataStoreSeed = {}): ApiDataStore {
   const clients = clone(seed.clients ?? []);
   const locations = clone(seed.locations ?? []);
@@ -1563,6 +1662,7 @@ export function createMemoryDataStore(seed: MemoryDataStoreSeed = {}): ApiDataSt
     locationRepository: new MemoryLocationRepository(locations),
     manifestRepository: new MemoryManifestRepository(manifests),
     orderRepository: new MemoryOrderRepository(orders),
+    syncLogRepository: new MemorySyncLogRepository(),
     packageRepository: new MemoryPackageRepository(packages, packageLedger, seed.packages?.nextId ?? (packages.reduce((max, record) => Math.max(max, record.packageId), 0) + 1)),
     productRepository: new MemoryProductRepository(products, packages),
     rateRepository: new MemoryRateRepository(seed.rates),

@@ -8,6 +8,7 @@ import { SqliteLabelRepository } from "../../modules/labels/data/sqlite-label-re
 import { SqliteLocationRepository } from "../../modules/locations/data/sqlite-location-repository.ts";
 import { SqliteManifestRepository } from "../../modules/manifests/data/sqlite-manifest-repository.ts";
 import { SqliteOrderRepository } from "../../modules/orders/data/sqlite-order-repository.ts";
+import { SqliteSyncLogRepository } from "../../modules/orders/data/sqlite-sync-log-repository.ts";
 import { SqlitePackageRepository } from "../../modules/packages/data/sqlite-package-repository.ts";
 import { SqliteProductRepository } from "../../modules/products/data/sqlite-product-repository.ts";
 import { SqliteRateRepository } from "../../modules/rates/data/sqlite-rate-repository.ts";
@@ -36,6 +37,7 @@ export function createSqliteDataStore(sqliteDbPath: string, excludedStoreIds: nu
     locationRepository: new SqliteLocationRepository(db),
     manifestRepository: new SqliteManifestRepository(db),
     orderRepository: new SqliteOrderRepository(db, excludedStoreIds),
+    syncLogRepository: new SqliteSyncLogRepository(db),
     packageRepository: new SqlitePackageRepository(db),
     productRepository: new SqliteProductRepository(db),
     rateRepository: new SqliteRateRepository(db, mainApiKeyV2),

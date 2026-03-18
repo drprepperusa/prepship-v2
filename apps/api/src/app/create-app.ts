@@ -1,5 +1,7 @@
 import { jsonResponse } from "../common/http/json.ts";
 import { InputValidationError, parseOptionalIntegerParam } from "../../../../packages/contracts/src/common/input-validation.ts";
+import { createDualWriteNotifier, type DualWriteOperation } from "../middleware/dual-write.ts";
+import type { SyncLogRepository } from "../modules/orders/application/sync-log-repository.ts";
 import type { AnalysisHttpHandler } from "../modules/analysis/api/analysis-handler.ts";
 import type { BillingHttpHandler } from "../modules/billing/api/billing-handler.ts";
 import type { ClientsHttpHandler } from "../modules/clients/api/clients-handler.ts";
@@ -34,6 +36,7 @@ export interface AppDependencies {
   ratesHandler: RatesHttpHandler;
   settingsHandler: SettingsHttpHandler;
   shipmentsHandler: ShipmentsHttpHandler;
+  syncLogRepository: SyncLogRepository;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -55,6 +58,13 @@ export function createApp(dependencies: AppDependencies) {
     if (value === "0" || value === "false") return false;
     throw new InputValidationError(`${name} must be true/false or 1/0`);
   };
+
+  // Initialize dual-write notifier for order mutations
+  const dualWriteNotifier = createDualWriteNotifier({
+    syncLogRepository: dependencies.syncLogRepository,
+    // V2 and V3 queue handlers are optional - they'll be implemented when V3 is ready
+    // For now, operations are tracked in sync_log for later reconciliation
+  });
 
   const renderBillingInvoiceHtml = (invoice: NonNullable<ReturnType<BillingHttpHandler["handleInvoice"]>>) => {
     const fmt = (value: number) => `$${(Number(value) || 0).toFixed(2)}`;
@@ -936,8 +946,19 @@ export function createApp(dependencies: AppDependencies) {
     const externalMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/shipped-external$/);
     if (request.method === "POST" && externalMatch) {
       try {
+        const orderId = Number.parseInt(externalMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSetExternalShipped(Number.parseInt(externalMatch[1] ?? "0", 10), body));
+        const result = dependencies.ordersHandler.handleSetExternalShipped(orderId, body);
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
@@ -947,8 +968,19 @@ export function createApp(dependencies: AppDependencies) {
     const residentialMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/residential$/);
     if (request.method === "POST" && residentialMatch) {
       try {
+        const orderId = Number.parseInt(residentialMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSetResidential(Number.parseInt(residentialMatch[1] ?? "0", 10), body));
+        const result = dependencies.ordersHandler.handleSetResidential(orderId, body);
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
@@ -958,8 +990,19 @@ export function createApp(dependencies: AppDependencies) {
     const selectedPidMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/selected-pid$/);
     if (request.method === "POST" && selectedPidMatch) {
       try {
+        const orderId = Number.parseInt(selectedPidMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSetSelectedPid(Number.parseInt(selectedPidMatch[1] ?? "0", 10), body));
+        const result = dependencies.ordersHandler.handleSetSelectedPid(orderId, body);
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
@@ -969,10 +1012,21 @@ export function createApp(dependencies: AppDependencies) {
     const selectedPackageIdMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/selected-package-id$/);
     if (request.method === "POST" && selectedPackageIdMatch) {
       try {
+        const orderId = Number.parseInt(selectedPackageIdMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSetSelectedPid(Number.parseInt(selectedPackageIdMatch[1] ?? "0", 10), {
+        const result = dependencies.ordersHandler.handleSetSelectedPid(orderId, {
           selectedPid: body.selectedPid ?? body.packageId ?? null,
-        }));
+        });
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
@@ -982,8 +1036,19 @@ export function createApp(dependencies: AppDependencies) {
     const bestRateMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/best-rate$/);
     if (request.method === "POST" && bestRateMatch) {
       try {
+        const orderId = Number.parseInt(bestRateMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSetBestRate(Number.parseInt(bestRateMatch[1] ?? "0", 10), body));
+        const result = dependencies.ordersHandler.handleSetBestRate(orderId, body);
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = isInputError(error, ["best + orderId required"]) ? 400 : 500;
@@ -994,8 +1059,19 @@ export function createApp(dependencies: AppDependencies) {
     const saveDimsMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/save-dims$/);
     if (request.method === "POST" && saveDimsMatch) {
       try {
+        const orderId = Number.parseInt(saveDimsMatch[1] ?? "0", 10);
         const body = await readJson();
-        return jsonResponse(200, dependencies.ordersHandler.handleSaveDims(Number.parseInt(saveDimsMatch[1] ?? "0", 10), body));
+        const result = dependencies.ordersHandler.handleSaveDims(orderId, body);
+        
+        // Track mutation with dual-write notifier (best-effort, no V3 handler yet)
+        const order = dependencies.ordersHandler.handleGetById(orderId);
+        if (order) {
+          void dualWriteNotifier("update", order).catch((err) => {
+            console.error("[Dual-Write] Failed to track order mutation:", err);
+          });
+        }
+        
+        return jsonResponse(200, result);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         return jsonResponse(isInputError(error) ? 400 : 500, { error: message });

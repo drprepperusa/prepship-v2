@@ -4,6 +4,7 @@ import { loadAppConfig } from "../config/app-config.ts";
 import { CARRIER_ACCOUNTS_V2, EXCLUDED_STORE_IDS } from "../common/prepship-config.ts";
 import type { ApiDataStore } from "./datastore.ts";
 import { buildDataStore } from "./providers/build-datastore.ts";
+import { createDualWriteNotifier } from "../middleware/dual-write.ts";
 import { AnalysisHttpHandler } from "../modules/analysis/api/analysis-handler.ts";
 import { AnalysisServices } from "../modules/analysis/application/analysis-services.ts";
 import { BillingHttpHandler } from "../modules/billing/api/billing-handler.ts";
@@ -112,7 +113,9 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const queueHandler = new QueueHttpHandler(queueServices);
   // Extract db from any repository that wraps it
   const dbInstance = (dataStore.orderRepository as any).db || (dataStore.shipmentRepository as any).db;
-  const healthSyncService = new HealthSyncService(dataStore, config.secrets, dbInstance);
+  const workerSyncEnabled = env.WORKER_SYNC_ENABLED === "true" || env.WORKER_SYNC_ENABLED === "1";
+  console.log("[bootstrap] WORKER_SYNC_ENABLED env:", env.WORKER_SYNC_ENABLED, "-> parsed as:", workerSyncEnabled);
+  const healthSyncService = new HealthSyncService(dataStore, config.secrets, dbInstance, workerSyncEnabled);
   const healthHandler = new HealthHttpHandler(healthSyncService);
 
   const ordersHandler = new OrdersHttpHandler(
@@ -126,7 +129,25 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
     orderExportService,
   );
 
-  const rawApp = createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler, healthHandler });
+  const rawApp = createApp({ 
+    analysisHandler, 
+    billingHandler, 
+    ordersHandler, 
+    clientsHandler, 
+    initHandler, 
+    inventoryHandler, 
+    labelsHandler, 
+    locationsHandler, 
+    manifestsHandler, 
+    packagesHandler, 
+    productsHandler, 
+    ratesHandler, 
+    settingsHandler, 
+    shipmentsHandler, 
+    queueHandler, 
+    healthHandler,
+    syncLogRepository: dataStore.syncLogRepository,
+  });
 
   return {
     config,
