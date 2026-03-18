@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -92,7 +93,7 @@ test("manifests export returns CSV data for shipment date ranges", async () => {
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/manifests/generate", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/manifests/generate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ startDate: "2026-03-01", endDate: "2026-03-31" }),

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -153,25 +154,25 @@ test("product endpoints support bulk lookup, by-sku defaults, and saving default
     initMetadataProvider: new NoopInitMetadataProvider(),
   });
 
-  const bulkResponse = await app(new Request("http://127.0.0.1:4010/api/products/bulk?skus=SKU-1,SKU-FALLBACK"));
+  const bulkResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/bulk?skus=SKU-1,SKU-FALLBACK"));
   assert.equal(bulkResponse.status, 200);
   const bulkPayload = await bulkResponse.json() as Record<string, { weightOz: number }>;
   assert.equal(bulkPayload["SKU-1"]?.weightOz, 8);
   assert.equal(bulkPayload["SKU-FALLBACK"]?.weightOz, 2);
 
-  const mergedResponse = await app(new Request("http://127.0.0.1:4010/api/products/by-sku/SKU-MERGE"));
+  const mergedResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/by-sku/SKU-MERGE"));
   assert.equal(mergedResponse.status, 200);
   const mergedPayload = await mergedResponse.json() as { weightOz: number; defaultPackageCode: string | null };
   assert.equal(mergedPayload.weightOz, 5);
   assert.equal(mergedPayload.defaultPackageCode, "PKG-2");
 
-  const localOnlyResponse = await app(new Request("http://127.0.0.1:4010/api/products/by-sku/SKU-LOCAL"));
+  const localOnlyResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/by-sku/SKU-LOCAL"));
   assert.equal(localOnlyResponse.status, 200);
   const localOnlyPayload = await localOnlyResponse.json() as { _localOnly?: boolean; length: number };
   assert.equal(localOnlyPayload._localOnly, true);
   assert.equal(localOnlyPayload.length, 6);
 
-  const saveDefaultsResponse = await app(new Request("http://127.0.0.1:4010/api/products/save-defaults", {
+  const saveDefaultsResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/save-defaults", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -187,13 +188,13 @@ test("product endpoints support bulk lookup, by-sku defaults, and saving default
   assert.equal(saveDefaultsPayload.newPackageCreated, true);
   assert.equal(saveDefaultsPayload.resolvedPackageId != null, true);
 
-  const postSaveResponse = await app(new Request("http://127.0.0.1:4010/api/products/by-sku/SKU-1"));
+  const postSaveResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/by-sku/SKU-1"));
   assert.equal(postSaveResponse.status, 200);
   const postSavePayload = await postSaveResponse.json() as { weightOz: number; length: number };
   assert.equal(postSavePayload.weightOz, 9);
   assert.equal(postSavePayload.length, 14);
 
-  const skuDefaultsResponse = await app(new Request("http://127.0.0.1:4010/api/products/SKU-LOCAL/defaults", {
+  const skuDefaultsResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/SKU-LOCAL/defaults", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -208,7 +209,7 @@ test("product endpoints support bulk lookup, by-sku defaults, and saving default
   const skuDefaultsPayload = await skuDefaultsResponse.json() as { localOnly?: boolean };
   assert.equal(skuDefaultsPayload.localOnly, true);
 
-  const updatedLocalResponse = await app(new Request("http://127.0.0.1:4010/api/products/by-sku/SKU-LOCAL"));
+  const updatedLocalResponse = await app(authedRequest("http://127.0.0.1:4010/api/products/by-sku/SKU-LOCAL"));
   assert.equal(updatedLocalResponse.status, 200);
   const updatedLocalPayload = await updatedLocalResponse.json() as { weightOz: number; defaultPackageCode: string | null };
   assert.equal(updatedLocalPayload.weightOz, 4);

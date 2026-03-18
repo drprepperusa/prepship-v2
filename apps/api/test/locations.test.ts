@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -114,13 +115,13 @@ test("locations endpoints support CRUD and default switching", async () => {
     API_PORT: "4010",
   });
 
-  const listResponse = await app(new Request("http://127.0.0.1:4010/api/locations"));
+  const listResponse = await app(authedRequest("http://127.0.0.1:4010/api/locations"));
   assert.equal(listResponse.status, 200);
   const listPayload = await listResponse.json() as Array<{ name: string; isDefault: boolean }>;
   assert.equal(listPayload[0]?.name, "Warehouse A");
   assert.equal(listPayload[0]?.isDefault, true);
 
-  const createResponse = await app(new Request("http://127.0.0.1:4010/api/locations", {
+  const createResponse = await app(authedRequest("http://127.0.0.1:4010/api/locations", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "Warehouse B", city: "Torrance", state: "CA", postalCode: "90501", isDefault: true }),
@@ -128,31 +129,31 @@ test("locations endpoints support CRUD and default switching", async () => {
   assert.equal(createResponse.status, 200);
   const created = await createResponse.json() as { locationId: number };
 
-  const afterCreateResponse = await app(new Request("http://127.0.0.1:4010/api/locations"));
+  const afterCreateResponse = await app(authedRequest("http://127.0.0.1:4010/api/locations"));
   const afterCreatePayload = await afterCreateResponse.json() as Array<{ name: string; isDefault: boolean }>;
   assert.equal(afterCreatePayload[0]?.name, "Warehouse B");
   assert.equal(afterCreatePayload[0]?.isDefault, true);
 
-  const updateResponse = await app(new Request(`http://127.0.0.1:4010/api/locations/${created.locationId}`, {
+  const updateResponse = await app(authedRequest(`http://127.0.0.1:4010/api/locations/${created.locationId}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "Warehouse B2", city: "Torrance", state: "CA", postalCode: "90501", isDefault: false }),
   }));
   assert.equal(updateResponse.status, 200);
 
-  const setDefaultResponse = await app(new Request("http://127.0.0.1:4010/api/locations/1/setDefault", {
+  const setDefaultResponse = await app(authedRequest("http://127.0.0.1:4010/api/locations/1/setDefault", {
     method: "POST",
   }));
   assert.equal(setDefaultResponse.status, 200);
   const setDefaultPayload = await setDefaultResponse.json() as { shipFrom: { name: string } | null };
   assert.equal(setDefaultPayload.shipFrom?.name, "Warehouse A");
 
-  const deleteResponse = await app(new Request(`http://127.0.0.1:4010/api/locations/${created.locationId}`, {
+  const deleteResponse = await app(authedRequest(`http://127.0.0.1:4010/api/locations/${created.locationId}`, {
     method: "DELETE",
   }));
   assert.equal(deleteResponse.status, 200);
 
-  const finalResponse = await app(new Request("http://127.0.0.1:4010/api/locations"));
+  const finalResponse = await app(authedRequest("http://127.0.0.1:4010/api/locations"));
   const finalPayload = await finalResponse.json() as Array<{ name: string }>;
   assert.equal(finalPayload.some((location) => location.name === "Warehouse B2"), false);
 });

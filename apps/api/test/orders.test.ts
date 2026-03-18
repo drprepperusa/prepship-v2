@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -221,7 +222,7 @@ test("GET /api/orders returns paginated orders", async () => {
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders?page=1&pageSize=10"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     orders: Array<{
@@ -258,7 +259,7 @@ test("GET /api/orders?orderStatus=shipped preserves shipped semantics", async ()
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders?orderStatus=shipped"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders?orderStatus=shipped"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     orders: Array<{ orderId: number; label: { trackingNumber: string | null } }>;
@@ -284,7 +285,7 @@ test("GET /api/orders/:id returns enriched order details and shipped override", 
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/102"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/102"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     orderId: number;
@@ -323,7 +324,7 @@ test("GET /api/orders/ids matches V1 SKU and qty semantics", async () => {
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/ids?sku=SKU-1&qty=2"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/ids?sku=SKU-1&qty=2"));
   assert.equal(response.status, 200);
   const payload = await response.json() as { ids: number[] };
 
@@ -340,7 +341,7 @@ test("GET /api/orders/:id treats externally fulfilled orders as shipped", async 
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/103"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/103"));
   assert.equal(response.status, 200);
   const payload = await response.json() as { orderId: number; orderStatus: string };
 
@@ -358,7 +359,7 @@ test("GET /api/orders/:id/full returns raw order, shipments, and local state", a
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/102/full"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/full"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     raw: { orderStatus: string };
@@ -382,7 +383,7 @@ test("GET /api/orders/picklist aggregates SKU totals with client mapping", async
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/picklist?orderStatus=awaiting_shipment"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/picklist?orderStatus=awaiting_shipment"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     skus: Array<{
@@ -419,28 +420,28 @@ test("POST order override endpoints update order_local and shipment source", asy
     API_PORT: "4010",
   });
 
-  const externalResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/shipped-external", {
+  const externalResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/shipped-external", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ flag: 1 }),
   }));
   assert.equal(externalResponse.status, 200);
 
-  const residentialResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/residential", {
+  const residentialResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/residential", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ residential: false }),
   }));
   assert.equal(residentialResponse.status, 200);
 
-  const pidResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/selected-pid", {
+  const pidResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/selected-pid", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ selectedPid: 596001 }),
   }));
   assert.equal(pidResponse.status, 200);
 
-  const bestRateResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/best-rate", {
+  const bestRateResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/best-rate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -465,7 +466,7 @@ test("POST order override endpoints update order_local and shipment source", asy
   }));
   assert.equal(bestRateResponse.status, 200);
 
-  const verifyResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/full"));
+  const verifyResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/full"));
   const payload = await verifyResponse.json() as {
     local: {
       external_shipped: number;
@@ -495,7 +496,7 @@ test("POST /api/orders/:id/best-rate rejects malformed rate snapshots", async ()
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/102/best-rate", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/best-rate", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -521,7 +522,7 @@ test("GET /api/orders/daily-stats returns the operator summary window", async ()
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/daily-stats"));
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/daily-stats"));
   assert.equal(response.status, 200);
   const payload = await response.json() as {
     window: { from: string; to: string; fromLabel: string; toLabel: string };
@@ -549,14 +550,14 @@ test("POST /api/orders/:id/selected-package-id aliases the selected provider ove
     API_PORT: "4010",
   });
 
-  const response = await app(new Request("http://127.0.0.1:4010/api/orders/101/selected-package-id", {
+  const response = await app(authedRequest("http://127.0.0.1:4010/api/orders/101/selected-package-id", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ packageId: 777001 }),
   }));
   assert.equal(response.status, 200);
 
-  const verifyResponse = await app(new Request("http://127.0.0.1:4010/api/orders/101/full"));
+  const verifyResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/101/full"));
   assert.equal(verifyResponse.status, 200);
   const payload = await verifyResponse.json() as { local: { selected_pid: number } | null };
   assert.equal(payload.local?.selected_pid, 777001);
@@ -572,11 +573,11 @@ test("orders endpoints reject malformed query params and override payload drift"
     API_PORT: "4010",
   });
 
-  const badListResponse = await app(new Request("http://127.0.0.1:4010/api/orders?page=1abc"));
+  const badListResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders?page=1abc"));
   assert.equal(badListResponse.status, 400);
   assert.deepEqual(await badListResponse.json(), { error: "page must be an integer" });
 
-  const badExternalResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/shipped-external", {
+  const badExternalResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/shipped-external", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ flag: "false" }),
@@ -584,7 +585,7 @@ test("orders endpoints reject malformed query params and override payload drift"
   assert.equal(badExternalResponse.status, 400);
   assert.deepEqual(await badExternalResponse.json(), { error: "flag must be boolean or 0/1" });
 
-  const badPidResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/selected-pid", {
+  const badPidResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/selected-pid", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ selectedPid: "596001" }),
@@ -592,7 +593,7 @@ test("orders endpoints reject malformed query params and override payload drift"
   assert.equal(badPidResponse.status, 400);
   assert.deepEqual(await badPidResponse.json(), { error: "selectedPid must be an integer or null" });
 
-  const malformedJsonResponse = await app(new Request("http://127.0.0.1:4010/api/orders/102/residential", {
+  const malformedJsonResponse = await app(authedRequest("http://127.0.0.1:4010/api/orders/102/residential", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{\"residential\":",

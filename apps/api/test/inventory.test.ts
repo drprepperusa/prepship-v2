@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -196,14 +197,14 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
     initMetadataProvider: new NoopInitMetadataProvider(),
   });
 
-  const listResponse = await app(new Request("http://127.0.0.1:4010/api/inventory?clientId=1"));
+  const listResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory?clientId=1"));
   assert.equal(listResponse.status, 200);
   const listPayload = await listResponse.json() as Array<{ sku: string; baseUnits: number; status: string; imageUrl: string | null }>;
   assert.deepEqual(listPayload.map((item) => item.sku), ["SKU-1", "SKU-CHILD"]);
   assert.equal(listPayload.find((item) => item.sku === "SKU-1")?.baseUnits, 8);
   assert.equal(listPayload.find((item) => item.sku === "SKU-1")?.imageUrl, "https://img.example/widget.png");
 
-  const receiveResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/receive", {
+  const receiveResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/receive", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -217,7 +218,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   assert.equal(receivePayload.received[0]?.sku, "SKU-AUTO");
   assert.equal(receivePayload.received[0]?.baseUnits, 3);
 
-  const adjustResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/adjust", {
+  const adjustResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/adjust", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ invSkuId: 1, qty: -2, note: "damage", type: "damage" }),
@@ -226,7 +227,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   const adjustPayload = await adjustResponse.json() as { newStock: number };
   assert.equal(adjustPayload.newStock, 2);
 
-  const updateResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/1", {
+  const updateResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -245,24 +246,24 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   }));
   assert.equal(updateResponse.status, 200);
 
-  const badUpdateResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/1", {
+  const badUpdateResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ length: 11, width: 9, height: 0 }),
   }));
   assert.equal(badUpdateResponse.status, 400);
 
-  const ledgerResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/ledger?clientId=1&limit=10"));
+  const ledgerResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/ledger?clientId=1&limit=10"));
   assert.equal(ledgerResponse.status, 200);
   const ledgerPayload = await ledgerResponse.json() as Array<{ invSkuId: number }>;
   assert.ok(ledgerPayload.length >= 3);
 
-  const perSkuLedgerResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/1/ledger"));
+  const perSkuLedgerResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1/ledger"));
   assert.equal(perSkuLedgerResponse.status, 200);
   const perSkuLedgerPayload = await perSkuLedgerResponse.json() as Array<{ invSkuId: number }>;
   assert.equal(perSkuLedgerPayload.every((entry) => entry.invSkuId === 1), true);
 
-  const alertsResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/alerts?clientId=1"));
+  const alertsResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/alerts?clientId=1"));
   assert.equal(alertsResponse.status, 200);
   const alertsPayload = await alertsResponse.json() as Array<{ type: string; id: number; status: string }>;
   assert.deepEqual(alertsPayload.map((alert) => ({ type: alert.type, id: alert.id, status: alert.status })), [
@@ -271,7 +272,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
     { type: "parent", id: 1, status: "low" },
   ]);
 
-  const populateResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/populate", {
+  const populateResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/populate", {
     method: "POST",
   }));
   assert.equal(populateResponse.status, 200);
@@ -279,7 +280,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   assert.equal(populatePayload.ok, true);
   assert.equal(populatePayload.skusRegistered, 1);
 
-  const importDimsResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/import-dims?clientId=1&overwrite=1", {
+  const importDimsResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/import-dims?clientId=1&overwrite=1", {
     method: "POST",
   }));
   assert.equal(importDimsResponse.status, 200);
@@ -287,7 +288,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   assert.equal(importDimsPayload.total >= 3, true);
   assert.equal(importDimsPayload.updated >= 1, true);
 
-  const bulkDimsResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/bulk-update-dims", {
+  const bulkDimsResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/bulk-update-dims", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -298,7 +299,7 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   const bulkDimsPayload = await bulkDimsResponse.json() as { updated: number };
   assert.equal(bulkDimsPayload.updated, 1);
 
-  const createParentResponse = await app(new Request("http://127.0.0.1:4010/api/parent-skus", {
+  const createParentResponse = await app(authedRequest("http://127.0.0.1:4010/api/parent-skus", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ clientId: 1, name: "Master Pack", sku: "MASTER-1", baseUnitQty: 4 }),
@@ -307,25 +308,25 @@ test("inventory endpoints support list, stock mutations, ledger views, and alert
   const createParentPayload = await createParentResponse.json() as { parentSkuId: number };
   assert.equal(createParentPayload.parentSkuId > 1, true);
 
-  const parentListResponse = await app(new Request("http://127.0.0.1:4010/api/parent-skus?clientId=1"));
+  const parentListResponse = await app(authedRequest("http://127.0.0.1:4010/api/parent-skus?clientId=1"));
   assert.equal(parentListResponse.status, 200);
   const parentListPayload = await parentListResponse.json() as Array<{ parentSkuId: number }>;
   assert.equal(parentListPayload.length >= 2, true);
 
-  const setParentResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/1/set-parent", {
+  const setParentResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1/set-parent", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ parentSkuId: createParentPayload.parentSkuId, baseUnitQty: 4 }),
   }));
   assert.equal(setParentResponse.status, 200);
 
-  const parentDetailResponse = await app(new Request(`http://127.0.0.1:4010/api/parent-skus?id=${createParentPayload.parentSkuId}`));
+  const parentDetailResponse = await app(authedRequest(`http://127.0.0.1:4010/api/parent-skus?id=${createParentPayload.parentSkuId}`));
   assert.equal(parentDetailResponse.status, 200);
   const parentDetailPayload = await parentDetailResponse.json() as { children: Array<{ id: number; baseUnitQty: number }> };
   assert.deepEqual(parentDetailPayload.children.map((child) => child.id), [1]);
   assert.equal(parentDetailPayload.children[0]?.baseUnitQty, 4);
 
-  const skuOrdersResponse = await app(new Request("http://127.0.0.1:4010/api/inventory/1/sku-orders?days=7"));
+  const skuOrdersResponse = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1/sku-orders?days=7"));
   assert.equal(skuOrdersResponse.status, 200);
   const skuOrdersPayload = await skuOrdersResponse.json() as { sku: string; orders: Array<{ orderId: number }> };
   assert.equal(skuOrdersPayload.sku, "SKU-1");
@@ -342,17 +343,17 @@ test("inventory endpoints reject invalid query params and malformed JSON", async
     API_PORT: "4010",
   });
 
-  const invalidImportDims = await app(new Request("http://127.0.0.1:4010/api/inventory/import-dims?clientId=1abc&overwrite=1", {
+  const invalidImportDims = await app(authedRequest("http://127.0.0.1:4010/api/inventory/import-dims?clientId=1abc&overwrite=1", {
     method: "POST",
   }));
   assert.equal(invalidImportDims.status, 400);
   assert.deepEqual(await invalidImportDims.json(), { error: "clientId must be an integer" });
 
-  const invalidSkuOrders = await app(new Request("http://127.0.0.1:4010/api/inventory/1/sku-orders?days=7days"));
+  const invalidSkuOrders = await app(authedRequest("http://127.0.0.1:4010/api/inventory/1/sku-orders?days=7days"));
   assert.equal(invalidSkuOrders.status, 400);
   assert.deepEqual(await invalidSkuOrders.json(), { error: "days must be an integer" });
 
-  const malformedAdjust = await app(new Request("http://127.0.0.1:4010/api/inventory/adjust", {
+  const malformedAdjust = await app(authedRequest("http://127.0.0.1:4010/api/inventory/adjust", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{\"invSkuId\":",

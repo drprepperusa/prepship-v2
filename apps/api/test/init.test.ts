@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../src/common/prepship-config.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -174,7 +175,7 @@ test("init endpoints merge remote and local stores, expose counts, and refresh c
     initMetadataProvider: metadataProvider,
   });
 
-  const initResponse = await app(new Request("http://127.0.0.1:4010/api/init-data"));
+  const initResponse = await app(authedRequest("http://127.0.0.1:4010/api/init-data"));
   assert.equal(initResponse.status, 200);
   const initPayload = await initResponse.json() as {
     stores: Array<{ storeId: number; storeName: string; isLocal?: boolean }>;
@@ -200,25 +201,25 @@ test("init endpoints merge remote and local stores, expose counts, and refresh c
     { orderStatus: "shipped", storeId: 4002, cnt: 1 },
   ]);
 
-  const storesResponse = await app(new Request("http://127.0.0.1:4010/api/stores"));
+  const storesResponse = await app(authedRequest("http://127.0.0.1:4010/api/stores"));
   assert.equal(storesResponse.status, 200);
   const storesPayload = await storesResponse.json() as Array<{ storeId: number }>;
   assert.equal(storesPayload.some((store) => store.storeId === 376720), false);
 
-  const carriersResponse = await app(new Request("http://127.0.0.1:4010/api/carriers"));
+  const carriersResponse = await app(authedRequest("http://127.0.0.1:4010/api/carriers"));
   assert.equal(carriersResponse.status, 200);
   const carriersPayload = await carriersResponse.json() as Array<{ carrierCode: string }>;
   assert.deepEqual(carriersPayload.map((carrier) => carrier.carrierCode), ["ups", "fedex"]);
 
-  const carrierAccountsResponse = await app(new Request("http://127.0.0.1:4010/api/carrier-accounts"));
+  const carrierAccountsResponse = await app(authedRequest("http://127.0.0.1:4010/api/carrier-accounts"));
   assert.equal(carrierAccountsResponse.status, 200);
   const carrierAccountsPayload = await carrierAccountsResponse.json() as Array<{ shippingProviderId: number }>;
   assert.equal(carrierAccountsPayload[0]?.shippingProviderId, 433542);
 
-  const countsResponse = await app(new Request("http://127.0.0.1:4010/api/counts"));
+  const countsResponse = await app(authedRequest("http://127.0.0.1:4010/api/counts"));
   assert.equal(countsResponse.status, 200);
 
-  const refreshResponse = await app(new Request("http://127.0.0.1:4010/api/cache/refresh-carriers", { method: "POST" }));
+  const refreshResponse = await app(authedRequest("http://127.0.0.1:4010/api/cache/refresh-carriers", { method: "POST" }));
   assert.equal(refreshResponse.status, 200);
   const refreshPayload = await refreshResponse.json() as { success: boolean; carrierCount: number };
   assert.equal(refreshPayload.success, true);

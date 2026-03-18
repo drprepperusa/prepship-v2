@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -212,7 +213,7 @@ function createTestApp(tempDir: string) {
 
 test("GET /api/queue returns empty queue for new client", async () => {
   const { app } = createTestApp(createTempDir());
-  const res = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const res = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const body = await res.json() as { ok: boolean; queuedOrders: unknown[]; totalOrders: number; totalQty: number };
   assert.equal(res.status, 200);
   assert.equal(body.ok, true);
@@ -223,7 +224,7 @@ test("GET /api/queue returns empty queue for new client", async () => {
 
 test("GET /api/queue requires client_id", async () => {
   const { app } = createTestApp(createTempDir());
-  const res = await app(new Request("http://localhost/api/queue"));
+  const res = await app(authedRequest("http://localhost/api/queue"));
   assert.equal(res.status, 400);
   const body = await res.json() as { error: string };
   assert.match(body.error, /client_id/);
@@ -233,7 +234,7 @@ test("GET /api/queue requires client_id", async () => {
 
 test("POST /api/queue/add adds an order to the queue", async () => {
   const { app } = createTestApp(createTempDir());
-  const res = await app(new Request("http://localhost/api/queue/add", {
+  const res = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -267,7 +268,7 @@ test("POST /api/queue/add returns already_queued for duplicate", async () => {
   });
 
   // First add
-  const res1 = await app(new Request("http://localhost/api/queue/add", {
+  const res1 = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: payload,
@@ -276,7 +277,7 @@ test("POST /api/queue/add returns already_queued for duplicate", async () => {
   assert.equal(body1.already_queued, false);
 
   // Duplicate add
-  const res2 = await app(new Request("http://localhost/api/queue/add", {
+  const res2 = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: payload,
@@ -290,7 +291,7 @@ test("POST /api/queue/add validates required fields", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Missing order_id
-  const res = await app(new Request("http://localhost/api/queue/add", {
+  const res = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1, label_url: "https://example.com/l.pdf", sku_group_id: "SKU:X" }),
@@ -312,14 +313,14 @@ test("POST /api/queue/add updates label_url if already queued with new URL", asy
     order_qty: 1,
   };
 
-  await app(new Request("http://localhost/api/queue/add", {
+  await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(basePayload),
   }));
 
   // Re-add with new label URL — the UPSERT should update it
-  const res2 = await app(new Request("http://localhost/api/queue/add", {
+  const res2 = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...basePayload, label_url: "https://example.com/label-v2.pdf" }),
@@ -327,7 +328,7 @@ test("POST /api/queue/add updates label_url if already queued with new URL", asy
   assert.equal(res2.status, 200);
 
   // Verify the queue now has the updated URL
-  const qRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const qRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const qBody = await qRes.json() as { queuedOrders: Array<{ label_url: string; order_id: string }> };
   const entry = qBody.queuedOrders.find(o => o.order_id === "order-update");
   assert.ok(entry);
@@ -340,7 +341,7 @@ test("DELETE /api/queue/:entryId removes a queue entry", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Add entry
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -354,7 +355,7 @@ test("DELETE /api/queue/:entryId removes a queue entry", async () => {
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
   // Delete it
-  const delRes = await app(new Request(`http://localhost/api/queue/${queue_entry_id}`, {
+  const delRes = await app(authedRequest(`http://localhost/api/queue/${queue_entry_id}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1 }),
@@ -365,14 +366,14 @@ test("DELETE /api/queue/:entryId removes a queue entry", async () => {
   assert.equal(delBody.removed_entry, queue_entry_id);
 
   // Verify it's gone
-  const qRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const qRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const qBody = await qRes.json() as { queuedOrders: unknown[] };
   assert.equal(qBody.queuedOrders.length, 0);
 });
 
 test("DELETE /api/queue/:entryId returns 404 for non-existent entry", async () => {
   const { app } = createTestApp(createTempDir());
-  const res = await app(new Request("http://localhost/api/queue/non-existent-id", {
+  const res = await app(authedRequest("http://localhost/api/queue/non-existent-id", {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1 }),
@@ -384,7 +385,7 @@ test("DELETE /api/queue/:entryId rejects cross-client unauthorized access", asyn
   const { app } = createTestApp(createTempDir());
 
   // Add entry for client 1
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -398,7 +399,7 @@ test("DELETE /api/queue/:entryId rejects cross-client unauthorized access", asyn
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
   // Try to delete with client_id=2 (unauthorized)
-  const delRes = await app(new Request(`http://localhost/api/queue/${queue_entry_id}`, {
+  const delRes = await app(authedRequest(`http://localhost/api/queue/${queue_entry_id}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 2 }),
@@ -413,7 +414,7 @@ test("POST /api/queue/clear removes all queued orders for client", async () => {
 
   // Add 3 entries
   for (let i = 1; i <= 3; i++) {
-    await app(new Request("http://localhost/api/queue/add", {
+    await app(authedRequest("http://localhost/api/queue/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -427,12 +428,12 @@ test("POST /api/queue/clear removes all queued orders for client", async () => {
   }
 
   // Verify 3 are queued
-  const beforeRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const beforeRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const beforeBody = await beforeRes.json() as { totalOrders: number };
   assert.equal(beforeBody.totalOrders, 3);
 
   // Clear
-  const clearRes = await app(new Request("http://localhost/api/queue/clear", {
+  const clearRes = await app(authedRequest("http://localhost/api/queue/clear", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1 }),
@@ -443,7 +444,7 @@ test("POST /api/queue/clear removes all queued orders for client", async () => {
   assert.equal(clearBody.cleared_count, 3);
 
   // Verify empty
-  const afterRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const afterRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const afterBody = await afterRes.json() as { totalOrders: number };
   assert.equal(afterBody.totalOrders, 0);
 });
@@ -453,7 +454,7 @@ test("POST /api/queue/clear only clears queued (not printed) orders", async () =
 
   // Add 2 entries
   for (let i = 1; i <= 2; i++) {
-    await app(new Request("http://localhost/api/queue/add", {
+    await app(authedRequest("http://localhost/api/queue/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -467,7 +468,7 @@ test("POST /api/queue/clear only clears queued (not printed) orders", async () =
   }
 
   // Clear clears only queued entries
-  const clearRes = await app(new Request("http://localhost/api/queue/clear", {
+  const clearRes = await app(authedRequest("http://localhost/api/queue/clear", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1 }),
@@ -482,7 +483,7 @@ test("POST /api/queue/print starts a merge job and returns job_id", async () => 
   const { app } = createTestApp(createTempDir());
 
   // Add an entry first
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -496,7 +497,7 @@ test("POST /api/queue/print starts a merge job and returns job_id", async () => 
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
   // Start print job
-  const printRes = await app(new Request("http://localhost/api/queue/print", {
+  const printRes = await app(authedRequest("http://localhost/api/queue/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -515,7 +516,7 @@ test("POST /api/queue/print validates required fields", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Missing queue_entry_ids
-  const res = await app(new Request("http://localhost/api/queue/print", {
+  const res = await app(authedRequest("http://localhost/api/queue/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1 }),
@@ -527,7 +528,7 @@ test("POST /api/queue/print rejects entries for wrong client", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Add entry for client 1
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -541,7 +542,7 @@ test("POST /api/queue/print rejects entries for wrong client", async () => {
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
   // Try to print as client 2
-  const printRes = await app(new Request("http://localhost/api/queue/print", {
+  const printRes = await app(authedRequest("http://localhost/api/queue/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 2, queue_entry_ids: [queue_entry_id] }),
@@ -555,7 +556,7 @@ test("GET /api/queue/print/status/:jobId returns job status", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Add + start print job
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -568,7 +569,7 @@ test("GET /api/queue/print/status/:jobId returns job status", async () => {
   }));
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
-  const printRes = await app(new Request("http://localhost/api/queue/print", {
+  const printRes = await app(authedRequest("http://localhost/api/queue/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1, queue_entry_ids: [queue_entry_id] }),
@@ -576,7 +577,7 @@ test("GET /api/queue/print/status/:jobId returns job status", async () => {
   const { job_id } = await printRes.json() as { job_id: string };
 
   // Check status
-  const statusRes = await app(new Request(`http://localhost/api/queue/print/status/${job_id}`));
+  const statusRes = await app(authedRequest(`http://localhost/api/queue/print/status/${job_id}`));
   assert.equal(statusRes.status, 200);
   const statusBody = await statusRes.json() as { job_id: string; status: string; progress: number };
   assert.equal(statusBody.job_id, job_id);
@@ -586,7 +587,7 @@ test("GET /api/queue/print/status/:jobId returns job status", async () => {
 
 test("GET /api/queue/print/status/:jobId returns 404 for unknown job", async () => {
   const { app } = createTestApp(createTempDir());
-  const res = await app(new Request("http://localhost/api/queue/print/status/non-existent-job-id"));
+  const res = await app(authedRequest("http://localhost/api/queue/print/status/non-existent-job-id"));
   assert.equal(res.status, 404);
 });
 
@@ -596,7 +597,7 @@ test("GET /api/queue/print/download/:jobId returns 404 for pending job", async (
   const { app } = createTestApp(createTempDir());
 
   // Add + start print job (it won't finish instantly)
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -609,7 +610,7 @@ test("GET /api/queue/print/download/:jobId returns 404 for pending job", async (
   }));
   const { queue_entry_id } = await addRes.json() as { queue_entry_id: string };
 
-  const printRes = await app(new Request("http://localhost/api/queue/print", {
+  const printRes = await app(authedRequest("http://localhost/api/queue/print", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: 1, queue_entry_ids: [queue_entry_id] }),
@@ -617,7 +618,7 @@ test("GET /api/queue/print/download/:jobId returns 404 for pending job", async (
   const { job_id } = await printRes.json() as { job_id: string };
 
   // Try to download immediately — job not done yet (or 404 if it errors due to network)
-  const dlRes = await app(new Request(`http://localhost/api/queue/print/download/${job_id}`));
+  const dlRes = await app(authedRequest(`http://localhost/api/queue/print/download/${job_id}`));
   // Should be 404 (not ready) or 200 if it finished very quickly (unlikely with network fetch)
   assert.ok([200, 404].includes(dlRes.status));
 });
@@ -629,7 +630,7 @@ test("GET /api/queue?include_printed=1 returns both queued and printed orders", 
 
   // Can't easily test "printed" without running a print job to completion
   // At least verify the endpoint accepts the param without error
-  const res = await app(new Request("http://localhost/api/queue?client_id=1&include_printed=1"));
+  const res = await app(authedRequest("http://localhost/api/queue?client_id=1&include_printed=1"));
   assert.equal(res.status, 200);
   const body = await res.json() as { ok: boolean };
   assert.equal(body.ok, true);
@@ -647,9 +648,9 @@ test("Queue add is idempotent — calling add 3x for same order returns same ent
     order_qty: 1,
   };
 
-  const r1 = await app(new Request("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
-  const r2 = await app(new Request("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
-  const r3 = await app(new Request("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
+  const r1 = await app(authedRequest("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
+  const r2 = await app(authedRequest("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
+  const r3 = await app(authedRequest("http://localhost/api/queue/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
 
   const b1 = await r1.json() as { queue_entry_id: string; already_queued: boolean };
   const b2 = await r2.json() as { queue_entry_id: string; already_queued: boolean };
@@ -663,7 +664,7 @@ test("Queue add is idempotent — calling add 3x for same order returns same ent
   assert.equal(b3.already_queued, true);   // Duplicate
 
   // Only 1 order in queue
-  const qRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const qRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const qBody = await qRes.json() as { totalOrders: number };
   assert.equal(qBody.totalOrders, 1);
 });
@@ -677,7 +678,7 @@ test("Queue add and retrieve multi-SKU data", async () => {
     { sku: "SKU-B", description: "Product B", qty: 1 },
   ];
 
-  const addRes = await app(new Request("http://localhost/api/queue/add", {
+  const addRes = await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -692,7 +693,7 @@ test("Queue add and retrieve multi-SKU data", async () => {
   assert.equal(addRes.status, 200);
 
   // Get and verify multi_sku_data is preserved
-  const qRes = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const qRes = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const qBody = await qRes.json() as { queuedOrders: Array<{ multi_sku_data: typeof multiSkuData | null; order_qty: number }> };
   assert.equal(qBody.queuedOrders.length, 1);
   const entry = qBody.queuedOrders[0]!;
@@ -706,26 +707,26 @@ test("Queue entries are isolated per client", async () => {
   const { app } = createTestApp(createTempDir());
 
   // Add for client 1
-  await app(new Request("http://localhost/api/queue/add", {
+  await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ order_id: "order-c1", client_id: 1, label_url: "https://ex.com/l.pdf", sku_group_id: "SKU:C1", order_qty: 1 }),
   }));
 
   // Add for client 2 (same order_id)
-  await app(new Request("http://localhost/api/queue/add", {
+  await app(authedRequest("http://localhost/api/queue/add", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ order_id: "order-c2", client_id: 2, label_url: "https://ex.com/l.pdf", sku_group_id: "SKU:C2", order_qty: 1 }),
   }));
 
   // Client 1 only sees their order
-  const res1 = await app(new Request("http://localhost/api/queue?client_id=1"));
+  const res1 = await app(authedRequest("http://localhost/api/queue?client_id=1"));
   const body1 = await res1.json() as { totalOrders: number };
   assert.equal(body1.totalOrders, 1);
 
   // Client 2 only sees their order
-  const res2 = await app(new Request("http://localhost/api/queue?client_id=2"));
+  const res2 = await app(authedRequest("http://localhost/api/queue?client_id=2"));
   const body2 = await res2.json() as { totalOrders: number };
   assert.equal(body2.totalOrders, 1);
 });

@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type { InitMetadataProvider } from "../src/modules/init/application/init-metadata-provider.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../src/common/prepship-config.ts";
+import { authedRequest } from "./test-helpers.ts";
 
 const tempDirs: string[] = [];
 
@@ -207,14 +208,14 @@ test("clients endpoints support list/create/update/delete and sync-stores", asyn
     initMetadataProvider: new FakeInitMetadataProvider(),
   });
 
-  const listResponse = await app(new Request("http://127.0.0.1:4010/api/clients"));
+  const listResponse = await app(authedRequest("http://127.0.0.1:4010/api/clients"));
   assert.equal(listResponse.status, 200);
   const listPayload = await listResponse.json() as Array<{ name: string; hasOwnAccount: boolean; rateSourceName: string }>;
   assert.equal(listPayload[0]?.name, "Main Client");
   assert.equal(listPayload[0]?.hasOwnAccount, true);
   assert.equal(listPayload[0]?.rateSourceName, "DR PREPPER");
 
-  const createResponse = await app(new Request("http://127.0.0.1:4010/api/clients", {
+  const createResponse = await app(authedRequest("http://127.0.0.1:4010/api/clients", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "KFG", storeIds: [4002] }),
@@ -223,7 +224,7 @@ test("clients endpoints support list/create/update/delete and sync-stores", asyn
   const created = await createResponse.json() as { clientId: number };
   assert.equal(typeof created.clientId, "number");
 
-  const updateResponse = await app(new Request(`http://127.0.0.1:4010/api/clients/${created.clientId}`, {
+  const updateResponse = await app(authedRequest(`http://127.0.0.1:4010/api/clients/${created.clientId}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -237,22 +238,22 @@ test("clients endpoints support list/create/update/delete and sync-stores", asyn
   }));
   assert.equal(updateResponse.status, 200);
 
-  const verifyResponse = await app(new Request("http://127.0.0.1:4010/api/clients"));
+  const verifyResponse = await app(authedRequest("http://127.0.0.1:4010/api/clients"));
   const verifyPayload = await verifyResponse.json() as Array<{ name: string; contactName: string; rateSourceName: string }>;
   const updated = verifyPayload.find((client) => client.name === "KFG");
   assert.equal(updated?.contactName, "Greg");
   assert.equal(updated?.rateSourceName, "KFG");
 
-  const deleteResponse = await app(new Request(`http://127.0.0.1:4010/api/clients/${created.clientId}`, {
+  const deleteResponse = await app(authedRequest(`http://127.0.0.1:4010/api/clients/${created.clientId}`, {
     method: "DELETE",
   }));
   assert.equal(deleteResponse.status, 200);
 
-  const afterDeleteResponse = await app(new Request("http://127.0.0.1:4010/api/clients"));
+  const afterDeleteResponse = await app(authedRequest("http://127.0.0.1:4010/api/clients"));
   const afterDeletePayload = await afterDeleteResponse.json() as Array<{ name: string }>;
   assert.equal(afterDeletePayload.some((client) => client.name === "KFG"), false);
 
-  const syncStoresResponse = await app(new Request("http://127.0.0.1:4010/api/clients/sync-stores", {
+  const syncStoresResponse = await app(authedRequest("http://127.0.0.1:4010/api/clients/sync-stores", {
     method: "POST",
   }));
   assert.equal(syncStoresResponse.status, 200);

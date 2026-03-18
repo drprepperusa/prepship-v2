@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
 import type {
+import { authedRequest } from "./test-helpers.ts";
   CreateExternalLabelInput,
   CreatedExternalLabel,
   ExternalOrderShipmentRecord,
@@ -279,7 +280,7 @@ test("GET /api/manifests/generate returns CSV with query params", async () => {
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4020" });
 
-  const res = await app(new Request(
+  const res = await app(authedRequest(
     "http://localhost:4020/api/manifests/generate?startDate=2026-03-01&endDate=2026-03-31",
   ));
 
@@ -301,7 +302,7 @@ test("GET /api/manifests/generate returns 400 if dates missing", async () => {
   db.prepare(`INSERT INTO clients VALUES (1, 'Test', '[4001]', null, null, null, null, 1)`).run();
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4021" });
-  const res = await app(new Request("http://localhost:4021/api/manifests/generate"));
+  const res = await app(authedRequest("http://localhost:4021/api/manifests/generate"));
   assert.equal(res.status, 400);
 });
 
@@ -389,7 +390,7 @@ test("POST /api/labels/create-batch returns continue-on-error results", async ()
     SHIPSTATION_API_SECRET: "test-secret",
   }, { shippingGateway: gateway });
 
-  const res = await app(new Request("http://localhost:4030/api/labels/create-batch", {
+  const res = await app(authedRequest("http://localhost:4030/api/labels/create-batch", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -425,7 +426,7 @@ test("POST /api/labels/create-batch returns 400 for missing orderIds", async () 
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4031" });
 
-  const res = await app(new Request("http://localhost:4031/api/labels/create-batch", {
+  const res = await app(authedRequest("http://localhost:4031/api/labels/create-batch", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ serviceCode: "ups_ground", shippingProviderId: 99 }),
@@ -444,7 +445,7 @@ test("POST /api/labels/create-batch returns 400 for missing serviceCode", async 
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4032" });
 
-  const res = await app(new Request("http://localhost:4032/api/labels/create-batch", {
+  const res = await app(authedRequest("http://localhost:4032/api/labels/create-batch", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ orderIds: [1], shippingProviderId: 99 }),
@@ -463,7 +464,7 @@ test("GET /api/orders/export returns CSV with all expected columns", async () =>
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4040" });
 
-  const res = await app(new Request("http://localhost:4040/api/orders/export?orderStatus=shipped"));
+  const res = await app(authedRequest("http://localhost:4040/api/orders/export?orderStatus=shipped"));
 
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type") ?? "", /text\/csv/);
@@ -503,7 +504,7 @@ test("GET /api/orders/export respects orderStatus=awaiting_shipment", async () =
   `).run();
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4041" });
-  const res = await app(new Request("http://localhost:4041/api/orders/export?orderStatus=awaiting_shipment"));
+  const res = await app(authedRequest("http://localhost:4041/api/orders/export?orderStatus=awaiting_shipment"));
 
   assert.equal(res.status, 200);
   const csv = await res.text();
@@ -518,7 +519,7 @@ test("GET /api/orders/export returns empty CSV (just header) when no rows match"
   db.prepare(`INSERT INTO clients VALUES (1, 'Empty', '[4001]', null, null, null, null, 1)`).run();
 
   const { app } = bootstrapApi({ SQLITE_DB_PATH: dbPath, API_PORT: "4042" });
-  const res = await app(new Request("http://localhost:4042/api/orders/export?orderStatus=shipped"));
+  const res = await app(authedRequest("http://localhost:4042/api/orders/export?orderStatus=shipped"));
 
   assert.equal(res.status, 200);
   const csv = await res.text();
