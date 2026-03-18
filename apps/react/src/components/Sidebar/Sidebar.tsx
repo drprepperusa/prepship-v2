@@ -200,6 +200,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                       return { store, count }
                     })
                     .filter(({ store }) => useStoreVisibility(store.clientId))
+                    .sort(({ count: a }, { count: b }) => b - a)
                     .map(({ store, count }) => (
                       <div 
                         key={store.clientId} 

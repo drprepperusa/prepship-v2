@@ -720,8 +720,8 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
 
       <StatsBar />
 
-      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <div className="content-split" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="orders-section" style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: '75px' }}>
           <div className="orders-wrap" ref={tableRef} tabIndex={0} onFocus={() => { if (focusedRowIndex < 0 && tableOrders.length > 0) setFocusedRowIndex(0) }}>
             <OrdersTable
               status={status}
@@ -745,7 +745,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
           </div>
         </div>
 
-        <div className="pagination-bar" style={{ flexShrink: 0 }}>
+        <div className="pagination-bar" style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
               {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
             </span>
@@ -778,7 +778,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
               <option value={100}>100 rows</option>
             </select>
           </div>
-      </div>
+        </div>
 
         <OrderPanel
           orderId={panelOrderId}
@@ -788,7 +788,6 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
           onClose={handleClosePanel}
           onRefresh={refetch}
         />
-      </div>
     </div>
   )
 }
