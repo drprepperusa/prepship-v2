@@ -48,11 +48,11 @@ const NAMES = [
 ];
 
 const PRODUCTS = [
-  { sku: 'TEST-RAMEN-001', name: 'Samyang 2x Spicy Buldak Ramen 5-Pack', weightOz: 28, price: 12.99 },
-  { sku: 'TEST-RAMEN-002', name: 'Samyang Carbo Buldak Ramen 5-Pack',    weightOz: 25, price: 11.99 },
-  { sku: 'TEST-RAMEN-003', name: 'Samyang Cheese Buldak Ramen 5-Pack',   weightOz: 24, price: 11.99 },
-  { sku: 'TEST-BOOK-001',  name: 'Test Book — Heritage Kids Vol. 1',      weightOz: 12, price: 18.00 },
-  { sku: 'TEST-BOOK-002',  name: 'Test Book — Heritage Kids Vol. 2',      weightOz: 14, price: 20.00 },
+  { sku: 'TEST-RAMEN-001', name: 'Samyang 2x Spicy Buldak Ramen 5-Pack', weightOz: 28, price: 12.99, serviceCode: 'usps_priority_mail', carrierCode: 'stamps_com' },
+  { sku: 'TEST-RAMEN-002', name: 'Samyang Carbo Buldak Ramen 5-Pack',    weightOz: 25, price: 11.99, serviceCode: 'usps_priority_mail', carrierCode: 'stamps_com' },
+  { sku: 'TEST-RAMEN-003', name: 'Samyang Cheese Buldak Ramen 5-Pack',   weightOz: 24, price: 11.99, serviceCode: 'usps_priority_mail', carrierCode: 'stamps_com' },
+  { sku: 'TEST-BOOK-001',  name: 'Test Book — Heritage Kids Vol. 1',      weightOz: 12, price: 18.00, serviceCode: 'usps_first_class_mail', carrierCode: 'stamps_com' },
+  { sku: 'TEST-BOOK-002',  name: 'Test Book — Heritage Kids Vol. 2',      weightOz: 14, price: 20.00, serviceCode: 'usps_first_class_mail', carrierCode: 'stamps_com' },
 ];
 
 const DIMS = [
@@ -121,9 +121,9 @@ function makeOrder(i) {
     gift: false,
     giftMessage: null,
     paymentMethod: 'Other',
-    requestedShippingService: 'USPS First Class',
-    carrierCode: 'stamps_com',
-    serviceCode: 'usps_first_class_mail',
+    requestedShippingService: product.serviceCode === 'usps_priority_mail' ? 'USPS Priority Mail' : 'USPS First Class',
+    carrierCode: product.carrierCode || 'stamps_com',
+    serviceCode: product.serviceCode || 'usps_first_class_mail',
     packageCode: 'package',
     confirmation: 'none',
     shipDate: null,
@@ -178,13 +178,13 @@ const TEST_BATCH_ID_BASE = 9_001_001;
 
 const BATCH_GROUPS = [
   // Group A: 5 orders → Los Angeles, 28oz, 10x7x4
-  { count: 5, zip: '90001', city: 'Los Angeles', state: 'CA', weightOz: 28, dims: { l: 10, w: 7,  h: 4 }, sku: 'TEST-RAMEN-001', skuName: 'Samyang 2x Spicy Buldak Ramen 5-Pack', price: 12.99, label: 'A' },
+  { count: 5, zip: '90001', city: 'Los Angeles', state: 'CA', weightOz: 28, dims: { l: 10, w: 7,  h: 4 }, sku: 'TEST-RAMEN-001', skuName: 'Samyang 2x Spicy Buldak Ramen 5-Pack', price: 12.99, label: 'A', serviceCode: 'usps_priority_mail' },
   // Group B: 4 orders → New York, 25oz, 12x8x5
-  { count: 4, zip: '10001', city: 'New York',    state: 'NY', weightOz: 25, dims: { l: 12, w: 8,  h: 5 }, sku: 'TEST-RAMEN-002', skuName: 'Samyang Carbo Buldak Ramen 5-Pack',    price: 11.99, label: 'B' },
+  { count: 4, zip: '10001', city: 'New York',    state: 'NY', weightOz: 25, dims: { l: 12, w: 8,  h: 5 }, sku: 'TEST-RAMEN-002', skuName: 'Samyang Carbo Buldak Ramen 5-Pack',    price: 11.99, label: 'B', serviceCode: 'usps_priority_mail' },
   // Group C: 3 orders → Chicago, 14oz, 9x6x3
   { count: 3, zip: '60601', city: 'Chicago',     state: 'IL', weightOz: 14, dims: { l: 9,  w: 6,  h: 3 }, sku: 'TEST-BOOK-002',  skuName: 'Test Book — Heritage Kids Vol. 2',      price: 20.00, label: 'C' },
   // Group D: 3 orders → Houston, 24oz, 10x7x4
-  { count: 3, zip: '77001', city: 'Houston',     state: 'TX', weightOz: 24, dims: { l: 10, w: 7,  h: 4 }, sku: 'TEST-RAMEN-003', skuName: 'Samyang Cheese Buldak Ramen 5-Pack',   price: 11.99, label: 'D' },
+  { count: 3, zip: '77001', city: 'Houston',     state: 'TX', weightOz: 24, dims: { l: 10, w: 7,  h: 4 }, sku: 'TEST-RAMEN-003', skuName: 'Samyang Cheese Buldak Ramen 5-Pack',   price: 11.99, label: 'D', serviceCode: 'usps_priority_mail' },
 ];
 
 const BATCH_NAMES = [
@@ -248,7 +248,7 @@ function makeBatchOrder(orderId, group, nameIdx) {
     shipToState:      group.state,
     shipToPostalCode: group.zip,
     carrierCode:      'stamps_com',
-    serviceCode:      'usps_first_class_mail',
+    serviceCode:      group.serviceCode || 'usps_first_class_mail',
     weightValue:      group.weightOz,
     orderTotal:       group.price,
     shippingAmount:   4.99,

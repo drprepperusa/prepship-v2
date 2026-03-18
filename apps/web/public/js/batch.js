@@ -548,6 +548,16 @@ export async function batchSendToQueue() {
   try {
     const { fetchOrders } = await import('./orders.js');
     fetchOrders(state.currentPage, true);
+    // Update print queue panel to show newly queued items
+    // Use the clientId of the first queued order (all orders in a batch share same client)
+    const batchClientId = orders[0]?.clientId;
+    if (batchClientId && typeof window.setQueueClientId === 'function') {
+      window.setQueueClientId(batchClientId);
+      window._queueClientId = batchClientId;
+    }
+    if (typeof window.hydrateQueueFromDB === 'function') {
+      await window.hydrateQueueFromDB(batchClientId || window._queueClientId || 1);
+    }
   } catch (e) {
     console.error('[Batch Queue] Error refreshing orders:', e.message);
   }

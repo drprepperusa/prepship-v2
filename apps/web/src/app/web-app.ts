@@ -78,7 +78,7 @@ async function proxyApiRequest(
     body,
   });
 
-  return new Response(await upstream.arrayBuffer(), {
+  return new Response(upstream.body, {
     status: upstream.status,
     headers: upstream.headers,
   });
