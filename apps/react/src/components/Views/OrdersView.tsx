@@ -778,7 +778,6 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
               <option value={100}>100 rows</option>
             </select>
           </div>
-        </div>
 
         <OrderPanel
           orderId={panelOrderId}
@@ -788,6 +787,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
           onClose={handleClosePanel}
           onRefresh={refetch}
         />
+      </div>
     </div>
   )
 }
