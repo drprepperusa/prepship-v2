@@ -137,13 +137,13 @@ function normalizeAddress(input: CreateLabelRequestDto["shipTo"] | CreateLabelRe
 
 function defaultShipFrom(): AddressRecord {
   return {
-    name: "PrepShip",
-    street1: "",
-    city: "",
-    state: "",
-    postalCode: "",
+    name: "DR Prepper Fulfillment",
+    street1: "14924 S Figueroa St",
+    city: "Gardena",
+    state: "CA",
+    postalCode: "90248",
     country: "US",
-    phone: "000-000-0000",
+    phone: "3103295555",
   };
 }
 
