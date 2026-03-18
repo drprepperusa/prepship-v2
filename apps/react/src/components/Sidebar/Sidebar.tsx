@@ -185,7 +185,10 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
                       <div 
                         key={store.clientId} 
                         className={`ss-store ${activeStore === store.clientId ? 'selected' : ''}`}
-                        onClick={() => onSelectStore?.(store.clientId)}
+                        onClick={() => { 
+                          onSelectStatus(status)
+                          onSelectStore?.(store.clientId)
+                        }}
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                       >
                         <span className="ss-store-name">{store.name}</span>
