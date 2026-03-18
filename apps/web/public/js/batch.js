@@ -507,14 +507,27 @@ export async function batchSendToQueue() {
       }
 
       const labelData = await labelResp.json();
+      if (!labelData.labelUrl) throw new Error('Label created but no URL returned');
+
+      // Build sku_group_id from primary SKU + qty for grouping in print queue
+      const items = (o.items || []).filter(i => !i.adjustment);
+      const primarySku = items[0]?.sku || 'UNKNOWN';
+      const orderQty = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+      const skuGroupId = `${primarySku}-${orderQty}`;
 
       // Queue the label (add to print queue)
       const queueResp = await fetch('/api/queue/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId: o.orderId,
-          labelId: labelData.labelId,
+          order_id: String(o.orderId),
+          client_id: o.clientId,
+          label_url: labelData.labelUrl,
+          sku_group_id: skuGroupId,
+          order_number: o.orderNumber,
+          primary_sku: primarySku,
+          item_description: items[0]?.name || '',
+          order_qty: orderQty,
         }),
       });
 
