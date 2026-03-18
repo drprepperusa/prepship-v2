@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import type { BillingRepository } from "../modules/billing/application/billing-repository.ts";
 import type { AnalysisRepository } from "../modules/analysis/application/analysis-repository.ts";
 import type { ClientRepository } from "../modules/clients/application/client-repository.ts";
@@ -8,6 +9,7 @@ import type { LocationRepository } from "../modules/locations/application/locati
 import type { ShipFromState } from "../modules/locations/application/ship-from-state.ts";
 import type { ManifestRepository } from "../modules/manifests/application/manifest-repository.ts";
 import type { OrderRepository } from "../modules/orders/application/order-repository.ts";
+import type { SyncLogRepository } from "../modules/orders/application/sync-log-repository.ts";
 import type { PackageRepository } from "../modules/packages/application/package-repository.ts";
 import type { ProductRepository } from "../modules/products/application/product-repository.ts";
 import type { RateRepository } from "../modules/rates/application/rate-repository.ts";
@@ -16,6 +18,7 @@ import type { ShipmentRepository } from "../modules/shipments/application/shipme
 import type { QueueRepository } from "../modules/queue/application/queue-repository.ts";
 
 export interface ApiDataStore {
+  db?: DatabaseSync;
   queueRepository: QueueRepository;
   billingRepository: BillingRepository;
   analysisRepository: AnalysisRepository;
@@ -26,6 +29,7 @@ export interface ApiDataStore {
   locationRepository: LocationRepository;
   manifestRepository: ManifestRepository;
   orderRepository: OrderRepository;
+  syncLogRepository: SyncLogRepository;
   packageRepository: PackageRepository;
   productRepository: ProductRepository;
   rateRepository: RateRepository;

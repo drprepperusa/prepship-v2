@@ -51,6 +51,8 @@ import { UpdateOrderOverridesService } from "../modules/orders/application/updat
 import { ShipstationResidentialGateway } from "../modules/orders/data/shipstation-residential-gateway.ts";
 import { QueueHttpHandler } from "../modules/queue/api/queue-handler.ts";
 import { QueueServices } from "../modules/queue/application/queue-services.ts";
+import { HealthHttpHandler } from "../modules/health/api/health-handler.ts";
+import { HealthSyncService } from "../modules/health/application/health-sync-service.ts";
 import type { MemoryDataStoreSeed } from "./providers/memory-datastore.ts";
 
 export interface BootstrapApiOverrides {
@@ -108,6 +110,10 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
   const orderExportService = new OrderExportService(dataStore.orderRepository);
   const queueServices = new QueueServices(dataStore.queueRepository);
   const queueHandler = new QueueHttpHandler(queueServices);
+  // Extract db from any repository that wraps it
+  const dbInstance = (dataStore.orderRepository as any).db || (dataStore.shipmentRepository as any).db;
+  const healthSyncService = new HealthSyncService(dataStore, config.secrets, dbInstance);
+  const healthHandler = new HealthHttpHandler(healthSyncService);
 
   const ordersHandler = new OrdersHttpHandler(
     listOrdersService,
@@ -120,7 +126,7 @@ export function bootstrapApi(env = process.env, overrides: BootstrapApiOverrides
     orderExportService,
   );
 
-  const rawApp = createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler });
+  const rawApp = createApp({ analysisHandler, billingHandler, ordersHandler, clientsHandler, initHandler, inventoryHandler, labelsHandler, locationsHandler, manifestsHandler, packagesHandler, productsHandler, ratesHandler, settingsHandler, shipmentsHandler, queueHandler, healthHandler });
 
   return {
     config,

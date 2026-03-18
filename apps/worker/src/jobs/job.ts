@@ -1,9 +1,3 @@
-export interface JobContext {
-  now: Date;
-}
-
-export interface Job {
-  readonly name: string;
-  run(context: JobContext): Promise<void>;
-}
+// Re-export from shared package for backwards compatibility
+export type { JobContext, Job } from "../../../packages/shared/src/jobs/job.ts";
 

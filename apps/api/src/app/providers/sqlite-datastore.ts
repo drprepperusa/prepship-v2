@@ -15,12 +15,17 @@ import { SqliteSettingsRepository } from "../../modules/settings/data/sqlite-set
 import { SqliteShipmentRepository } from "../../modules/shipments/data/sqlite-shipment-repository.ts";
 import { SqliteQueueRepository } from "../../modules/queue/data/sqlite-queue-repository.ts";
 import { openSqliteDatabase } from "../../../../../packages/shared/src/sqlite/database.ts";
+import { initOrderSyncLogTable } from "../../modules/orders/data/init-sync-log-table.ts";
 import type { ApiDataStore } from "../datastore.ts";
 
 export function createSqliteDataStore(sqliteDbPath: string, excludedStoreIds: number[], mainApiKeyV2: string | null): ApiDataStore {
   const db = openSqliteDatabase(sqliteDbPath);
+  
+  // Initialize the order_sync_log table
+  initOrderSyncLogTable(db);
 
   return {
+    db,
     queueRepository: new SqliteQueueRepository(db),
     billingRepository: new SqliteBillingRepository(db),
     analysisRepository: new SqliteAnalysisRepository(db),

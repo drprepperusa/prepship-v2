@@ -3,6 +3,7 @@ import { InputValidationError, parseOptionalIntegerParam } from "../../../../pac
 import type { AnalysisHttpHandler } from "../modules/analysis/api/analysis-handler.ts";
 import type { BillingHttpHandler } from "../modules/billing/api/billing-handler.ts";
 import type { ClientsHttpHandler } from "../modules/clients/api/clients-handler.ts";
+import type { HealthHttpHandler } from "../modules/health/api/health-handler.ts";
 import type { InitHttpHandler } from "../modules/init/api/init-handler.ts";
 import type { InventoryHttpHandler } from "../modules/inventory/api/inventory-handler.ts";
 import type { LabelsHttpHandler } from "../modules/labels/api/labels-handler.ts";
@@ -20,6 +21,7 @@ export interface AppDependencies {
   queueHandler: QueueHttpHandler;
   analysisHandler: AnalysisHttpHandler;
   billingHandler: BillingHttpHandler;
+  healthHandler: HealthHttpHandler;
   ordersHandler: OrdersHttpHandler;
   clientsHandler: ClientsHttpHandler;
   initHandler: InitHttpHandler;
@@ -1116,6 +1118,15 @@ export function createApp(dependencies: AppDependencies) {
         const message = error instanceof Error ? error.message : "Unknown error";
         const status = isInputError(error, ["startDate and endDate required (YYYY-MM-DD format)"]) ? 400 : 500;
         return jsonResponse(status, { error: message });
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/health/sync-status") {
+      try {
+        return jsonResponse(200, dependencies.healthHandler.handleSyncStatus());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(500, { error: message });
       }
     }
 
