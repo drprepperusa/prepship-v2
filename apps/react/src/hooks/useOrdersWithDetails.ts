@@ -19,9 +19,9 @@ export interface UseOrdersWithDetailsResult {
 
 export function useOrdersWithDetails(
   status: string,
-  options: { page?: number; pageSize?: number; dateStart?: string; dateEnd?: string } = {}
+  options: { page?: number; pageSize?: number; dateStart?: string; dateEnd?: string; clientId?: number | null } = {}
 ): UseOrdersWithDetailsResult {
-  const { page = 1, pageSize = 50, dateStart, dateEnd } = options;
+  const { page = 1, pageSize = 50, dateStart, dateEnd, clientId } = options;
 
   const [orders, setOrders] = useState<OrderWithDetails[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,6 +41,7 @@ export function useOrdersWithDetails(
         orderStatus: status,
         dateStart,
         dateEnd,
+        clientId: clientId ?? undefined,
       });
 
       // Enrich orders with additional details
@@ -69,11 +70,11 @@ export function useOrdersWithDetails(
     } finally {
       setLoading(false);
     }
-  }, [status, pageSize, dateStart, dateEnd, currentPage]);
+  }, [status, pageSize, dateStart, dateEnd, clientId, currentPage]);
 
   useEffect(() => {
     fetchOrders(1); // Reset to page 1 when filters change
-  }, [status, pageSize, dateStart, dateEnd]);
+  }, [status, pageSize, dateStart, dateEnd, clientId]);
 
   const goToPage = useCallback(
     async (pageNum: number) => {

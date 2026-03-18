@@ -259,6 +259,7 @@ export default function OrdersView({ status, selectedOrders, setSelectedOrders, 
     page: currentPage,
     dateStart: dateRange?.start?.toISOString(),
     dateEnd: dateRange?.end?.toISOString(),
+    clientId: selectedClientId,
   })
 
   const skuList = useMemo(() => {
