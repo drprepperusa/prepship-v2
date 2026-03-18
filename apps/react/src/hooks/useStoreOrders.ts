@@ -18,33 +18,14 @@ export function useStoreOrders(status: string): UseStoreOrdersResult {
     setError(null);
 
     try {
-      const counts: Record<number, number> = {};
-      let page = 1;
-      let hasMore = true;
-
-      // Fetch all pages needed to get complete store breakdown
-      // API has max pageSize of 500, so fetch sequentially until all orders are collected
-      while (hasMore) {
-        const response = await apiClient.listOrders({
-          page,
-          pageSize: 500,
-          orderStatus: status,
-        });
-
-        response.orders.forEach((order) => {
-          if (order.storeId !== null) {
-            counts[order.storeId] = (counts[order.storeId] || 0) + 1;
-          }
-        });
-
-        // Check if we've fetched all orders
-        if (response.page >= response.pages) {
-          hasMore = false;
-        } else {
-          page++;
-        }
+      // Call server-side aggregation endpoint for instant results
+      const response = await fetch(`/api/orders/store-counts?orderStatus=${encodeURIComponent(status)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch store counts: ${response.statusText}`);
       }
-
+      
+      const counts = (await response.json()) as Record<number, number>;
+      console.log(`[useStoreOrders] Fetched ${status}: ${Object.keys(counts).length} stores, total: ${Object.values(counts).reduce((a, b) => a + b, 0)} orders`);
       setStoreCounts(counts);
     } catch (err) {
       const error = err instanceof Error ? err : new Error("Failed to fetch store orders");

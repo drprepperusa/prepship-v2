@@ -72,6 +72,14 @@ export class OrdersHttpHandler {
     return this.orderExportService.execute(query);
   }
 
+  handleStoreCounts(requestUrl: URL) {
+    // Get store-level aggregated counts for a given order status
+    const orderStatus = requestUrl.searchParams.get("orderStatus") || "shipped";
+    const repo = this.listOrdersService.repository;
+    const counts = repo.getStoreCounts(orderStatus);
+    return counts;
+  }
+
   handleSetExternalShipped(orderId: number, payload: { flag?: number | boolean; source?: string }) {
     const flag = payload.flag;
     const source = payload.source ?? null;

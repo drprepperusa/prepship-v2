@@ -903,6 +903,16 @@ export function createApp(dependencies: AppDependencies) {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/api/orders/store-counts") {
+      try {
+        const counts = dependencies.ordersHandler.handleStoreCounts(url);
+        return jsonResponse(200, counts);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return jsonResponse(isInputError(error) ? 400 : 500, { error: message });
+      }
+    }
+
     const fullOrderMatch = url.pathname.match(/^\/api\/orders\/(\d+)\/full$/);
     if (request.method === "GET" && fullOrderMatch) {
       const payload = dependencies.ordersHandler.handleGetFull(Number.parseInt(fullOrderMatch[1] ?? "0", 10));
