@@ -743,8 +743,9 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
               onColumnWidthsChange={setColumnWidths}
             />
           </div>
+        </div>
 
-          <div className="pagination-bar" style={{ flexShrink: 0 }}>
+        <div className="pagination-bar" style={{ flexShrink: 0 }}>
             <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
               {total > 0 ? `${firstRow}–${lastRow} of ${total.toLocaleString()} orders` : 'No orders'}
             </span>
@@ -777,7 +778,7 @@ td { padding: 10px; border-bottom: 1px solid #e8e8e8; vertical-align: middle; }
               <option value={100}>100 rows</option>
             </select>
           </div>
-        </div>
+      </div>
 
         <OrderPanel
           orderId={panelOrderId}
