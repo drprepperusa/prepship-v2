@@ -19,7 +19,7 @@ import { buildTableHead, buildColDropdown, loadColPrefs, updateBatchBar, updateS
 import { fetchOrders, filterOrders, renderOrders } from './orders.js';
 import { startSyncPoller } from './sync-poller.js';
 import { startPolling } from './polling.js';
-import { updateProfitEstimate, showBatchPanel } from './batch.js';
+import { updateProfitEstimate, showBatchPanel } from './batch.js?v=20260318-2';
 import { initAnalysisView } from './analysis-ui.js';
 import { initBillingView } from './billing-ui.js';
 import { loadInventoryView } from './inventory-ui.js';
