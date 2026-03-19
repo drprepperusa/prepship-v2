@@ -62,6 +62,7 @@ export class ApiClient {
         method,
         headers: {
           "Content-Type": "application/json",
+          "x-app-token": "dev-only-insecure-token-change-me",
         },
       };
 

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStoreOrders, useStores } from '../../hooks'
 import { useStoreVisibilityContext } from '../../contexts/StoreVisibilityContext'
 import { getOrdersDateRange } from '../Views/orders-view-filters'
+import { fetchWithToken } from '../../utils/fetch-wrapper'
 import './Sidebar.css'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
@@ -48,7 +49,7 @@ export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mob
     const fetchWithRetry = async (url: string, maxRetries = 3): Promise<Record<number, number>> => {
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-          const res = await fetch(url)
+          const res = await fetchWithToken(url)
           
           // Handle 429 with exponential backoff
           if (res.status === 429) {

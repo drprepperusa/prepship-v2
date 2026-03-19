@@ -60,7 +60,7 @@ export function startHttpServer(handler: (request: Request) => Promise<Response>
   });
 
   return new Promise((resolve) => {
-    server.listen(port, () => resolve(server));
+    server.listen(port, '0.0.0.0', () => resolve(server));
   });
 }
 
