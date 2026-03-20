@@ -5,7 +5,8 @@ import { bootstrapApi } from "./app/bootstrap.ts";
 import { startHttpServer } from "./app/server.ts";
 import { OrderStatusSyncWorker } from "./modules/sync/order-status-sync.ts";
 
-// Load .env file if it exists (from project root)
+// Load .env file if it exists (from project root).
+// IMPORTANT: plist/environment values win — .env only fills in MISSING vars.
 const envPath = resolve(process.cwd(), ".env");
 try {
   const envContent = readFileSync(envPath, "utf-8");
@@ -14,7 +15,10 @@ try {
     if (trimmed && !trimmed.startsWith("#")) {
       const [key, ...valueParts] = trimmed.split("=");
       const value = valueParts.join("=");
-      if (key) process.env[key] = value;
+      // Only set if not already defined by launchd/shell environment
+      if (key && !(key in process.env)) {
+        process.env[key] = value;
+      }
     }
   }
 } catch {
