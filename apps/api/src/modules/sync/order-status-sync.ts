@@ -87,29 +87,28 @@ async function syncAccountOrders(
     pages = result.pages;
 
     for (const order of result.orders) {
-      if (!order.orderId || order.orderStatus !== "shipped") continue;
+      if (!order.orderNumber || order.orderStatus !== "shipped") continue;
 
-      // Check if we have this order and it's not already marked shipped
+      // Match on orderNumber (SS source of truth) — orderId may differ due to SS duplicates
       const existing = db.prepare(`
-        SELECT orderId, orderStatus FROM orders WHERE orderId = ? LIMIT 1
-      `).get(order.orderId) as { orderId: number; orderStatus: string } | undefined;
+        SELECT orderId, orderStatus FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
+      `).get(order.orderNumber) as { orderId: number; orderStatus: string } | undefined;
 
-      if (!existing) continue; // Not in our DB
-      if (existing.orderStatus === "shipped" || existing.orderStatus === "cancelled") continue; // Already correct
+      if (!existing) continue; // Not in our DB or already correct
 
-      // Mark as shipped
+      // Mark as shipped — SS says it shipped, we trust SS
       const now = Date.now();
       db.prepare(`
         UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?
-      `).run(now, order.orderId);
+      `).run(now, existing.orderId);
 
       // Also update order_local if exists
       db.prepare(`
         UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?
-      `).run(now, order.orderId);
+      `).run(now, existing.orderId);
 
       updated++;
-      console.log(`[sync] Marked shipped: ${order.orderNumber} (orderId=${order.orderId}) via ${account.accountName}`);
+      console.log(`[sync] Marked shipped: ${order.orderNumber} (our orderId=${existing.orderId}) via ${account.accountName}`);
     }
 
     page++;
