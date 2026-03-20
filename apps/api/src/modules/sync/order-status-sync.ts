@@ -1,45 +1,70 @@
 /**
  * Order Status Sync Worker
  *
- * Polls ShipStation v1 API every 5 minutes for orders whose status has
- * changed to "shipped" since the last check, then updates our local DB.
+ * Two jobs running on the same interval (3 minutes):
  *
- * Supports multiple SS accounts (main + KFG).
- * Runs as a background loop started from bootstrap when WORKER_SYNC_ENABLED=true.
+ * 1. STATUS SYNC — polls SS for recently-modified shipped orders and marks
+ *    matching awaiting_shipment orders in our DB as shipped.
+ *
+ * 2. ORDER INGEST — polls SS for recently-modified awaiting_shipment orders
+ *    and inserts any that don't exist in our DB yet (new orders).
+ *
+ * Supports multiple SS accounts (main + per-client keys from clients table).
+ * Enabled with WORKER_SYNC_ENABLED=true.
  */
 
 import type { DatabaseSync } from "node:sqlite";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface SyncAccount {
   clientId: number;
   accountName: string;
   apiKey: string;
   apiSecret: string;
+  storeIds: number[]; // storeIds this account is responsible for
 }
 
-interface SSOrder {
+interface SSOrderSummary {
   orderId: number;
   orderNumber: string;
   orderStatus: string;
+  orderDate: string;
   modifyDate: string;
+  customerEmail: string | null;
+  shipTo: {
+    name: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+  };
+  carrierCode: string | null;
+  serviceCode: string | null;
+  weight: { value: number; units: string } | null;
+  orderTotal: number;
+  shippingAmount: number;
+  items: unknown[];
+  advancedOptions: { storeId: number | null } | null;
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function basicAuth(apiKey: string, apiSecret: string): string {
   return "Basic " + Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
 }
 
 function toISOStringUTC(date: Date): string {
-  // ShipStation expects UTC ISO string without milliseconds
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-async function fetchShippedOrders(
+async function fetchOrderPage(
   account: SyncAccount,
+  orderStatus: string,
   modifyDateStart: string,
-  page = 1,
-): Promise<{ orders: SSOrder[]; pages: number }> {
+  page: number,
+): Promise<{ orders: SSOrderSummary[]; pages: number }> {
   const params = new URLSearchParams({
-    orderStatus: "shipped",
+    orderStatus,
     modifyDateStart,
     pageSize: "500",
     page: String(page),
@@ -47,114 +72,217 @@ async function fetchShippedOrders(
 
   const url = `https://ssapi.shipstation.com/orders?${params.toString()}`;
   const resp = await fetch(url, {
-    headers: {
-      Authorization: basicAuth(account.apiKey, account.apiSecret),
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
     signal: AbortSignal.timeout(30_000),
   });
 
   if (resp.status === 429) {
-    // Rate limited — ShipStation allows 40 req/min. Back off.
     const retryAfter = Number(resp.headers.get("X-Rate-Limit-Reset") ?? "10");
     console.warn(`[sync] Rate limited on ${account.accountName}, waiting ${retryAfter}s`);
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return fetchShippedOrders(account, modifyDateStart, page);
+    return fetchOrderPage(account, orderStatus, modifyDateStart, page);
   }
 
   if (!resp.ok) {
-    throw new Error(`ShipStation API error: ${resp.status} for account ${account.accountName}`);
+    throw new Error(`ShipStation API ${resp.status} for ${account.accountName} (${orderStatus})`);
   }
 
-  const data = await resp.json() as { orders?: SSOrder[]; pages?: number };
-  return {
-    orders: data.orders ?? [],
-    pages: data.pages ?? 1,
-  };
+  const data = (await resp.json()) as { orders?: SSOrderSummary[]; pages?: number };
+  return { orders: data.orders ?? [], pages: data.pages ?? 1 };
 }
 
-async function syncAccountOrders(
-  db: DatabaseSync,
-  account: SyncAccount,
-  modifyDateStart: string,
-): Promise<number> {
-  let updated = 0;
-  let page = 1;
-  let pages = 1;
-
-  do {
-    const result = await fetchShippedOrders(account, modifyDateStart, page);
-    pages = result.pages;
-
-    for (const order of result.orders) {
-      if (!order.orderNumber || order.orderStatus !== "shipped") continue;
-
-      // Match on orderNumber (SS source of truth) — orderId may differ due to SS duplicates
-      const existing = db.prepare(`
-        SELECT orderId, orderStatus FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
-      `).get(order.orderNumber) as { orderId: number; orderStatus: string } | undefined;
-
-      if (!existing) continue; // Not in our DB or already correct
-
-      // Mark as shipped — SS says it shipped, we trust SS
-      const now = Date.now();
-      db.prepare(`
-        UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?
-      `).run(now, existing.orderId);
-
-      // Also update order_local if exists
-      db.prepare(`
-        UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?
-      `).run(now, existing.orderId);
-
-      updated++;
-      console.log(`[sync] Marked shipped: ${order.orderNumber} (our orderId=${existing.orderId}) via ${account.accountName}`);
-    }
-
-    page++;
-
-    // Small delay between pages to respect rate limits
-    if (page <= pages) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  } while (page <= pages);
-
-  return updated;
-}
+// ─── Account loader ───────────────────────────────────────────────────────────
 
 function loadAccounts(db: DatabaseSync, mainApiKey: string, mainApiSecret: string): SyncAccount[] {
   const accounts: SyncAccount[] = [];
 
-  // Main account (from secrets.json — always include)
+  // Build storeId → clientId map from clients table
+  const clientRows = db.prepare(`
+    SELECT clientId, storeIds FROM clients WHERE active = 1
+  `).all() as Array<{ clientId: number; storeIds: string }>;
+
+  const mainStoreIds: number[] = [];
+  const clientStoreMap = new Map<number, number[]>(); // clientId → storeIds
+
+  for (const row of clientRows) {
+    try {
+      const ids = JSON.parse(row.storeIds ?? "[]") as number[];
+      clientStoreMap.set(row.clientId, ids);
+      // storeIds without their own SS key belong to main account
+      mainStoreIds.push(...ids);
+    } catch { /* ignore */ }
+  }
+
   if (mainApiKey && mainApiSecret) {
     accounts.push({
-      clientId: 1,
+      clientId: 0,
       accountName: "main",
       apiKey: mainApiKey,
       apiSecret: mainApiSecret,
+      storeIds: mainStoreIds,
     });
   }
 
-  // Additional accounts from clients table
-  const rows = db.prepare(`
-    SELECT clientId, name, ss_api_key, ss_api_secret
+  // Per-client SS keys (e.g. KFG)
+  const clientKeyRows = db.prepare(`
+    SELECT clientId, name, ss_api_key, ss_api_secret, storeIds
     FROM clients
     WHERE active = 1 AND ss_api_key IS NOT NULL AND ss_api_key != ''
-  `).all() as Array<{ clientId: number; name: string; ss_api_key: string; ss_api_secret: string }>;
+  `).all() as Array<{ clientId: number; name: string; ss_api_key: string; ss_api_secret: string; storeIds: string }>;
 
-  for (const row of rows) {
-    if (row.ss_api_key && row.ss_api_secret) {
-      accounts.push({
-        clientId: row.clientId,
-        accountName: row.name,
-        apiKey: row.ss_api_key,
-        apiSecret: row.ss_api_secret,
-      });
-    }
+  for (const row of clientKeyRows) {
+    let storeIds: number[] = [];
+    try { storeIds = JSON.parse(row.storeIds ?? "[]") as number[]; } catch { /* ignore */ }
+    accounts.push({
+      clientId: row.clientId,
+      accountName: row.name,
+      apiKey: row.ss_api_key,
+      apiSecret: row.ss_api_secret,
+      storeIds,
+    });
   }
 
   return accounts;
 }
+
+// ─── Resolve clientId for a SS order ─────────────────────────────────────────
+
+function resolveClientId(db: DatabaseSync, storeId: number | null): number | null {
+  if (!storeId) return null;
+  const row = db.prepare(`
+    SELECT clientId FROM clients
+    WHERE active = 1 AND storeIds LIKE ? LIMIT 1
+  `).get(`%${storeId}%`) as { clientId: number } | undefined;
+  return row?.clientId ?? null;
+}
+
+// ─── Job 1: Status Sync (awaiting → shipped) ─────────────────────────────────
+
+async function runStatusSync(
+  db: DatabaseSync,
+  accounts: SyncAccount[],
+  modifyDateStart: string,
+): Promise<number> {
+  let updated = 0;
+
+  for (const account of accounts) {
+    let page = 1, pages = 1;
+    do {
+      const result = await fetchOrderPage(account, "shipped", modifyDateStart, page);
+      pages = result.pages;
+
+      for (const order of result.orders) {
+        if (!order.orderNumber) continue;
+
+        // SS is source of truth — match on orderNumber
+        const existing = db.prepare(`
+          SELECT orderId FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
+        `).get(order.orderNumber) as { orderId: number } | undefined;
+
+        if (!existing) continue;
+
+        const now = Date.now();
+        db.prepare(`UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?`)
+          .run(now, existing.orderId);
+        db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
+          .run(now, existing.orderId);
+
+        updated++;
+        console.log(`[sync] Marked shipped: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
+      }
+
+      page++;
+      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
+    } while (page <= pages);
+
+    if (accounts.indexOf(account) < accounts.length - 1) {
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+  }
+
+  return updated;
+}
+
+// ─── Job 2: Order Ingest (new awaiting_shipment orders) ──────────────────────
+
+async function runOrderIngest(
+  db: DatabaseSync,
+  accounts: SyncAccount[],
+  modifyDateStart: string,
+): Promise<number> {
+  let inserted = 0;
+
+  for (const account of accounts) {
+    let page = 1, pages = 1;
+    do {
+      const result = await fetchOrderPage(account, "awaiting_shipment", modifyDateStart, page);
+      pages = result.pages;
+
+      for (const order of result.orders) {
+        if (!order.orderId || !order.orderNumber) continue;
+
+        // Skip if already in DB
+        const exists = db.prepare(`SELECT 1 FROM orders WHERE orderId = ? LIMIT 1`)
+          .get(order.orderId) as { 1: number } | undefined;
+        if (exists) continue;
+
+        const storeId = order.advancedOptions?.storeId ?? null;
+        const clientId = resolveClientId(db, storeId);
+        if (!clientId) {
+          // Skip orders from stores not mapped to any client (excluded stores, test stores, etc.)
+          continue;
+        }
+
+        const weightOz = order.weight?.value != null
+          ? (order.weight.units === "ounces" ? order.weight.value : order.weight.value * 16)
+          : null;
+
+        db.prepare(`
+          INSERT INTO orders (
+            orderId, orderNumber, orderStatus, orderDate, storeId,
+            customerEmail, shipToName, shipToCity, shipToState, shipToPostalCode,
+            carrierCode, serviceCode, weightValue, orderTotal, shippingAmount,
+            items, raw, updatedAt, clientId
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          order.orderId,
+          order.orderNumber,
+          order.orderStatus,
+          order.orderDate,
+          storeId,
+          order.customerEmail ?? null,
+          order.shipTo?.name ?? null,
+          order.shipTo?.city ?? null,
+          order.shipTo?.state ?? null,
+          order.shipTo?.postalCode ?? null,
+          order.carrierCode ?? null,
+          order.serviceCode ?? null,
+          weightOz,
+          order.orderTotal ?? 0,
+          order.shippingAmount ?? 0,
+          JSON.stringify(order.items ?? []),
+          JSON.stringify(order),
+          Date.now(),
+          clientId,
+        );
+
+        inserted++;
+        console.log(`[sync] Ingested new order: ${order.orderNumber} (orderId=${order.orderId}, client=${clientId}) via ${account.accountName}`);
+      }
+
+      page++;
+      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
+    } while (page <= pages);
+
+    if (accounts.indexOf(account) < accounts.length - 1) {
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+  }
+
+  return inserted;
+}
+
+// ─── Main Worker Class ────────────────────────────────────────────────────────
 
 export class OrderStatusSyncWorker {
   private readonly db: DatabaseSync;
@@ -169,8 +297,8 @@ export class OrderStatusSyncWorker {
     db: DatabaseSync,
     mainApiKey: string,
     mainApiSecret: string,
-    intervalMs = 5 * 60 * 1000,  // 5 minutes
-    lookbackMs = 2 * 60 * 60 * 1000, // 2 hour lookback
+    intervalMs = 3 * 60 * 1000,    // 3 minutes
+    lookbackMs = 4 * 60 * 60 * 1000,  // 4 hour lookback for ingest (catches orders modified up to 4h ago)
   ) {
     this.db = db;
     this.mainApiKey = mainApiKey;
@@ -181,51 +309,40 @@ export class OrderStatusSyncWorker {
 
   start(): void {
     if (this.timer) return;
-    console.log(`[sync] Order status sync worker started (interval=${this.intervalMs / 1000}s, lookback=${this.lookbackMs / 3600000}h)`);
-
-    // Run immediately on start, then on interval
+    console.log(`[sync] Order sync worker started (interval=${this.intervalMs / 1000}s)`);
     void this.runSync();
     this.timer = setInterval(() => void this.runSync(), this.intervalMs);
-    // Don't keep process alive just for this
     if (this.timer.unref) this.timer.unref();
   }
 
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
   }
 
   async runSync(): Promise<void> {
     if (this.running) {
-      console.log("[sync] Previous sync still running, skipping this cycle");
+      console.log("[sync] Previous sync still running, skipping");
       return;
     }
     this.running = true;
 
     try {
-      const modifyDateStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
       const accounts = loadAccounts(this.db, this.mainApiKey, this.mainApiSecret);
-      let totalUpdated = 0;
 
-      for (const account of accounts) {
-        try {
-          const updated = await syncAccountOrders(this.db, account, modifyDateStart);
-          totalUpdated += updated;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[sync] Error syncing account ${account.accountName}: ${msg}`);
-        }
-        // 2s delay between accounts
-        if (accounts.indexOf(account) < accounts.length - 1) {
-          await new Promise((r) => setTimeout(r, 2_000));
-        }
-      }
+      // Job 1: Status sync — 2h lookback to catch anything recently shipped
+      const statusStart = toISOStringUTC(new Date(Date.now() - 2 * 60 * 60 * 1000));
+      const statusUpdated = await runStatusSync(this.db, accounts, statusStart);
 
-      if (totalUpdated > 0) {
-        console.log(`[sync] Sync complete — updated ${totalUpdated} order(s) to shipped`);
+      // Job 2: Ingest — 30min lookback for new orders
+      const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
+      const ingested = await runOrderIngest(this.db, accounts, ingestStart);
+
+      if (statusUpdated > 0 || ingested > 0) {
+        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${ingested} new orders ingested`);
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[sync] Cycle error: ${msg}`);
     } finally {
       this.running = false;
     }
