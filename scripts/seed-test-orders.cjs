@@ -323,5 +323,5 @@ for (let i = 0; i < count; i++) {
 }
 
 console.log(`Inserted ${count} test orders (clientId=${TEST_CLIENT_ID}, orderIds ${TEST_ORDER_ID_BASE}–${TEST_ORDER_ID_BASE + count - 1})`);
-console.log(`Filter by "Test Client" in the Clients dropdown to see them.`);
+console.log(`Filter by "Test Orders" in the Clients dropdown to see them.`);
 console.log(`Remove with: node scripts/seed-test-orders.cjs --clear`);
