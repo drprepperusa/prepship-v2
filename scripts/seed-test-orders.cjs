@@ -14,7 +14,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '..', '..', '.openclaw', 'workspace', 'prepship', 'prepship.db');
+const DB_PATH = process.env.DB_PATH || '/Users/djmac/.openclaw/workspace/prepship/prepship.db';
 const TEST_CLIENT_ID  = 11;
 const TEST_ORDER_ID_BASE = 9_000_001;
 const TEST_STORE_ID   = 999999; // fake store, won't hit SS API
