@@ -1,5 +1,18 @@
 import { jsonResponse } from "../common/http/json.ts";
 import { InputValidationError, parseOptionalIntegerParam } from "../../../../packages/contracts/src/common/input-validation.ts";
+
+// Helper to add CORS headers to any Response
+function withCors(response: Response): Response {
+  const newHeaders = new Headers(response.headers);
+  newHeaders.set('Access-Control-Allow-Origin', '*');
+  newHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  newHeaders.set('Access-Control-Allow-Headers', 'Content-Type, X-App-Token, Authorization');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: newHeaders,
+  });
+}
 import type { AnalysisHttpHandler } from "../modules/analysis/api/analysis-handler.ts";
 import type { BillingHttpHandler } from "../modules/billing/api/billing-handler.ts";
 import type { ClientsHttpHandler } from "../modules/clients/api/clients-handler.ts";
