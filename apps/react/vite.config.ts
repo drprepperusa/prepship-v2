@@ -18,6 +18,9 @@ export default defineConfig({
     allowedHosts: [
       'localhost',
       '127.0.0.1',
+      '192.168.1.203',
+      '100.103.254.11',
+      'prepshipv3.drprepperusa.com',
     ],
     proxy: {
       '/api': {

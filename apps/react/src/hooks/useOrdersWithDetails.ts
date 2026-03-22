@@ -21,7 +21,7 @@ export function useOrdersWithDetails(): UseOrdersWithDetailsResult {
         setError(null);
 
         // Fetch orders from API (awaiting shipment by default)
-        const response = await apiClient.listOrders({
+        const response = await apiClient.fetchOrders({
           page: 1,
           pageSize: 1000,
           orderStatus: "awaiting_shipment",
