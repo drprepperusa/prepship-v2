@@ -1,134 +1,167 @@
 /**
- * Typed API client for PrepShip backend
- * Provides fetch wrapper with error handling and type-safe endpoint definitions
+ * API Client Wrapper - Typed fetch wrapper for PrepShip V2 endpoints
+ * Handles authentication, error handling, and response typing
  */
 
 import type {
-  ListOrdersResponse,
   ListOrdersQuery,
-  OrderSummaryDto,
-  OrderFullDto,
-  GetOrderIdsQuery,
-  GetOrderIdsResponse,
-  GetOrderPicklistQuery,
-  GetOrderPicklistResponse,
-  OrdersDailyStatsDto,
-  OrderExportQuery,
-} from "@prepshipv2/contracts/orders/contracts";
-import type { RateDto, GetCachedRatesQuery, CachedRatesResponseDto, LiveRatesRequestDto } from "@prepshipv2/contracts/rates/contracts";
-import type { LocationDto, SaveLocationInput } from "@prepshipv2/contracts/locations/contracts";
-import type { ClientDto, CreateClientInput, UpdateClientInput } from "@prepshipv2/contracts/clients/contracts";
-import type { InitDataDto } from "@prepshipv2/contracts/init/contracts";
-import type { CarrierAccountDto } from "@prepshipv2/contracts/init/contracts";
+  ListOrdersResponse,
+  ClientDto,
+  InventoryItemDto,
+  InventoryLedgerEntryDto,
+  InventoryAlertDto,
+  LocationDto,
+  ShipmentSyncStatusDto,
+  LegacySyncStatusDto,
+  ProductDefaultsDto,
+  ReceiveInventoryInput,
+  ReceiveInventoryResultDto,
+  AdjustInventoryInput,
+  UpdateInventoryItemInput,
+  SaveLocationInput,
+  UpdateClientInput,
+  SaveProductDefaultsInput,
+  SaveProductDefaultsResult,
+  ParentSkuDetailDto,
+  ListInventoryQuery,
+  ListInventoryLedgerQuery,
+} from "../types/api";
 
-export interface ApiError {
-  status: number;
-  message: string;
-  details?: unknown;
+/**
+ * API Error class
+ */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public statusText: string,
+    message?: string
+  ) {
+    super(message || `API Error: ${status} ${statusText}`);
+    this.name = "ApiError";
+  }
 }
 
-export class ApiClient {
+/**
+ * API Client configuration and methods
+ */
+class ApiClient {
   private baseUrl: string;
-  private sessionToken: string;
+  private appToken: string | null = null;
 
-  constructor(baseUrl: string = "/api", sessionToken?: string) {
+  constructor(baseUrl: string = "/api") {
     this.baseUrl = baseUrl;
-    // Token from: explicit param > HTML data attribute > Vite env var > fallback
-    this.sessionToken = 
-      sessionToken || 
-      document.documentElement.dataset.sessionToken || 
-      (import.meta.env.VITE_SESSION_TOKEN as string) ||
-      "";
+    this.loadToken();
   }
 
+  /**
+   * Load app token from localStorage
+   */
+  private loadToken() {
+    if (typeof window !== "undefined") {
+      this.appToken = localStorage.getItem("app-token");
+    }
+  }
+
+  /**
+   * Set app token
+   */
+  setToken(token: string) {
+    this.appToken = token;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("app-token", token);
+    }
+  }
+
+  /**
+   * Clear app token
+   */
+  clearToken() {
+    this.appToken = null;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("app-token");
+    }
+  }
+
+  /**
+   * Build headers with authentication
+   */
+  private buildHeaders(customHeaders: Record<string, string> = {}): HeadersInit {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...customHeaders,
+    };
+
+    if (this.appToken) {
+      headers["X-App-Token"] = this.appToken;
+    }
+
+    return headers;
+  }
+
+  /**
+   * Make authenticated fetch request
+   */
   private async request<T>(
-    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
     endpoint: string,
-    options?: {
+    options: {
+      method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+      query?: Record<string, unknown>;
       body?: unknown;
-      query?: Record<string, string | number | boolean | undefined>;
-      signal?: AbortSignal;
-    }
+      headers?: Record<string, string>;
+    } = {}
   ): Promise<T> {
-    const maxRetries = 3;
-    let lastError: Error | null = null;
+    const { method = "GET", query, body, headers: customHeaders } = options;
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
+    let url = `${this.baseUrl}${endpoint}`;
 
-      // Add query params
-      if (options?.query) {
-        Object.entries(options.query).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            url.searchParams.append(key, String(value));
-          }
-        });
-      }
-
-      const fetchOptions: RequestInit = {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.sessionToken && { "X-App-Token": this.sessionToken }),
-        },
-      };
-
-      if (options?.body) {
-        fetchOptions.body = JSON.stringify(options.body);
-      }
-
-      if (options?.signal) {
-        fetchOptions.signal = options.signal;
-      }
-
-      try {
-        const response = await fetch(url.toString(), fetchOptions);
-
-        // Handle 429 (Too Many Requests) with exponential backoff
-        if (response.status === 429) {
-          const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
-          const waitTime = Math.min(retryAfter * 1000 * Math.pow(2, attempt), 10000); // Cap at 10s
-          console.warn(`[API ${method} ${endpoint}] Rate limited (429). Retrying in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          continue; // Retry
+    // Append query parameters
+    if (query) {
+      const params = new URLSearchParams();
+      Object.entries(query).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          params.append(key, String(value));
         }
-
-        if (!response.ok) {
-          let details: unknown;
-          try {
-            details = await response.json();
-          } catch {
-            // Response wasn't JSON
-          }
-
-          const error: ApiError = {
-            status: response.status,
-            message: `API request failed: ${response.statusText}`,
-            details,
-          };
-          console.error(`[API ${method} ${endpoint}]`, error);
-          throw new Error(error.message);
-        }
-
-        const data = await response.json();
-        return data as T;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Unknown error');
-        
-        // Don't retry on last attempt
-        if (attempt === maxRetries - 1) {
-          throw lastError;
-        }
+      });
+      const queryString = params.toString();
+      if (queryString) {
+        url += `?${queryString}`;
       }
     }
 
-    // Should not reach here, but just in case
-    throw lastError || new Error(`Failed after ${maxRetries} attempts`);
+    const fetchOptions: RequestInit = {
+      method,
+      headers: this.buildHeaders(customHeaders),
+    };
+
+    if (body) {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(
+        response.status,
+        response.statusText,
+        text || `HTTP ${response.status}`
+      );
+    }
+
+    // Handle 204 No Content
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    return response.json() as Promise<T>;
   }
 
-  // ====== Orders ======
-  async listOrders(query: ListOrdersQuery): Promise<ListOrdersResponse> {
-    return this.request<ListOrdersResponse>("GET", "/orders", {
+  /**
+   * GET /orders
+   */
+  async fetchOrders(query: ListOrdersQuery): Promise<ListOrdersResponse> {
+    return this.request<ListOrdersResponse>("/orders", {
+      method: "GET",
       query: {
         page: query.page,
         pageSize: query.pageSize,
@@ -141,206 +174,272 @@ export class ApiClient {
     });
   }
 
-  async getOrderDetail(orderId: number): Promise<OrderSummaryDto> {
-    return this.request<OrderSummaryDto>("GET", `/orders/${orderId}`);
+  /**
+   * GET /orders/:id
+   */
+  async fetchOrderDetail(orderId: number): Promise<unknown> {
+    return this.request(`/orders/${orderId}`, { method: "GET" });
   }
 
-  async getOrderIds(query: GetOrderIdsQuery): Promise<GetOrderIdsResponse> {
-    return this.request<GetOrderIdsResponse>("GET", "/orders/ids", {
-      query: {
-        sku: query.sku,
-        qty: query.qty,
-        orderStatus: query.orderStatus,
-        storeId: query.storeId,
-      },
-    });
-  }
-
-  async getOrderPicklist(query: GetOrderPicklistQuery): Promise<GetOrderPicklistResponse> {
-    return this.request<GetOrderPicklistResponse>("GET", "/orders/picklist", {
-      query: {
-        orderStatus: query.orderStatus,
-        storeId: query.storeId,
-        dateStart: query.dateStart,
-        dateEnd: query.dateEnd,
-      },
-    });
-  }
-
-  async getOrderDailyStats(): Promise<OrdersDailyStatsDto> {
-    return this.request<OrdersDailyStatsDto>("GET", "/orders/daily-stats");
-  }
-
-  async exportOrders(query: OrderExportQuery): Promise<{ data: string }> {
-    return this.request<{ data: string }>("GET", "/orders/export", {
-      query: {
-        orderStatus: query.orderStatus,
-        pageSize: query.pageSize || 5000,
-      },
-    });
-  }
-
-  async setOrderExternalShipped(orderId: number, shipped: boolean, source?: string): Promise<void> {
-    return this.request<void>("POST", `/orders/${orderId}/external-shipped`, {
-      body: { flag: shipped, source },
-    });
-  }
-
-  async setOrderResidential(orderId: number, residential: boolean | null): Promise<void> {
-    return this.request<void>("POST", `/orders/${orderId}/residential`, {
-      body: { residential },
-    });
-  }
-
-  async setOrderSelectedPid(orderId: number, selectedPid: number | null): Promise<void> {
-    return this.request<void>("POST", `/orders/${orderId}/selected-pid`, {
-      body: { selectedPid },
-    });
-  }
-
-  async setOrderBestRate(orderId: number, bestRate: unknown, dims?: string | null): Promise<void> {
-    return this.request<void>("POST", `/orders/${orderId}/best-rate`, {
-      body: { best: bestRate, dims },
-    });
-  }
-
-  async getOrderDims(orderId: number): Promise<{ orderId: number; sku: string | null; qty: number | null; dims: { length: number; width: number; height: number } | null }> {
-    return this.request<{ orderId: number; sku: string | null; qty: number | null; dims: { length: number; width: number; height: number } | null }>(
-      "GET",
-      `/orders/${orderId}/dims`
-    );
-  }
-
-  async saveDims(
+  /**
+   * PUT /orders/:id
+   */
+  async updateOrder(
     orderId: number,
-    sku: string | null,
-    qty: number | null,
-    length: number,
-    width: number,
-    height: number
-  ): Promise<void> {
-    return this.request<void>("POST", `/orders/${orderId}/dims`, {
-      body: { sku, qty, length, width, height },
+    data: Record<string, unknown>
+  ): Promise<unknown> {
+    return this.request(`/orders/${orderId}`, {
+      method: "PUT",
+      body: data,
     });
   }
 
-  // ====== Rates ======
-  async getCachedRates(query: GetCachedRatesQuery): Promise<CachedRatesResponseDto> {
-    return this.request<CachedRatesResponseDto>("GET", "/rates/cached", {
-      query: {
-        wt: query.wt,
-        zip: query.zip,
-        dims: query.dims ? JSON.stringify(query.dims) : undefined,
-        residential: query.residential,
-        storeId: query.storeId,
-        signature: query.signature,
-      },
+  /**
+   * GET /clients
+   */
+  async fetchClients(): Promise<ClientDto[]> {
+    return this.request<ClientDto[]>("/clients", { method: "GET" });
+  }
+
+  /**
+   * GET /clients/:id
+   */
+  async fetchClientDetail(clientId: number): Promise<ClientDto> {
+    return this.request<ClientDto>(`/clients/${clientId}`, { method: "GET" });
+  }
+
+  /**
+   * POST /clients
+   */
+  async createClient(data: Record<string, unknown>): Promise<ClientDto> {
+    return this.request<ClientDto>("/clients", {
+      method: "POST",
+      body: data,
     });
   }
 
-  async getLiveRates(request: LiveRatesRequestDto): Promise<RateDto[]> {
-    return this.request<RateDto[]>("POST", "/rates/live", {
-      body: request,
+  /**
+   * PUT /clients/:id
+   */
+  async updateClient(
+    clientId: number,
+    data: UpdateClientInput
+  ): Promise<ClientDto> {
+    return this.request<ClientDto>(`/clients/${clientId}`, {
+      method: "PUT",
+      body: data,
     });
   }
 
-  // Bulk cached rates endpoint used by the React parity app
-  async fetchRatesCachedBulk(groups: any[], options?: { signal?: AbortSignal }): Promise<any> {
-    return this.request<any>("POST", "/rates/cached/bulk", {
-      body: { groups },
-      signal: options?.signal,
-    });
-  }
-
-  // Live rates endpoint used by the React parity app
-  async fetchRatesLive(request: any, options?: { signal?: AbortSignal }): Promise<RateDto[]> {
-    return this.request<RateDto[]>("POST", "/rates", {
-      body: request,
-      signal: options?.signal,
-    });
-  }
-
-  // Bulk product defaults lookup used by the React parity app
-  async getProductBulk(skus: string[], options?: { signal?: AbortSignal }): Promise<Record<string, any>> {
-    const query = skus.map(encodeURIComponent).join(",");
-    return this.request<Record<string, any>>("GET", `/products/bulk?skus=${query}`, {
-      signal: options?.signal,
-    });
-  }
-
-  // ====== Locations ======
-  async listLocations(): Promise<LocationDto[]> {
-    return this.request<LocationDto[]>("GET", "/locations");
-  }
-
-  async createLocation(input: SaveLocationInput): Promise<LocationDto> {
-    return this.request<LocationDto>("POST", "/locations", {
-      body: input,
-    });
-  }
-
-  async updateLocation(locationId: number, input: SaveLocationInput): Promise<LocationDto> {
-    return this.request<LocationDto>("PUT", `/locations/${locationId}`, {
-      body: input,
-    });
-  }
-
-  async deleteLocation(locationId: number): Promise<void> {
-    return this.request<void>("DELETE", `/locations/${locationId}`);
-  }
-
-  // ====== Clients / Stores ======
-  async listClients(): Promise<ClientDto[]> {
-    return this.request<ClientDto[]>("GET", "/clients");
-  }
-
-  async createClient(input: CreateClientInput): Promise<ClientDto> {
-    return this.request<ClientDto>("POST", "/clients", {
-      body: input,
-    });
-  }
-
-  async updateClient(clientId: number, input: UpdateClientInput): Promise<ClientDto> {
-    return this.request<ClientDto>("PUT", `/clients/${clientId}`, {
-      body: input,
-    });
-  }
-
-  async deleteClient(clientId: number): Promise<void> {
-    return this.request<void>("DELETE", `/clients/${clientId}`);
-  }
-
-  // ====== Init / Carriers ======
-  async getInitData(): Promise<InitDataDto> {
-    return this.request<InitDataDto>("GET", "/init");
-  }
-
-  async getCarriers(): Promise<CarrierAccountDto[]> {
-    return this.request<CarrierAccountDto[]>("GET", "/carriers");
-  }
-
-  // ====== Batch Operations ======
-  async createLabels(orderIds: number[]): Promise<{ shipmentIds: number[] }> {
-    return this.request<{ shipmentIds: number[] }>("POST", "/batch/create-labels", {
-      body: { orderIds },
-    });
-  }
-
-  async markShipped(orderIds: number[], source?: string): Promise<void> {
-    return this.request<void>("POST", "/batch/mark-shipped", {
-      body: { orderIds, source },
-    });
-  }
-
-  async exportCsv(orderIds: number[]): Promise<Blob> {
-    const response = await fetch(`${this.baseUrl}/batch/export-csv?ids=${orderIds.join(",")}`);
-    if (!response.ok) {
-      throw new Error(`Failed to export CSV: ${response.statusText}`);
+  /**
+   * GET /inventory
+   */
+  async fetchInventory(query?: ListInventoryQuery): Promise<InventoryItemDto[]> {
+    const queryParams: Record<string, unknown> = {};
+    if (query) {
+      if (query.clientId !== undefined) queryParams.clientId = query.clientId;
+      if (query.sku !== undefined) queryParams.sku = query.sku;
     }
-    return response.blob();
+    return this.request<InventoryItemDto[]>("/inventory", {
+      method: "GET",
+      query: queryParams,
+    });
+  }
+
+  /**
+   * GET /inventory/:id
+   */
+  async fetchInventoryDetail(invSkuId: number): Promise<InventoryItemDto> {
+    return this.request<InventoryItemDto>(`/inventory/${invSkuId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * PUT /inventory/:id
+   */
+  async updateInventoryItem(
+    invSkuId: number,
+    data: UpdateInventoryItemInput
+  ): Promise<InventoryItemDto> {
+    return this.request<InventoryItemDto>(`/inventory/${invSkuId}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  /**
+   * GET /inventory/alerts
+   */
+  async fetchInventoryAlerts(): Promise<InventoryAlertDto[]> {
+    return this.request<InventoryAlertDto[]>("/inventory/alerts", {
+      method: "GET",
+    });
+  }
+
+  /**
+   * GET /inventory/ledger
+   */
+  async fetchInventoryLedger(
+    query: ListInventoryLedgerQuery
+  ): Promise<InventoryLedgerEntryDto[]> {
+    const queryParams: Record<string, unknown> = {
+      limit: query.limit,
+    };
+    if (query.clientId !== undefined) queryParams.clientId = query.clientId;
+    if (query.type !== undefined) queryParams.type = query.type;
+    if (query.dateStart !== undefined) queryParams.dateStart = query.dateStart;
+    if (query.dateEnd !== undefined) queryParams.dateEnd = query.dateEnd;
+    
+    return this.request<InventoryLedgerEntryDto[]>("/inventory/ledger", {
+      method: "GET",
+      query: queryParams,
+    });
+  }
+
+  /**
+   * POST /inventory/receive
+   */
+  async receiveInventory(
+    data: ReceiveInventoryInput
+  ): Promise<ReceiveInventoryResultDto[]> {
+    return this.request<ReceiveInventoryResultDto[]>("/inventory/receive", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  /**
+   * POST /inventory/adjust
+   */
+  async adjustInventory(data: AdjustInventoryInput): Promise<InventoryItemDto> {
+    return this.request<InventoryItemDto>("/inventory/adjust", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  /**
+   * GET /inventory/parent/:id
+   */
+  async fetchParentSkuDetail(parentSkuId: number): Promise<ParentSkuDetailDto> {
+    return this.request<ParentSkuDetailDto>(`/inventory/parent/${parentSkuId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * GET /locations
+   */
+  async fetchLocations(): Promise<LocationDto[]> {
+    return this.request<LocationDto[]>("/locations", { method: "GET" });
+  }
+
+  /**
+   * GET /locations/:id
+   */
+  async fetchLocationDetail(locationId: number): Promise<LocationDto> {
+    return this.request<LocationDto>(`/locations/${locationId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * POST /locations
+   */
+  async createLocation(data: SaveLocationInput): Promise<LocationDto> {
+    return this.request<LocationDto>("/locations", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  /**
+   * PUT /locations/:id
+   */
+  async updateLocation(
+    locationId: number,
+    data: SaveLocationInput
+  ): Promise<LocationDto> {
+    return this.request<LocationDto>(`/locations/${locationId}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  /**
+   * DELETE /locations/:id
+   */
+  async deleteLocation(locationId: number): Promise<void> {
+    await this.request(`/locations/${locationId}`, { method: "DELETE" });
+  }
+
+  /**
+   * GET /shipments/sync-status
+   */
+  async fetchShipmentSyncStatus(): Promise<ShipmentSyncStatusDto> {
+    return this.request<ShipmentSyncStatusDto>("/shipments/sync-status", {
+      method: "GET",
+    });
+  }
+
+  /**
+   * POST /shipments/sync
+   */
+  async triggerShipmentSync(): Promise<{ queued: boolean }> {
+    return this.request<{ queued: boolean }>("/shipments/sync", {
+      method: "POST",
+    });
+  }
+
+  /**
+   * GET /legacy-sync-status
+   */
+  async fetchLegacySyncStatus(): Promise<LegacySyncStatusDto> {
+    return this.request<LegacySyncStatusDto>("/legacy-sync-status", {
+      method: "GET",
+    });
+  }
+
+  /**
+   * POST /legacy-sync
+   */
+  async triggerLegacySync(mode?: "incremental" | "full"): Promise<{ queued: boolean }> {
+    return this.request<{ queued: boolean }>("/legacy-sync", {
+      method: "POST",
+      body: mode ? { mode } : undefined,
+    });
+  }
+
+  /**
+   * GET /products
+   */
+  async fetchProducts(query?: { clientId?: number }): Promise<ProductDefaultsDto[]> {
+    return this.request<ProductDefaultsDto[]>("/products", {
+      method: "GET",
+      query,
+    });
+  }
+
+  /**
+   * POST /products
+   */
+  async saveProductDefaults(
+    data: SaveProductDefaultsInput
+  ): Promise<SaveProductDefaultsResult> {
+    return this.request<SaveProductDefaultsResult>("/products", {
+      method: "POST",
+      body: data,
+    });
   }
 }
 
-// Create global instance
-// Token will be injected server-side via index.html data attribute
+/**
+ * Singleton instance
+ */
 export const apiClient = new ApiClient();
+
+/**
+ * Export for testing/overrides
+ */
+export default apiClient;
