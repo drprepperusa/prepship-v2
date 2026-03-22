@@ -2,7 +2,7 @@ import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const sessionToken = process.env.SESSION_TOKEN ?? 'dev-only-insecure-token-change-me'
+const sessionToken = process.env.SESSION_TOKEN ?? 'b05b4996d27144788a085477e5db30fbe2e057c7029ab2617647704bf3a07c75'
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:4010'
 
 export default defineConfig({
