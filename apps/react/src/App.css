@@ -1,52 +1,78 @@
-.app-container {
-  display: flex;
-  height: 100vh;
-  width: 100%;
-  background: var(--background);
+.react-placeholder-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:var(--shadow);
+  max-width:520px;
+  padding:20px 22px;
 }
 
-.mobile-menu-toggle {
-  display: none;
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 1001;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-size: 20px;
-  cursor: pointer;
+.react-placeholder-eyebrow{
+  color:var(--text3);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.5px;
+  margin-bottom:8px;
+  text-transform:uppercase;
 }
 
-.main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--background);
+.react-placeholder-card h2{
+  color:var(--text);
+  font-size:18px;
+  margin-bottom:8px;
 }
 
-.view-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: 16px;
+.react-placeholder-card p{
+  color:var(--text2);
+  font-size:13px;
+  line-height:1.55;
 }
 
-/* Mobile responsiveness */
-@media (max-width: 768px) {
-  .mobile-menu-toggle {
-    display: block;
-  }
-  
-  .app-container {
-    flex-direction: column;
-  }
-  
-  .main-content {
-    width: 100%;
-  }
+.react-zoom-wrap .zoom-opt{
+  width:100%;
+  text-align:left;
+  background:none;
+  border:none;
+}
+
+.react-sidebar-clear{
+  position:absolute;
+  right:10px;
+  top:50%;
+  transform:translateY(-50%);
+  background:none;
+  border:none;
+  color:var(--text3);
+  cursor:pointer;
+  font-size:12px;
+  line-height:1;
+  padding:2px;
+}
+
+.react-empty-panel{
+  display:flex;
+  flex:1;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:8px;
+  padding:24px;
+  color:var(--text3);
+  text-align:center;
+}
+
+.react-empty-panel-icon{
+  font-size:36px;
+}
+
+.react-empty-panel-title{
+  color:var(--text);
+  font-size:14px;
+  font-weight:700;
+}
+
+.react-empty-panel-copy{
+  max-width:240px;
+  font-size:12px;
+  line-height:1.5;
 }

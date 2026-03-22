@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "../api/client";
-import type { ListOrdersResponse, OrderSummaryDto } from "@prepshipv2/contracts/orders/contracts";
+import type { OrderSummaryDto } from "../types/api";
 
 export interface UseOrdersOptions {
   page?: number;
@@ -32,7 +32,7 @@ export function useOrders(status: string, options: UseOrdersOptions = {}): UseOr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchOrders = useCallback(async (pageNum: number = currentPage) => {
+  const fetchOrders = useCallback(async (pageNum: number) => {
     setLoading(true);
     setError(null);
 
@@ -58,11 +58,11 @@ export function useOrders(status: string, options: UseOrdersOptions = {}): UseOr
     } finally {
       setLoading(false);
     }
-  }, [status, pageSize, storeId, clientId, dateStart, dateEnd, currentPage]);
+  }, [status, pageSize, storeId, clientId, dateStart, dateEnd]);
 
   useEffect(() => {
-    fetchOrders(1); // Reset to page 1 when filters change
-  }, [status, storeId, clientId, pageSize, dateStart, dateEnd]);
+    void fetchOrders(page);
+  }, [fetchOrders, page]);
 
   const goToPage = useCallback(
     async (pageNum: number) => {

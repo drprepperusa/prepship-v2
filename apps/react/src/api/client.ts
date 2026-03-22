@@ -6,7 +6,11 @@
 import type {
   ListOrdersQuery,
   ListOrdersResponse,
+  OrderFullDto,
   ClientDto,
+  CarrierAccountDto,
+  InitCountsDto,
+  InitStoreDto,
   InventoryItemDto,
   InventoryLedgerEntryDto,
   InventoryAlertDto,
@@ -174,11 +178,22 @@ class ApiClient {
     });
   }
 
+  async listOrders(query: ListOrdersQuery): Promise<ListOrdersResponse> {
+    return this.fetchOrders(query);
+  }
+
   /**
    * GET /orders/:id
    */
   async fetchOrderDetail(orderId: number): Promise<unknown> {
     return this.request(`/orders/${orderId}`, { method: "GET" });
+  }
+
+  /**
+   * GET /orders/:id/full
+   */
+  async fetchOrderFull(orderId: number): Promise<OrderFullDto> {
+    return this.request<OrderFullDto>(`/orders/${orderId}/full`, { method: "GET" });
   }
 
   /**
@@ -199,6 +214,24 @@ class ApiClient {
    */
   async fetchClients(): Promise<ClientDto[]> {
     return this.request<ClientDto[]>("/clients", { method: "GET" });
+  }
+
+  async listClients(): Promise<ClientDto[]> {
+    return this.fetchClients();
+  }
+
+  /**
+   * GET /counts
+   */
+  async fetchCounts(): Promise<InitCountsDto> {
+    return this.request<InitCountsDto>("/counts", { method: "GET" });
+  }
+
+  /**
+   * GET /stores
+   */
+  async fetchStores(): Promise<InitStoreDto[]> {
+    return this.request<InitStoreDto[]>("/stores", { method: "GET" });
   }
 
   /**
@@ -333,6 +366,13 @@ class ApiClient {
    */
   async fetchLocations(): Promise<LocationDto[]> {
     return this.request<LocationDto[]>("/locations", { method: "GET" });
+  }
+
+  /**
+   * GET /carrier-accounts
+   */
+  async fetchCarrierAccounts(): Promise<CarrierAccountDto[]> {
+    return this.request<CarrierAccountDto[]>("/carrier-accounts", { method: "GET" });
   }
 
   /**

@@ -44,6 +44,8 @@ export interface OrderSummaryDto {
     cost: number | null;
     rawCost: number | null;
     shipDate: string | null;
+    createdAt?: string | null;
+    labelUrl?: string | null;
   };
   items: unknown[];
   raw: unknown;
@@ -69,6 +71,12 @@ export interface OrderSelectedRateDto {
   otherCost: number | null;
 }
 
+export interface OrderFullDto {
+  raw: Record<string, unknown>;
+  shipments: Array<Record<string, unknown>>;
+  local: Record<string, unknown> | null;
+}
+
 /** Row type for Orders table */
 export type OrderRow = OrderSummaryDto;
 
@@ -87,6 +95,46 @@ export interface ListOrdersResponse {
   page: number;
   pages: number;
   total: number;
+}
+
+// ============================================================================
+// INIT / SIDEBAR
+// ============================================================================
+
+export interface InitStoreDto {
+  storeId: number;
+  storeName: string;
+  marketplaceId: number | null;
+  marketplaceName: string | null;
+  accountName: string | null;
+  email: string | null;
+  integrationUrl: string | null;
+  active: boolean;
+  companyName: string;
+  phone: string;
+  publicEmail: string;
+  website: string;
+  refreshDate: string | null;
+  lastRefreshAttempt: string | null;
+  createDate: string | null;
+  modifyDate: string | null;
+  autoRefresh: boolean;
+  statusMappings: unknown;
+  isLocal?: boolean;
+}
+
+export interface OrdersByStatusDto {
+  orderStatus: string;
+  cnt: number;
+}
+
+export interface OrdersByStatusStoreDto extends OrdersByStatusDto {
+  storeId: number | null;
+}
+
+export interface InitCountsDto {
+  byStatus: OrdersByStatusDto[];
+  byStatusStore: OrdersByStatusStoreDto[];
 }
 
 // ============================================================================
@@ -304,6 +352,16 @@ export interface LocationDto {
   phone: string;
   isDefault: boolean;
   active: boolean;
+}
+
+export interface CarrierAccountDto {
+  carrierId: string;
+  carrierCode: string;
+  shippingProviderId: number;
+  nickname: string;
+  clientId: number | null;
+  code: string;
+  _label: string;
 }
 
 /** Row type for Locations table */

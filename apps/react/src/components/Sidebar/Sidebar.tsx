@@ -1,287 +1,181 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useStoreOrders, useStores } from '../../hooks'
-import { useStoreVisibility } from '../../contexts/StoreVisibilityContext'
-import { getOrdersDateRange } from '../Views/orders-view-filters'
-import './Sidebar.css'
+import { useEffect, useMemo, useState } from 'react'
+import { apiClient } from '../../api/client'
+import type { InitCountsDto, InitStoreDto } from '../../types/api'
+import { buildSidebarSections, SIDEBAR_STATUSES, type SidebarOrderStatus } from './sidebar-data'
 
-type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
-type OrdersDateFilter = '' | 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'custom'
 
 interface SidebarProps {
-  currentStatus: OrderStatus
-  onSelectStatus: (status: OrderStatus) => void
+  currentStatus: SidebarOrderStatus
+  currentView: ViewType
+  stores: InitStoreDto[]
   onShowView: (view: ViewType) => void
+  onSelectStatus: (status: SidebarOrderStatus) => void
   mobileMenuOpen: boolean
   onCloseMobileMenu?: () => void
   onSearch?: (query: string) => void
-  onSelectStore?: (clientId: number) => void
+  onSelectStore?: (storeId: number | null) => void
   activeStore?: number | null
-  dateFilter?: OrdersDateFilter
 }
 
-export default function Sidebar({ currentStatus, onSelectStatus, onShowView, mobileMenuOpen, onCloseMobileMenu, onSearch, onSelectStore, activeStore, dateFilter }: SidebarProps) {
-  const [expandedSections, setExpandedSections] = useState<Set<OrderStatus>>(new Set(['awaiting_shipment']))
-  const [statusCounts, setStatusCounts] = useState<Record<OrderStatus, number>>({
-    awaiting_shipment: 0,
-    shipped: 0,
-    cancelled: 0,
-  })
-  const [storeCountsByStatus, setStoreCountsByStatus] = useState<Record<OrderStatus, Record<number, number>>>({
-    awaiting_shipment: {},
-    shipped: {},
-    cancelled: {},
-  })
-  const [searchValue, setSearchValue] = useState('')
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+const STATUS_LABELS: Record<SidebarOrderStatus, string> = {
+  awaiting_shipment: 'Awaiting Shipment',
+  shipped: 'Shipped',
+  cancelled: 'Cancelled',
+}
 
-  const { stores } = useStores()
-  const { visibleStores } = useStoreVisibility()
+const TOOL_ITEMS: Array<{ view: ViewType; icon: string; label: string }> = [
+  { view: 'inventory', icon: '📦', label: 'Inventory' },
+  { view: 'locations', icon: '📍', label: 'Locations' },
+  { view: 'packages', icon: '📐', label: 'Packages' },
+  { view: 'rates', icon: '💰', label: 'Rate Shop' },
+  { view: 'analysis', icon: '📊', label: 'Analysis' },
+  { view: 'settings', icon: '⚙️', label: 'Settings' },
+  { view: 'billing', icon: '🧾', label: 'Billing' },
+]
+
+export default function Sidebar({
+  currentStatus,
+  currentView,
+  stores,
+  onSelectStatus,
+  onShowView,
+  mobileMenuOpen,
+  onCloseMobileMenu,
+  onSearch,
+  onSelectStore,
+  activeStore,
+}: SidebarProps) {
+  const [expandedSections, setExpandedSections] = useState<Set<SidebarOrderStatus>>(new Set(['awaiting_shipment']))
+  const [counts, setCounts] = useState<InitCountsDto | null>(null)
+  const [searchValue, setSearchValue] = useState('')
 
   useEffect(() => {
-    fetchStatusCounts()
-  }, [visibleStores, dateFilter])
-
-  const fetchStatusCounts = async () => {
-    const fetchWithRetry = async (url: string, maxRetries = 3): Promise<Record<number, number>> => {
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          const res = await fetch(url)
-          
-          // Handle 429 with exponential backoff
-          if (res.status === 429) {
-            const retryAfter = parseInt(res.headers.get('Retry-After') || '1', 10)
-            const waitTime = Math.min(retryAfter * 1000 * Math.pow(2, attempt), 10000) // Cap at 10s
-            console.warn(`Rate limited. Retrying in ${waitTime}ms...`)
-            await new Promise(resolve => setTimeout(resolve, waitTime))
-            continue
-          }
-          
-          if (!res.ok) {
-            throw new Error(`API error: ${res.status} ${res.statusText}`)
-          }
-          
-          return await res.json() as Record<number, number>
-        } catch (error) {
-          if (attempt === maxRetries - 1) throw error
-        }
+    const loadCounts = async () => {
+      try {
+        setCounts(await apiClient.fetchCounts())
+      } catch (error) {
+        console.error('Failed to fetch sidebar counts:', error)
       }
-      return {}
     }
-    
-    try {
-      // Build date range params if dateFilter is set
-      const dateRange = dateFilter ? getOrdersDateRange(dateFilter) : null
-      const dateParams = dateRange
-        ? `&startDate=${dateRange.start?.toISOString().split('T')[0]}&endDate=${dateRange.end?.toISOString().split('T')[0]}`
-        : ''
-      
-      // Use server-side store aggregation endpoint for fast, accurate counts
-      const [awaitingCounts, shippedCounts, cancelledCounts] = await Promise.all([
-        fetchWithRetry(`/api/orders/store-counts?orderStatus=awaiting_shipment${dateParams}`),
-        fetchWithRetry(`/api/orders/store-counts?orderStatus=shipped${dateParams}`),
-        fetchWithRetry(`/api/orders/store-counts?orderStatus=cancelled${dateParams}`),
-      ])
-      
-      // Calculate totals from store counts
-      const getTotal = (counts: Record<number, number>) => Object.values(counts).reduce((a, b) => a + b, 0)
-      
-      setStatusCounts({
-        awaiting_shipment: getTotal(awaitingCounts),
-        shipped: getTotal(shippedCounts),
-        cancelled: getTotal(cancelledCounts),
-      })
-      
-      setStoreCountsByStatus({
-        awaiting_shipment: awaitingCounts,
-        shipped: shippedCounts,
-        cancelled: cancelledCounts,
-      })
-    } catch (error) {
-      console.error('Failed to fetch status counts after retries:', error)
-    }
-  }
 
-  const toggleSection = (status: OrderStatus) => {
-    const newExpanded = new Set(expandedSections)
-    if (newExpanded.has(status)) {
-      newExpanded.delete(status)
-    } else {
-      newExpanded.add(status)
-    }
-    setExpandedSections(newExpanded)
-  }
+    void loadCounts()
+    const intervalId = window.setInterval(() => {
+      void loadCounts()
+    }, 30000)
 
-  // Debounced search
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchValue(value)
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => {
-      onSearch?.(value)
-    }, 300)
-  }, [onSearch])
+    return () => window.clearInterval(intervalId)
+  }, [])
 
-  const handleClearSearch = () => {
-    setSearchValue('')
-    onSearch?.('')
-  }
-
-  const statuses: OrderStatus[] = ['awaiting_shipment', 'shipped', 'cancelled']
-  const statusLabels: Record<OrderStatus, string> = {
-    awaiting_shipment: 'Awaiting Shipment',
-    shipped: 'Shipped',
-    cancelled: 'Cancelled',
-  }
+  const sidebarSections = useMemo(() => buildSidebarSections(stores, counts), [stores, counts])
 
   return (
-    <>
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
-        <div
-          onClick={onCloseMobileMenu}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,.4)',
-            zIndex: 999,
-            cursor: 'pointer',
+    <div className={`sidebar${mobileMenuOpen ? ' mobile-open' : ''}`}>
+      <div className="sidebar-logo">
+        <div className="logo-wordmark">PREP<span>SHIP</span></div>
+        <div className="logo-sub">DR PREPPER Fulfillment</div>
+      </div>
+
+      <div className="sidebar-search">
+        <input
+          type="text"
+          placeholder="Search Orders…"
+          value={searchValue}
+          onChange={(event) => {
+            setSearchValue(event.target.value)
+            onSearch?.(event.target.value)
           }}
         />
-      )}
+        {searchValue ? (
+          <button
+            type="button"
+            className="react-sidebar-clear"
+            onClick={() => {
+              setSearchValue('')
+              onSearch?.('')
+            }}
+            aria-label="Clear search"
+          >
+            ✕
+          </button>
+        ) : null}
+      </div>
 
-      <div className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`} style={{
-        // Mobile: fixed, slides in from left
-        ...(typeof window !== 'undefined' && window.innerWidth <= 768 ? {
-          position: 'fixed',
-          left: mobileMenuOpen ? 0 : '-17.5rem',
-          top: 0,
-          bottom: 0,
-          zIndex: 1000,
-          transition: 'left 0.2s ease',
-        } : {}),
-      }}>
-        <div className="sidebar-logo">
-          <div className="logo-wordmark">PREP<span>SHIP</span></div>
-          <div className="logo-sub">DR PREPPER Fulfillment</div>
-        </div>
-
-        {/* Search */}
-        <div className="sidebar-search" style={{ position: 'relative' }}>
-          <input
-            type="text"
-            placeholder="Search Orders…"
-            value={searchValue}
-            onChange={e => handleSearchChange(e.target.value)}
-            style={{ paddingRight: searchValue ? '1.75rem' : undefined }}
-          />
-          {searchValue && (
-            <button
-              onClick={handleClearSearch}
-              style={{
-                position: 'absolute',
-                right: '0.75rem',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text3)',
-                fontSize: '0.8125rem',
-                padding: '0.125rem',
-                lineHeight: 1,
+      <div className="sidebar-nav">
+        {SIDEBAR_STATUSES.map((status) => (
+          <div key={status} className={`ss-section${expandedSections.has(status) ? ' expanded' : ''}`}>
+            <div
+              className={`ss-header${currentView === 'orders' && currentStatus === status && activeStore == null ? ' active' : ''}`}
+              onClick={() => {
+                onSelectStore?.(null)
+                onSelectStatus(status)
+                onCloseMobileMenu?.()
               }}
             >
-              ✕
-            </button>
-          )}
-        </div>
-
-        <div className="sidebar-nav">
-          {statuses.map((status) => (
-            <div
-              key={status}
-              className={`ss-section ${expandedSections.has(status) ? 'expanded' : ''}`}
-            >
-              <div
-                className={`ss-header ${currentStatus === status ? 'active' : ''}`}
-                onClick={() => onSelectStatus(status)}
+              <span
+                className="ss-arrow"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setExpandedSections((current) => {
+                    const next = new Set(current)
+                    if (next.has(status)) next.delete(status)
+                    else next.add(status)
+                    return next
+                  })
+                }}
               >
-                <span
-                  className="ss-arrow"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    toggleSection(status)
-                  }}
-                >
-                  ▶
-                </span>
-                <span className="ss-label">{statusLabels[status]}</span>
-                <span className="ss-badge">{statusCounts[status] || '—'}</span>
-              </div>
-              {expandedSections.has(status) && (
-                <div className="ss-stores">
-                  {stores
-                    .map((store) => {
-                      const counts = storeCountsByStatus[status] || {}
-                      const count = (store.storeIds || []).reduce((sum: number, sid: number) => sum + (counts[sid] || 0), 0)
-                      // Calculate global total (sum across all statuses)
-                      const globalTotal = (['awaiting_shipment', 'shipped', 'cancelled'] as OrderStatus[]).reduce((sum, s) => {
-                        const c = storeCountsByStatus[s] || {}
-                        return sum + (store.storeIds || []).reduce((storeSum: number, sid: number) => storeSum + (c[sid] || 0), 0)
-                      }, 0)
-                      return { store, count, globalTotal }
-                    })
-                    .filter(({ store }) => visibleStores.has(store.clientId.toString()))
-                    .sort(({ globalTotal: a }, { globalTotal: b }) => b - a)
-                    .map(({ store, count }) => (
-                      <div 
-                        key={store.clientId} 
-                        className={`ss-store ${activeStore === store.clientId ? 'selected' : ''}`}
-                        onClick={() => { 
-                          onSelectStatus(status)
-                          onSelectStore?.(store.clientId)
-                        }}
-                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                      >
-                        <span className="ss-store-name">{store.name}</span>
-                        <span className="ss-store-count">{count}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
+                ▶
+              </span>
+              <span className="ss-label">{STATUS_LABELS[status]}</span>
+              <span className="ss-badge">{counts ? sidebarSections[status].total.toLocaleString() : '—'}</span>
+            </div>
+
+            <div className="ss-stores">
+              {sidebarSections[status].stores.map((store) => {
+                return (
+                  <div
+                    key={`${status}-${store.storeId}`}
+                    className={`ss-store${currentView === 'orders' && activeStore === store.storeId && currentStatus === status ? ' active' : ''}${store.cnt === 0 ? ' ss-store-zero' : ''}`}
+                    onClick={() => {
+                      onSelectStore?.(store.storeId)
+                      onSelectStatus(status)
+                      onCloseMobileMenu?.()
+                    }}
+                  >
+                    <span className="ss-store-name">{store.name}</span>
+                    <span className="ss-store-count">{store.cnt > 0 ? store.cnt.toLocaleString() : ''}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div className="sidebar-divider" />
+
+        <div className="sidebar-tools">
+          {TOOL_ITEMS.map((tool) => (
+            <div
+              key={tool.view}
+              className={`sidebar-tool-item${currentView === tool.view ? ' active' : ''}`}
+              onClick={() => {
+                onShowView(tool.view)
+                onCloseMobileMenu?.()
+              }}
+            >
+              <span className="sidebar-tool-icon">{tool.icon}</span> {tool.label}
             </div>
           ))}
-
-          <div className="sidebar-divider"></div>
-
-          <div className="sidebar-tools">
-            {[
-              { view: 'inventory' as ViewType, icon: '📦', label: 'Inventory' },
-              { view: 'locations' as ViewType, icon: '📍', label: 'Locations' },
-              { view: 'packages' as ViewType, icon: '📐', label: 'Packages' },
-              { view: 'rates' as ViewType, icon: '💰', label: 'Rate Shop' },
-              { view: 'analysis' as ViewType, icon: '📊', label: 'Analysis' },
-              { view: 'settings' as ViewType, icon: '⚙️', label: 'Settings' },
-              { view: 'billing' as ViewType, icon: '🧾', label: 'Billing' },
-              { view: 'manifests' as ViewType, icon: '📋', label: 'Manifests' },
-            ].map(({ view, icon, label }) => (
-              <div
-                key={view}
-                className="sidebar-tool-item"
-                onClick={() => onShowView(view)}
-                style={{ minHeight: '2.75rem', display: 'flex', alignItems: 'center' }}
-              >
-                <span className="sidebar-tool-icon">{icon}</span> {label}
-              </div>
-            ))}
+          <div className="sidebar-tool-item">
+            <span className="sidebar-tool-icon">📋</span> Manifests
           </div>
         </div>
-
-        <div className="sidebar-bottom">
-          <div><span className="conn-dot"></span>ShipStation Connected</div>
-          <div style={{ marginTop: '0.125rem' }}>DR PREPPER USA · Gardena CA</div>
-        </div>
       </div>
-    </>
+
+      <div className="sidebar-bottom">
+        <div><span className="conn-dot" />ShipStation Connected</div>
+        <div style={{ marginTop: 2 }}>DR PREPPER USA · Gardena CA</div>
+      </div>
+    </div>
   )
 }
