@@ -287,15 +287,8 @@ async function printAll(entryIds) {
       if (statusData.status === 'done') {
         done = true;
 
-        // Download the merged PDF
-        const dlRes = await fetch(`/api/queue/print/download/${jobId}`);
-        if (!dlRes.ok) throw new Error('Failed to download merged PDF');
-
-        const blob = await dlRes.blob();
-        const url = URL.createObjectURL(blob);
-        // Open in new tab for printing — do not auto-download
-        window.open(url, '_blank');
-        setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+        // Open the PDF directly via API URL — Chrome renders it inline
+        window.open(`/api/queue/print/download/${jobId}`, '_blank');
 
         showToast(`✅ ${total} label${total !== 1 ? 's' : ''} — opened in new tab`);
         await hydrateQueueFromDB(queueState.clientId);

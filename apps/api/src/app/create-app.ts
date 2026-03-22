@@ -1280,7 +1280,7 @@ export function createApp(dependencies: AppDependencies) {
         status: 200,
         headers: {
           "content-type": "application/pdf",
-          "content-disposition": `attachment; filename="${dl.fileName}"`,
+          "content-disposition": `inline; filename="${dl.fileName}"`,
           "content-length": String(pdfBytes.byteLength),
         },
       });
