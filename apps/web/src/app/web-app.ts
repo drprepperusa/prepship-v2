@@ -63,9 +63,8 @@ async function proxyApiRequest(
   const headers = new Headers(request.headers);
   headers.delete("host");
   
-  // Match the API's local dev fallback token so the copied frontend works
-  // even when SESSION_TOKEN is not explicitly exported.
-  headers.set("x-app-token", process.env.SESSION_TOKEN ?? "dev-only-insecure-token-change-me");
+  // Inject SESSION_TOKEN — set via launchd plist; falls back to dev token for local dev only.
+  headers.set("x-app-token", process.env.SESSION_TOKEN ?? "b05b4996d27144788a085477e5db30fbe2e057c7029ab2617647704bf3a07c75");
   
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
 
