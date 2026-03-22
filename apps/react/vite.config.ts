@@ -37,5 +37,6 @@ export default defineConfig({
   },
   define: {
     'import.meta.env.VITE_SESSION_TOKEN': JSON.stringify(sessionToken),
+    'import.meta.env.VITE_API_PROXY_TARGET': JSON.stringify(apiProxyTarget),
   },
 })
