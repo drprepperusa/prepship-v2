@@ -66,17 +66,17 @@ export default function OrdersView({
               </tr>
             ) : (
               filteredOrders.map((order: any) => (
-                <tr key={order.id}>
-                  <td className="order-id">{order.id}</td>
+                <tr key={order.orderId}>
+                  <td className="order-id">{order.orderNumber}</td>
                   <td>{order.customerEmail || '—'}</td>
                   <td>{order.items?.length || 0} items</td>
-                  <td>${(order.total || 0).toFixed(2)}</td>
+                  <td>${(order.orderTotal || 0).toFixed(2)}</td>
                   <td>
                     <span className={`status-badge status-${status}`}>
                       {status.replace('_', ' ')}
                     </span>
                   </td>
-                  <td>{new Date(order.createdAt).toLocaleDateString()}</td>
+                  <td>{new Date(order.orderDate).toLocaleDateString()}</td>
                 </tr>
               ))
             )}
