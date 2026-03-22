@@ -293,15 +293,11 @@ async function printAll(entryIds) {
 
         const blob = await dlRes.blob();
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = statusData.file_name || `batch_print_${Date.now()}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        // Open in new tab for printing — do not auto-download
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
 
-        showToast(`✅ ${total} label${total !== 1 ? 's' : ''} printed — downloading PDF…`);
+        showToast(`✅ ${total} label${total !== 1 ? 's' : ''} — opened in new tab`);
         await hydrateQueueFromDB(queueState.clientId);
 
       } else if (statusData.status === 'error') {
