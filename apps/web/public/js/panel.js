@@ -34,6 +34,7 @@ const productDefaultsCache = {}; // sku → product object (or null if not found
 let _panelRateTimer = null;
 let _dimsAutoTimer  = null;
 let _panelStoreId = null; // set from openPanel(); used to fetch per-store carriers
+let _panelInputsDirty = false; // true when user has changed weight/dims — bypass bestRate cache
 
 // Preset dimensions
 const PRESETS = {
@@ -186,6 +187,7 @@ export async function openPanel(id) {
 
   // Start rate fetch — only for awaiting_shipment orders
   if (o.orderStatus === 'awaiting_shipment') {
+    _panelInputsDirty = false; // fresh panel open — bestRate cache is valid
     fetchPanelRate(o);
   }
 }
@@ -792,8 +794,9 @@ export async function fetchPanelRate(o) {
   if (!totalOz)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add weight</span>`; if(lb) lb.textContent='Scout Review'; return; }
   if (!hasDims)  { if(el) el.innerHTML=`<span style="color:var(--text3);font-size:11px">— add dims</span>`;   if(lb) lb.textContent='Scout Review'; return; }
 
-  // We have weight AND dims. Display cached bestRate if available, otherwise fetch new rates
-  if (o.bestRate) {
+  // We have weight AND dims. Display cached bestRate if available and inputs haven't changed.
+  // If user edited weight/dims, _panelInputsDirty=true — skip cache and fetch fresh rates.
+  if (o.bestRate && !_panelInputsDirty) {
     try {
       console.log(`[fetchPanelRate] Displaying cached bestRate for order ${o.orderId}`, { best: o.bestRate });
       const best = o.bestRate;
@@ -921,6 +924,7 @@ export async function fetchPanelRate(o) {
 
 // ─── Debounced rate fetch ──────────────────────────────────────────────────────
 export function debouncePanelRate() {
+  _panelInputsDirty = true; // user changed weight/dims — bypass stale bestRate cache
   clearTimeout(_panelRateTimer);
   const el = document.getElementById('panel-rate-val');
   if (el) el.innerHTML = '<span style="color:var(--text3);font-size:11px">typing…</span>';
