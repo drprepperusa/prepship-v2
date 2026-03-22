@@ -147,7 +147,7 @@ export function generateMockLabelHtml(data: MockLabelData): string {
     </div>
 
     <div class="order-row">
-      <span><b>Order #:</b> ${data.orderNumber ?? "—"}</span>
+      <span><b>Order #:</b> ${data.orderNumber ?? "-"}</span>
       <span><b>Ship Date:</b> ${data.shipDate}</span>
     </div>
     <div class="order-row">
@@ -206,7 +206,7 @@ export async function generateMockLabelPdf(data: MockLabelData): Promise<string>
 
   // Red VOID banner at top
   page.drawRectangle({ x: 0, y: 400, width: 288, height: 32, color: red });
-  page.drawText("⚠ VOID — TEST LABEL — DO NOT SHIP ⚠", {
+  page.drawText("*** VOID - TEST LABEL - DO NOT SHIP ***", {
     x: 8, y: 410, size: 7, font, color: white,
   });
 
@@ -253,7 +253,7 @@ export async function generateMockLabelPdf(data: MockLabelData): Promise<string>
 
   // Footer
   page.drawLine({ start: { x: 8, y: 200 }, end: { x: 280, y: 200 }, thickness: 0.5, color: gray });
-  page.drawText(`Order: ${data.orderNumber ?? "—"}`, { x: 8, y: 188, size: 7, font: fontReg, color: gray });
+  page.drawText(`Order: ${data.orderNumber ?? "-"}`, { x: 8, y: 188, size: 7, font: fontReg, color: gray });
   page.drawText(`Ship Date: ${data.shipDate}`, { x: 150, y: 188, size: 7, font: fontReg, color: gray });
   page.drawText(`Shipment ID: ${data.shipmentId}`, { x: 8, y: 176, size: 7, font: fontReg, color: gray });
   page.drawText("TEST MODE — $0.00", { x: 180, y: 176, size: 7, font, color: red });

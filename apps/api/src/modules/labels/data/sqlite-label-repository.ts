@@ -291,11 +291,48 @@ export class SqliteLabelRepository implements LabelRepository {
   }
 
   saveMockLabelData(shipmentId: number, data: MockLabelData): void {
+    // Persist to DB so mock labels survive server restarts
+    this.db.prepare(`
+      INSERT OR REPLACE INTO mock_labels
+        (shipment_id, order_number, tracking_number, service_label, weight_oz, ship_from, ship_to, ship_date, pdf_base64)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      shipmentId,
+      data.orderNumber ?? null,
+      data.trackingNumber,
+      data.serviceLabel,
+      data.weightOz,
+      JSON.stringify(data.shipFrom),
+      JSON.stringify(data.shipTo),
+      data.shipDate,
+      data.pdfBase64 ?? null,
+    );
+    // Also keep in memory for fast access
     this.mockLabelStore.set(shipmentId, data);
   }
 
   getMockLabelData(shipmentId: number): MockLabelData | null {
-    return this.mockLabelStore.get(shipmentId) ?? null;
+    // Check memory first
+    const cached = this.mockLabelStore.get(shipmentId);
+    if (cached) return cached;
+    // Fall back to DB (survives restarts)
+    const row = this.db.prepare(`
+      SELECT * FROM mock_labels WHERE shipment_id = ? LIMIT 1
+    `).get(shipmentId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const data: MockLabelData = {
+      shipmentId: row.shipment_id as number,
+      orderNumber: row.order_number as string | null,
+      trackingNumber: row.tracking_number as string,
+      serviceLabel: row.service_label as string,
+      weightOz: row.weight_oz as number,
+      shipFrom: JSON.parse(row.ship_from as string),
+      shipTo: JSON.parse(row.ship_to as string),
+      shipDate: row.ship_date as string,
+      pdfBase64: row.pdf_base64 as string | undefined,
+    };
+    this.mockLabelStore.set(shipmentId, data);
+    return data;
   }
 
   private mapShipment(row: ShipmentLookupRow): LabelShipmentRecord {
