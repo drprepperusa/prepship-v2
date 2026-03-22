@@ -1,10 +1,10 @@
 # PrepshipV2
 
-PrepShip V2 is a clean-room TypeScript monorepo built alongside V1. The target is full V1 functional parity inside V2, with explicit module boundaries, shared DTO contracts, dependency-injected persistence, and a worker entry point for process ownership that should not stay hidden inside API bootstrap.
+PrepShip V2 is a clean-room TypeScript monorepo built alongside the legacy PrepShip stack. The target is full legacy functional parity inside V2, with explicit module boundaries, shared DTO contracts, dependency-injected persistence, and a worker entry point for process ownership that should not stay hidden inside API bootstrap.
 
-V2 is a refactor, not a product redesign. The web app is expected to preserve V1's visual design, information architecture, and operator workflows by default while moving data access behind V2 API/contracts. Any intentional UI deviation from V1 should be treated as an explicit exception, not the baseline.
+V2 is a refactor, not a product redesign. The V2 web app in `apps/web` is expected to preserve the legacy visual design, information architecture, and operator workflows by default while moving data access behind V2 API/contracts. Any intentional UI deviation from the legacy UI should be treated as an explicit exception, not the baseline.
 
-V2 is intended to be datastore-agnostic. During migration and parity validation, it can point at V1's existing SQLite database through a transitional adapter. That SQLite path is for behavioral verification, not the long-term storage plan. After V2 reaches parity, the intended cutover is a full migration with historical backfill into a new primary datastore provider.
+V2 is intended to be datastore-agnostic. During migration and parity validation, it can point at the legacy SQLite database through a transitional adapter. That SQLite path is for behavioral verification, not the long-term storage plan. After V2 reaches parity, the intended cutover is a full migration with historical backfill into a new primary datastore provider.
 
 ## Current Scope
 
@@ -24,9 +24,9 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 - `billing` config, reporting, and generation/package-pricing workflows have also been migrated
 - `billing` invoice export has also been migrated
 - `products` defaults/bulk lookup endpoints have also been migrated
-- inventory helper and parent-SKU endpoints used by the V1 UI have also been migrated
+- inventory helper and parent-SKU endpoints used by the legacy UI have also been migrated
 - V2 now has provider-selected datastore wiring with both `sqlite` and `memory` adapters
-- the current `sqlite` adapter exists primarily so V2 can validate behavior against V1's live SQLite database during migration
+- the current `sqlite` adapter exists primarily so V2 can validate behavior against the live legacy SQLite database during migration
 - the long-term plan is to cut V2 over to a new primary datastore provider after parity is proven and historical backfill is complete
 - the SQLite adapter path is injected through config when `DB_PROVIDER=sqlite`
 - `secrets.json` is still a transitional adapter, not the long-term config model
@@ -36,7 +36,8 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 ## Workspace Layout
 
 - `apps/api` HTTP API and composition root
-- `apps/web` V1-parity web app that should preserve the current V1 UI/UX while swapping in V2 API client usage
+- `apps/web` V2 web app that preserves the legacy UI/UX while swapping in V2 API/client usage
+- `apps/react` V3 React frontend
 - `apps/worker` background job host, currently disabled by default
 - `packages/contracts` request/response DTOs
 - `packages/shared` config, DI, and SQLite utilities
@@ -44,7 +45,7 @@ V2 is intended to be datastore-agnostic. During migration and parity validation,
 
 ## Frontend Validation Hardening
 
-The copied V1 frontend in `apps/web` is still DOM-driven and not fully typed at runtime. To reduce DTO drift bugs without forcing a React rewrite, V2 now includes a browser-side validation boundary for high-risk API responses.
+The legacy-derived V2 frontend in `apps/web` is still DOM-driven and not fully typed at runtime. To reduce DTO drift bugs without forcing a React rewrite, V2 now includes a browser-side validation boundary for high-risk API responses.
 
 V2 now also has stricter API ingress validation for migrated routes. Malformed JSON request bodies and invalid numeric/boolean request input are rejected with `400` responses instead of being silently coerced into defaults or bubbling out as `500`s.
 
@@ -83,7 +84,7 @@ Defaults:
 
 - `DB_PROVIDER=sqlite`
 - `API_PORT=4010`
-- `PREPSHIP_SECRETS_PATH` falls back to local `./secrets.json` when present, otherwise the sibling V1 repo: `../prepship/secrets.json`
+- `PREPSHIP_SECRETS_PATH` falls back to local `./secrets.json` when present, otherwise the sibling legacy repo: `../prepship/secrets.json`
 - `PREPSHIP_V1_ROOT` defaults to `../prepship` and controls the sibling-repo fallback path used for transitional references like `secrets.json`
 - `PREPSHIP_WEB_PUBLIC_DIR` defaults to `apps/web/public`
 - `WORKER_SYNC_ENABLED=false`
@@ -92,7 +93,7 @@ Because the production SQLite file is not present on this machine, API boot will
 
 Migration intent:
 
-- use V1's SQLite database as the transitional parity-validation store for V2
+- use the legacy SQLite database as the transitional parity-validation store for V2
 - keep V2's application and repository boundaries provider-agnostic during that phase
 - replace the transitional SQLite adapter with a new primary datastore provider after parity validation and historical backfill
 
@@ -178,7 +179,7 @@ Migration intent:
 - `GET /api/rates/cached`
 - `POST /api/rates/cached/bulk`
 - `GET /api/carriers-for-store`
-- `POST /api/rates/prefetch` stays disabled and returns the V1-style no-op response
+- `POST /api/rates/prefetch` stays disabled and returns the legacy no-op response
 - `POST /api/rates`
 - `POST /api/rates/browse`
 - `POST /api/cache/clear-and-refetch`
@@ -199,8 +200,8 @@ Migration intent:
 - `POST /api/shipments/sync`
 - `GET /api/shipments/status`
 - `GET /api/shipments`
-- `GET /api/sync/status` compatibility alias for the copied V1 frontend
-- `POST /api/sync/trigger` compatibility alias for the copied V1 frontend
+- `GET /api/sync/status` compatibility alias for the V2 web frontend
+- `POST /api/sync/trigger` compatibility alias for the V2 web frontend
 
 `billing`
 
@@ -235,7 +236,7 @@ Migration intent:
 `orders`
 
 - `GET /api/orders/daily-stats`
-- `POST /api/orders/:id/selected-package-id` compatibility alias for the copied V1 frontend
+- `POST /api/orders/:id/selected-package-id` compatibility alias for the V2 web frontend
 
 ### Architecture Established
 
@@ -247,7 +248,7 @@ Migration intent:
 - provider selection through `DB_PROVIDER` instead of direct adapter construction in bootstrap
 - transitional SQLite support exists for migration parity, not as the architectural end state
 - explicit worker entrypoint that stays disabled unless intentionally enabled
-- web integration should reuse V1's existing layout, markup structure, and interaction model wherever practical, with V2 contracts replacing direct backend coupling underneath
+- web integration should reuse the legacy layout, markup structure, and interaction model wherever practical, with V2 contracts replacing direct backend coupling underneath
 
 ### Testing Status
 
@@ -264,11 +265,11 @@ npm test
 
 ### Remaining Parity Work
 
-The copied V1 frontend API surface is now covered in V2. Remaining parity work is concentrated in:
+The V2 web frontend API surface is now covered in V2. Remaining parity work is concentrated in:
 
 - worker-owned process/sync orchestration that is still running in-process for parity
-- live-DB verification against the real V1 SQLite file
-- any non-frontend V1 behaviors that have not yet been explicitly audited or migrated
+- live-DB verification against the real legacy SQLite file
+- any non-frontend legacy behaviors that have not yet been explicitly audited or migrated
 
 Track the current frontend/API matrix in:
 
@@ -276,7 +277,7 @@ Track the current frontend/API matrix in:
 
 ### Deferred Verification
 
-V1 is the source of truth for now. Any assumptions that should be checked later against the live SQLite file are tracked in:
+The legacy stack is the source of truth for now. Any assumptions that should be checked later against the live SQLite file are tracked in:
 
 - `docs/live-db-verification.md`
 
@@ -292,15 +293,15 @@ npm run dev:worker
 ## Deployment And Parity Docs
 
 - `docs/server-setup.md` for remote server setup and runtime config
-- `docs/production-mac-mini.md` for a Mac mini production model based on how V1 currently runs
-- `docs/parity-checklist.md` for side-by-side V1/V2 validation steps
+- `docs/production-mac-mini.md` for a Mac mini production model based on how the legacy stack currently runs
+- `docs/parity-checklist.md` for side-by-side legacy/V2 validation steps
 - `.env.example` for the current supported env vars
 
 ## Status
 
 This repo is no longer just a skeleton. It currently provides:
 
-- real migrated `orders` endpoints with V1-derived behavior
+- real migrated `orders` endpoints with legacy-derived behavior
 - migrated `clients` CRUD
 - migrated `locations` CRUD with default ship-from state
 - migrated `settings` key/value handling
@@ -310,18 +311,18 @@ This repo is no longer just a skeleton. It currently provides:
 - migrated `analysis` SKU rollups and daily sales reporting
 - migrated `rates` cache reads, live rate shopping, browse flows, and deterministic store-scoped carrier lookup
 - migrated `labels` create/void/retrieve/return workflows with hybrid ShipStation enrichment/sync
-- migrated `shipments` sync/status/proxy ownership flows used by the copied V1 frontend
-- migrated `/api/sync/status` and `/api/sync/trigger` compatibility aliases used by the copied V1 sync pill
-- migrated manifest CSV export for the copied V1 UI
+- migrated `shipments` sync/status/proxy ownership flows used by the V2 web frontend
+- migrated `/api/sync/status` and `/api/sync/trigger` compatibility aliases used by the V2 web sync pill
+- migrated manifest CSV export for the V2 web UI
 - migrated `billing` config, summary, details, package price management, and billing generation flows
-- migrated billing reference-rate fetch/status/backfill workflows used by the copied V1 UI
-- migrated billing invoice HTML export for the copied V1 UI
-- migrated `products` defaults persistence and lookup flows used by the V1 panel and batch UI
+- migrated billing reference-rate fetch/status/backfill workflows used by the V2 web UI
+- migrated billing invoice HTML export for the V2 web UI
+- migrated `products` defaults persistence and lookup flows used by the legacy panel and batch UI
 - migrated inventory helper flows for populate/import-dims/bulk-update-dims, parent-SKU linking, and SKU order history
 - a shared-contract pattern for additional modules
 - fixture-backed regression tests
 
-This repo does not yet have full V1 parity. The largest remaining work is now around process ownership, live-DB verification, and any still-unmigrated non-frontend slices rather than the already-migrated billing/shipping/frontend API surface.
+This repo does not yet have full legacy parity. The largest remaining work is now around process ownership, live-DB verification, and any still-unmigrated non-frontend slices rather than the already-migrated billing/shipping/frontend API surface.
 
 ## TODOs
 
@@ -333,7 +334,7 @@ Near-term backlog:
 
 Structural backlog:
 
-- keep the copied V1-parity web frontend aligned with migrated V2 endpoints as behavior is hardened
+- keep the V2 web frontend aligned with migrated V2 endpoints as behavior is hardened
 - move shared test fixture/schema helpers out of duplicated test setup
 - add more repository-level tests around edge-case SQL behavior
 - add a build step instead of relying on `node --experimental-strip-types`
@@ -351,6 +352,6 @@ Cutover backlog:
 Good next targets that fit the current architecture:
 
 - worker-owned sync/process orchestration that should move out of request handlers and into explicit process boundaries
-- live-DB verification and fixture-hardening for inferred V1 schema behavior
+- live-DB verification and fixture-hardening for inferred legacy schema behavior
 
 These should follow the same pattern already established by `orders`, `clients`, `locations`, `settings`, `packages`, `init`, `inventory`, `analysis`, `rates`, and `billing`.

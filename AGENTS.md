@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This repo is the clean V2 refactor of PrepShip. V1 in `../prepship` is the behavioral source of truth during migration. Do not patch V1 here. Re-implement behavior in V2 behind explicit module boundaries.
+This repo is the clean V2 refactor of PrepShip. The legacy repo in `../prepship` is the behavioral source of truth during migration. Do not patch the legacy repo here. Re-implement behavior in V2 behind explicit module boundaries.
 
-Important migration context: V2 is meant to be datastore-agnostic long term. During parity work, it may read from V1's existing SQLite database through a transitional adapter so behavior can be compared safely. That does not make SQLite the target end-state for V2. The intended cutover is a later migration with historical backfill into a new primary datastore provider.
+Important migration context: V2 is meant to be datastore-agnostic long term. During parity work, it may read from the legacy SQLite database through a transitional adapter so behavior can be compared safely. That does not make SQLite the target end-state for V2. The intended cutover is a later migration with historical backfill into a new primary datastore provider.
 
-Frontend migration context: V2 web is a refactor of the existing PrepShip UI, not a redesign. Preserve V1's visual design, view structure, and operator workflows by default. When implementing `apps/web`, use `../prepship/prepship/public/index.html` and `../prepship/prepship/public/js/*` as the canonical UI reference, while routing all data access through V2 API/contracts.
+Frontend migration context: `apps/web` is the V2 refactor of the existing PrepShip UI, not a redesign. Preserve the legacy visual design, view structure, and operator workflows by default. `apps/react` is the V3 React frontend. When implementing `apps/web`, use `../prepship/prepship/public/index.html` and `../prepship/prepship/public/js/*` as the canonical UI reference, while routing all data access through V2 API/contracts.
 
 ## Current Migration State
 
@@ -36,7 +36,7 @@ Implemented API entrypoints are described in [README.md](./README.md).
 - Treat `secrets.json` as a transitional adapter only.
 - Keep business logic dependent on interfaces, not any concrete datastore directly.
 - Treat the SQLite adapter as transitional migration infrastructure, not the long-term architectural destination.
-- V1 code is the source of truth unless explicitly contradicted.
+- Legacy code is the source of truth unless explicitly contradicted.
 - If a behavior cannot be verified locally, encode the assumption in tests/docs and continue.
 
 ## Architecture Rules
@@ -45,9 +45,9 @@ Implemented API entrypoints are described in [README.md](./README.md).
 - Put use cases and orchestration in `application`.
 - Put provider-specific query/mapping code in `data`.
 - Put shared DTOs in `packages/contracts`.
-- Keep `apps/web` coupled to V1-facing UI behavior, not to new invented layouts.
-- Preserve the V1 information architecture and interaction model unless the user explicitly asks for a UI change.
-- Do not wire `apps/web` directly to backend internals or provider-specific details while chasing V1 parity.
+- Keep `apps/web` coupled to legacy UI behavior, not to new invented layouts.
+- Preserve the legacy information architecture and interaction model unless the user explicitly asks for a UI change.
+- Do not wire `apps/web` directly to backend internals or provider-specific details while chasing legacy parity.
 - Do not move raw SQL into handlers.
 - Do not instantiate repositories inside handlers.
 - Do not instantiate concrete datastore adapters in `bootstrap.ts`; use the provider bundle under `apps/api/src/app/providers`.
@@ -74,7 +74,7 @@ Do not stop work just because the real DB is unavailable unless the task truly c
 ## Practical Guidance
 
 - Prefer extending already-migrated modules over inventing new framework layers.
-- For web work, port V1 UI slices into V2 incrementally rather than designing replacement screens.
+- For web work, port legacy UI slices into V2 incrementally rather than designing replacement screens.
 - Reuse the patterns already present in:
   - `apps/api/src/modules/billing`
   - `apps/api/src/modules/orders`
@@ -86,9 +86,9 @@ Do not stop work just because the real DB is unavailable unless the task truly c
   - `apps/api/src/modules/inventory`
   - `apps/api/src/modules/analysis`
   - `apps/api/src/modules/rates`
-- When porting from V1, read the V1 route file and then split the behavior across contracts, application services, and repositories.
-- When porting frontend behavior, read the V1 `public/index.html` section and the matching `public/js/*` module before changing `apps/web`.
-- If a V1 endpoint is not yet migrated, either finish it properly in V2 or document the exact blocker. Do not leave vague placeholder behavior.
+- When porting from the legacy repo, read the legacy route file and then split the behavior across contracts, application services, and repositories.
+- When porting frontend behavior, read the legacy `public/index.html` section and the matching `public/js/*` module before changing `apps/web`.
+- If a legacy endpoint is not yet migrated, either finish it properly in V2 or document the exact blocker. Do not leave vague placeholder behavior.
 
 ## Next Good Targets
 
@@ -103,7 +103,7 @@ There are no explicit copied-frontend API gaps currently listed here. Before sta
 - check `docs/live-db-verification.md` for assumptions that still need production validation
 - prefer process-ownership, live-data verification, and fixture-hardening work over inventing new compatibility placeholders
 
-Keep migrating remaining behavior behind explicit V2 modules and process boundaries instead of re-centering architecture around V1 or around SQLite.
+Keep migrating remaining behavior behind explicit V2 modules and process boundaries instead of re-centering architecture around the legacy stack or around SQLite.
 
 ## Notes For Future Agents
 

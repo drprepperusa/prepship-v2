@@ -19,6 +19,11 @@
 - **Logs**: `/Users/djmac/prepship-v2/logs/web.out.log` / `.err.log`
 - **Health Check**: `curl http://localhost:4011/`
 
+### React Server (Port 4014)
+- **Role**: V3 React frontend
+- **Status**: Optional local/frontend validation process
+- **Health Check**: open `http://localhost:4014/`
+
 ## Recent Fixes
 
 ### 1. Date Filter Bug (✅ Fixed - Commit f43000f)

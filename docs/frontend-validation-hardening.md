@@ -2,12 +2,12 @@
 
 ## Purpose
 
-`apps/web` is still the copied V1-style frontend. It is not React yet, and it still uses direct DOM mutation plus many raw `fetch(...).json()` call sites.
+`apps/web` is still the legacy-derived V2 frontend. It is not React yet, and it still uses direct DOM mutation plus many raw `fetch(...).json()` call sites.
 
 The goal of this hardening pass is:
 
 - catch API/DTO drift at the browser boundary
-- remove deprecated V1-era field assumptions from the UI
+- remove deprecated legacy-era field assumptions from the UI
 - reduce silent frontend breakage caused by loose response assumptions
 
 ## Why This Was Added
@@ -18,7 +18,7 @@ That class of bug is easy to create in the current frontend because:
 
 - many modules consume JSON responses directly
 - `packages/contracts` provides TypeScript interfaces, but the browser runtime does not enforce them
-- the copied V1 UI still carries legacy assumptions in some flows
+- the V2 web UI still carries legacy assumptions in some flows
 
 React would not solve this by itself. The immediate fix is a validated API boundary.
 
@@ -134,13 +134,13 @@ Relevant frontend modules:
 
 ## Current Direction
 
-The frontend should use current V2 DTO names and shapes, not deprecated V1-era field names.
+The frontend should use current V2 DTO names and shapes, not deprecated legacy-era field names.
 
 That means:
 
-- if a V1 field was renamed in V2, update the UI to the V2 name
-- if a V1-shaped payload assumption no longer matches V2, update the consumer to the V2 shape
-- do not preserve deprecated V1 field names in the browser just because the copied frontend once used them
+- if a legacy field was renamed in V2, update the UI to the V2 name
+- if a legacy-shaped payload assumption no longer matches V2, update the consumer to the V2 shape
+- do not preserve deprecated legacy field names in the browser just because the copied frontend once used them
 
 Validation and drift cleanup are therefore linked:
 
@@ -215,11 +215,11 @@ When hardening another frontend API flow:
 3. update the calling module to use the validated result
 4. add a focused test in [apps/web/test/api-contracts.test.ts](/home/tito/dev/prepshipv2/apps/web/test/api-contracts.test.ts)
 
-Do not add runtime validation by embedding ad hoc shape checks inside feature modules. Keep the validation boundary centralized, and use that boundary to enforce current V2 field names rather than carrying deprecated V1 names forward.
+Do not add runtime validation by embedding ad hoc shape checks inside feature modules. Keep the validation boundary centralized, and use that boundary to enforce current V2 field names rather than carrying deprecated legacy names forward.
 
 ## Repo-Wide Audit Status
 
-The repo-wide success-path validation boundary is now in place across the copied frontend.
+The repo-wide success-path validation boundary is now in place across the V2 web frontend.
 
 Current transport-level exceptions are intentional rather than unvalidated drift:
 

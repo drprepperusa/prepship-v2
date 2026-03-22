@@ -1,4 +1,4 @@
-# PrepShip V2 → V3 Cutover: Database Disaster Recovery Readiness
+# PrepShip V2 + V3 Cutover: Database Disaster Recovery Readiness
 
 **Status:** ✅ READY FOR CUTOVER  
 **Test Date:** 2026-03-17  
@@ -89,7 +89,7 @@ Record Count Verification:
 
 ## Cutover Procedure
 
-### Pre-Cutover (Before V3 Deployment)
+### Pre-Cutover (Before V3 Frontend Deployment)
 
 ```bash
 # 1. Create backup snapshot with cutover timestamp
@@ -118,34 +118,35 @@ curl -s http://localhost:4010/api/shipments | jq '.length'  # Should return coun
 echo "Cutover started: $(date)" > /Users/djmac/backups/cutover-log.txt
 ```
 
-### During Cutover (V2 → V3 Switch)
+### During Cutover (V2 Services + V3 Frontend Switch)
 
 ```bash
 # 1. Stop V2 API
 pkill -f "prepship-v2"
 sleep 2
 
-# 2. Deploy V3 code
+# 2. Deploy V3 frontend code
 # (Use your deployment process)
 
-# 3. Start V3 API
+# 3. Start V2 services with the V3 frontend available
 cd /Users/djmac/prepship-v2
 ./local-run.sh &
 
 # 4. Wait for startup
 sleep 10
 
-# 5. Test V3 endpoints
-curl -s http://localhost:4010/api/health  # Should return 200
+# 5. Test V2 endpoints and V3 frontend
+curl -s http://localhost:4010/health       # Should return 200
 curl -s http://localhost:4010/api/orders | jq '.length'  # Should match baseline
+curl -s http://localhost:4014/             # V3 frontend should respond
 ```
 
 ### Post-Cutover Validation
 
 ```bash
-# 1. Verify V3 serves correct data
+# 1. Verify V2 API still serves correct data
 ORDERS_COUNT=$(curl -s http://localhost:4010/api/orders | jq '.length')
-echo "V3 orders: $ORDERS_COUNT"
+echo "V2 orders: $ORDERS_COUNT"
 
 # 2. Compare against baseline (should match)
 BASELINE=$(grep "^orders" /Users/djmac/backups/pre-cutover-baseline.txt | cut -d, -f2)
@@ -163,12 +164,12 @@ echo "Cutover completed: $(date)" >> /Users/djmac/backups/cutover-log.txt
 
 ## Rollback Procedure (If Needed)
 
-**Trigger:** If V3 cutover fails or data integrity issues detected
+**Trigger:** If V3 frontend cutover fails or data integrity issues are detected
 
 **Estimated Time:** 8-12 minutes
 
 ```bash
-# 1. STOP V3 API IMMEDIATELY
+# 1. STOP THE ACTIVE STACK IMMEDIATELY
 pkill -f "prepship-v2"
 sleep 2
 
@@ -176,9 +177,9 @@ sleep 2
 /Users/djmac/bin/restore-prepship.sh \
   /Users/djmac/backups/prepship-BEFORE-CUTOVER-2026-03-17-14:00.sql.gz
 
-# 3. Restart V2 API (or switch back to V2 version)
+# 3. Restart the V2 stack
 cd /Users/djmac/prepship-v2
-git checkout main  # or appropriate V2 branch
+git checkout main  # or appropriate recovery branch
 ./local-run.sh &
 
 # 4. Verify V2 responding with correct data
@@ -280,7 +281,7 @@ echo "Rollback completed: $(date)" >> /Users/djmac/backups/cutover-log.txt
 |----------|---------|------|
 | Manual backup now | `/Users/djmac/bin/backup-prepship.sh` | 2 min |
 | Restore from date | `/Users/djmac/bin/restore-prepship.sh <backup-file>` | 8-12 min |
-| Rollback to V2 | See Rollback Procedure above | 8-12 min |
+| Rollback to V2 stack | See Rollback Procedure above | 8-12 min |
 | Verify backup | `cat /Users/djmac/backups/prepship-YYYY-MM-DD.sql.gz.meta` | <1 sec |
 
 ### Log Locations

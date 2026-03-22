@@ -19,7 +19,7 @@ test("web app serves the V1 frontend shell from static assets", async () => {
   const html = await response.text();
   assert.match(html, /PREP<span>SHIP<\/span>/);
   assert.match(html, /view-billing/);
-  assert.match(html, /type="module" src="\/js\/app\.js"/);
+  assert.match(html, /type="module" src="\/js\/app\.js(?:\?v=[^"]+)?"/);
 });
 
 test("web app serves copied V1 static assets", async () => {
@@ -41,7 +41,7 @@ test("web app serves copied V1 static assets", async () => {
 });
 
 test("web app proxies API requests to the configured backend", async () => {
-  const calls: Array<{ input: string; method?: string; body?: string }> = [];
+  const calls: Array<{ input: string; method?: string; body?: string; token?: string | null }> = [];
   const app = createWebApp({
     apiBaseUrl: "http://127.0.0.1:4010",
     publicDir,
@@ -50,6 +50,7 @@ test("web app proxies API requests to the configured backend", async () => {
         input,
         method: init?.method,
         body: init?.body == null ? undefined : Buffer.from(init.body as ArrayBuffer).toString("utf8"),
+        token: new Headers(init?.headers).get("x-app-token"),
       });
       return new Response(JSON.stringify({ ok: true }), {
         status: 201,
@@ -69,6 +70,7 @@ test("web app proxies API requests to the configured backend", async () => {
     input: "http://127.0.0.1:4010/api/billing/generate",
     method: "POST",
     body: "{\"from\":\"2026-03-01\",\"to\":\"2026-03-31\"}",
+    token: "dev-only-insecure-token-change-me",
   }]);
   assert.deepEqual(await response.json(), { ok: true });
 });

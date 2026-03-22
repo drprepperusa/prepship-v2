@@ -1,4 +1,4 @@
-# V1 → V2 Endpoint Cutover Gap Analysis
+# Legacy → V2 Endpoint Cutover Gap Analysis
 
 **Generated:** 2026-03-10
 **Coverage:** 71.1% (91/128 endpoints in V2)
@@ -265,7 +265,7 @@ These are the endpoints DJ's team uses every day — **all are implemented in V2
 |-------|------------|-----------|
 | Missing delete endpoints | LOW | Use soft-delete (set active=false) during Phase 1 |
 | Portal auth replacement | NONE | Cloudflare Access is ready |
-| Rate fetch failures | LOW | V1 fallback still available during transition |
+| Rate fetch failures | LOW | Legacy fallback still available during transition |
 | Data sync consistency | LOW | Full data parity verified, same SQLite database |
 | Product view missing | LOW | Not needed for order operations; Phase 2 nice-to-have |
 
@@ -291,7 +291,7 @@ These are the endpoints DJ's team uses every day — **all are implemented in V2
 ### For Phase 1 Cutover (Go Live):
 - ✅ Use current V2 as-is (all critical features present)
 - ⚠️ Document the missing 9 low-priority endpoints for stakeholders
-- 🔧 Have a V1 rollback plan ready (just in case)
+- 🔧 Have a legacy rollback plan ready (just in case)
 
 ### For Phase 2 (Post-Stabilization):
 - Implement delete endpoints if cleanup operations become common
@@ -300,7 +300,7 @@ These are the endpoints DJ's team uses every day — **all are implemented in V2
 
 ### For Long-term:
 - Portal endpoints stay off (Cloudflare Access is the new auth layer)
-- Consider removing V1 entirely after 1-2 weeks of V2 stability
+- Consider removing the legacy stack entirely after 1-2 weeks of V2 stability
 
 ---
 
@@ -309,7 +309,7 @@ These are the endpoints DJ's team uses every day — **all are implemented in V2
 1. **Review this analysis** with DJ's team
 2. **Schedule production cutover window** (recommend off-peak hours)
 3. **Set up monitoring** on critical endpoints (rates, labels, billing)
-4. **Keep V1 running** in parallel for 24-48 hours
+4. **Keep the legacy stack running** in parallel for 24-48 hours
 5. **Log all API calls** to catch edge cases
 6. **Update runbooks** to point to V2 endpoints
 

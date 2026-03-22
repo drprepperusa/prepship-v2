@@ -63,12 +63,9 @@ async function proxyApiRequest(
   const headers = new Headers(request.headers);
   headers.delete("host");
   
-  // Inject SESSION_TOKEN from environment into every proxied API request.
-  // This happens server-side; the token never reaches the browser.
-  const sessionToken = process.env.SESSION_TOKEN;
-  if (sessionToken) {
-    headers.set("x-app-token", sessionToken);
-  }
+  // Match the API's local dev fallback token so the copied frontend works
+  // even when SESSION_TOKEN is not explicitly exported.
+  headers.set("x-app-token", process.env.SESSION_TOKEN ?? "dev-only-insecure-token-change-me");
   
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
 

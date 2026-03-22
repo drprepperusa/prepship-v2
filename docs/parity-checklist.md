@@ -2,22 +2,23 @@
 
 ## Goal
 
-Validate that V2 matches V1 behavior closely enough to support cutover planning without changing process ownership prematurely.
+Validate that V2 matches legacy behavior closely enough to support cutover planning without changing process ownership prematurely.
 
 ## Recommended Test Mode
 
-- V1 remains the behavioral source of truth
-- V2 runs against the current V1 SQLite database
+- the legacy stack remains the behavioral source of truth
+- V2 runs against the current legacy SQLite database
 - V2 worker stays disabled
-- compare V1 and V2 side by side for the same known records and workflows
+- compare the legacy stack and V2 side by side for the same known records and workflows
 
 ## Baseline Setup
 
-1. Start V1 in its normal server environment.
+1. Start the legacy stack in its normal server environment.
 2. Start V2 API with `DB_PROVIDER=sqlite`.
 3. Start V2 web.
-4. Keep `WORKER_SYNC_ENABLED=false`.
-5. Confirm both V1 and V2 can read the same order/client/shipment data set.
+4. Start V3 React only if you are validating the React frontend.
+5. Keep `WORKER_SYNC_ENABLED=false`.
+6. Confirm both the legacy stack and V2 can read the same order/client/shipment data set.
 
 ## Quick Verification
 
@@ -25,7 +26,7 @@ Run these first:
 
 - `GET /health` on V2 API
 - `GET /health` on V2 web
-- open the V2 web app and verify it loads the copied V1 shell
+- open the V2 web app and verify it loads the legacy-derived shell
 - verify counts/init data load without obvious console errors
 
 ## Priority Flows To Compare
@@ -78,7 +79,7 @@ Run these first:
 
 For each flow:
 
-1. pick a known record or date range in V1
+1. pick a known record or date range in the legacy stack
 2. load the same flow in V2
 3. compare:
    - response shape
@@ -93,7 +94,7 @@ If you find a mismatch, record:
 
 - endpoint or UI flow
 - exact input used
-- V1 result
+- legacy result
 - V2 result
 - whether the issue looks like:
   - fixture/schema assumption
@@ -110,7 +111,7 @@ Add schema/data assumptions to:
 Avoid these changes during the first parity pass:
 
 - enabling V2 worker ownership
-- changing the underlying V1 DB path during the test window
+- changing the underlying legacy DB path during the test window
 - switching secrets/config format mid-test
 - comparing against stale DB snapshots unless clearly labeled
 
@@ -118,7 +119,7 @@ Avoid these changes during the first parity pass:
 
 You are ready for the next phase when:
 
-- the copied V1 frontend runs end-to-end against V2 without obvious missing actions
-- migrated endpoints match V1 for your known operator-critical workflows
+- the V2 web frontend runs end-to-end against V2 without obvious missing actions
+- migrated endpoints match legacy behavior for your known operator-critical workflows
 - any remaining mismatches are small, documented, and reproducible
 - the remaining work is mostly cutover/process-hardening, not missing API surface
