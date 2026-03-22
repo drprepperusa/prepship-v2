@@ -33,10 +33,7 @@ export async function createLabel(testLabel = false) {
   const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
   const locId   = parseInt(document.getElementById('p-location')?.value) || null;
 
-  // Validate: package required
-  if (!pkgVal || pkgVal === '') {
-    return showToast('⚠ Select a package before creating a label');
-  }
+  // Package is optional — defaults to generic 'package' code if not selected
 
   // Validate: carrier + service required
   if (!pid)     return showToast('⚠ Select a carrier account');
@@ -196,10 +193,7 @@ export async function sendToQueueFromOrder(orderId) {
   const confirm = confirmationOption === 'none' ? 'delivery' : confirmationOption;
   const locId   = parseInt(document.getElementById('p-location')?.value) || null;
 
-  // Validate: package required
-  if (!pkgVal || pkgVal === '') {
-    return showToast('⚠ Select a package before creating a label');
-  }
+  // Package is optional — defaults to generic 'package' code if not selected
 
   // Validate: carrier + service required
   if (!pid)     return showToast('⚠ Select a carrier account');
