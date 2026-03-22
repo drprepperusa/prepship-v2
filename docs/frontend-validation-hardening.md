@@ -167,6 +167,11 @@ Another cleanup completed in the current pass:
 - `order-detail.js` now consumes `/api/orders/:id/full` as `{ raw, shipments, local }` directly instead of synthesizing `_shipments` and `_local` fields back onto the order object
 - `rate-browser.js` no longer injects fake helper fields like `_pid` and `_carrierName` into rate objects
 
+Related parity follow-up in `apps/react`:
+
+- the React orders shipping panel now reads parity-sensitive order metadata through the same raw/local helpers instead of mixing visible panel state from stale summary fallbacks
+- unresolved raw package codes no longer render as if they were selected package IDs; the panel now resolves actual package IDs from saved defaults or matched dimensions before showing package state
+
 ## Test Coverage
 
 Browser-side validation coverage lives in:

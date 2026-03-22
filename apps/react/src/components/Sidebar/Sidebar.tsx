@@ -166,7 +166,13 @@ export default function Sidebar({
               <span className="sidebar-tool-icon">{tool.icon}</span> {tool.label}
             </div>
           ))}
-          <div className="sidebar-tool-item">
+          <div
+            className="sidebar-tool-item"
+            onClick={() => {
+              onShowView('manifests')
+              onCloseMobileMenu?.()
+            }}
+          >
             <span className="sidebar-tool-icon">📋</span> Manifests
           </div>
         </div>

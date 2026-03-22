@@ -38,34 +38,52 @@ function seedDatabase(filename: string): void {
       shippingAmount REAL,
       externally_fulfilled_verified INTEGER DEFAULT 0,
       items TEXT,
-      raw TEXT
+      raw TEXT,
+      updatedAt INTEGER
     );
 
     CREATE TABLE order_local (
       orderId INTEGER PRIMARY KEY,
       external_shipped INTEGER DEFAULT 0,
+      external_shipped_source TEXT,
       residential INTEGER,
       best_rate_json TEXT,
       best_rate_at INTEGER,
       best_rate_dims TEXT,
       selected_rate_json TEXT,
       selected_pid INTEGER,
+      tracking_number TEXT,
+      shipping_account INTEGER,
+      rate_dims_l REAL,
+      rate_dims_w REAL,
+      rate_dims_h REAL,
       updatedAt INTEGER
     );
 
     CREATE TABLE shipments (
       shipmentId INTEGER PRIMARY KEY,
       orderId INTEGER,
+      orderNumber TEXT,
       shipmentCost REAL,
       otherCost REAL DEFAULT 0,
       carrierCode TEXT,
       serviceCode TEXT,
       trackingNumber TEXT,
       shipDate TEXT,
+      labelUrl TEXT,
       providerAccountId INTEGER,
       voided INTEGER DEFAULT 0,
       selected_rate_json TEXT,
-      source TEXT DEFAULT 'prepship'
+      source TEXT DEFAULT 'prepship',
+      label_created_at INTEGER,
+      updatedAt INTEGER,
+      weight_oz REAL,
+      dims_l REAL,
+      dims_w REAL,
+      dims_h REAL,
+      createDate TEXT,
+      clientId INTEGER,
+      label_format TEXT
     );
 
     CREATE TABLE clients (
@@ -109,8 +127,8 @@ function seedDatabase(filename: string): void {
     INSERT INTO orders (
       orderId, clientId, orderNumber, orderStatus, orderDate, storeId,
       customerEmail, shipToName, shipToCity, shipToState, shipToPostalCode,
-      carrierCode, serviceCode, weightValue, orderTotal, shippingAmount, items, raw
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      carrierCode, serviceCode, weightValue, orderTotal, shippingAmount, items, raw, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insertOrder.run(
@@ -132,6 +150,7 @@ function seedDatabase(filename: string): void {
     0,
     JSON.stringify([{ sku: "SKU-1", name: "Widget", quantity: 2, adjustment: false }]),
     JSON.stringify({ orderId: 101, shipTo: { residential: true }, externallyFulfilled: false }),
+    Date.now(),
   );
 
   insertOrder.run(
@@ -153,6 +172,7 @@ function seedDatabase(filename: string): void {
     7.25,
     JSON.stringify([{ sku: "SKU-2", name: "Gadget", quantity: 1, adjustment: false }]),
     JSON.stringify({ orderId: 102, shipTo: { residential: false }, externallyFulfilled: false }),
+    Date.now(),
   );
 
   insertOrder.run(
@@ -174,6 +194,7 @@ function seedDatabase(filename: string): void {
     0,
     JSON.stringify([{ sku: "SKU-1", name: "Widget", quantity: 1, adjustment: false }]),
     JSON.stringify({ orderId: 103, shipTo: { residential: true }, externallyFulfilled: true }),
+    Date.now(),
   );
 
   db.prepare(`
@@ -188,21 +209,34 @@ function seedDatabase(filename: string): void {
 
   db.prepare(`
     INSERT INTO shipments (
-      shipmentId, orderId, shipmentCost, otherCost, carrierCode, serviceCode,
-      trackingNumber, shipDate, providerAccountId, voided, selected_rate_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      shipmentId, orderId, orderNumber, shipmentCost, otherCost, carrierCode, serviceCode,
+      trackingNumber, shipDate, labelUrl, providerAccountId, voided, selected_rate_json,
+      source, label_created_at, updatedAt, weight_oz, dims_l, dims_w, dims_h, createDate, clientId, label_format
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     501,
     102,
+    "B-102",
     7.25,
     0.75,
     "ups",
     "ups_ground",
     "1Z999",
     "2026-03-07",
+    "https://labels.example/501.pdf",
     596001,
     0,
     JSON.stringify({ cost: 7.25, shippingProviderId: 596001 }),
+    "prepship",
+    1111111112,
+    1111111112,
+    16,
+    12,
+    9,
+    5,
+    "2026-03-07T12:00:00Z",
+    10,
+    "pdf",
   );
 }
 

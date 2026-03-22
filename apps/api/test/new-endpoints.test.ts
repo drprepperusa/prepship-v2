@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrapApi } from "../src/app/bootstrap.ts";
-import type {
 import { authedRequest } from "./test-helpers.ts";
+import type {
   CreateExternalLabelInput,
   CreatedExternalLabel,
   ExternalOrderShipmentRecord,

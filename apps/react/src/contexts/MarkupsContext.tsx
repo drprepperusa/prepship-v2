@@ -28,7 +28,6 @@ export function MarkupsProvider({ children }: { children: React.ReactNode }) {
   const [markups, setMarkups] = useState<MarkupsMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markupsRef = useRef<MarkupsMap>({});
 
   // Keep ref in sync
@@ -39,9 +38,6 @@ export function MarkupsProvider({ children }: { children: React.ReactNode }) {
   // Load markups on mount
   useEffect(() => {
     loadMarkups();
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
   }, []);
 
   async function loadMarkups() {
@@ -79,51 +75,42 @@ export function MarkupsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearRateCache = useCallback(async () => {
-    try {
-      await fetch(`${API_BASE}/cache/clear-and-refetch`, { method: 'POST' });
-    } catch (err) {
-      console.warn('Failed to clear rate cache:', err);
-    }
+    const res = await fetch(`${API_BASE}/cache/clear-and-refetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'all' }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }, []);
 
   const saveMarkup = useCallback(
     async (pidOrCarrier: number | string, type: MarkupType, value: number) => {
-      // Optimistically update state
-      setMarkups(prev => ({
-        ...prev,
-        [pidOrCarrier]: { type, value }
-      }));
+      const updated = { ...markupsRef.current, [pidOrCarrier]: { type, value } };
+      markupsRef.current = updated;
+      setMarkups(updated);
 
-      // Debounce the API call
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      try {
+        localStorage.setItem(MARKUP_STORAGE_KEY, JSON.stringify(updated));
+      } catch (storageError) {
+        console.warn('Failed to cache markups locally:', storageError);
+      }
 
-      saveTimerRef.current = setTimeout(async () => {
-        try {
-          const updated = { ...markupsRef.current, [pidOrCarrier]: { type, value } };
-          const res = await fetch(`${API_BASE}/settings/rbMarkups`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updated),
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          // Sync to localStorage
-          localStorage.setItem(MARKUP_STORAGE_KEY, JSON.stringify(updated));
-
-          // Invalidate rate cache
-          await clearRateCache();
-        } catch (err) {
-          console.error('Failed to save markup:', err);
-          setError((err as Error).message);
-          // Revert on failure
-          setMarkups(prev => {
-            const reverted = { ...prev };
-            delete reverted[pidOrCarrier];
-            return reverted;
-          });
-        }
-      }, 600);
+      try {
+        const res = await fetch(`${API_BASE}/settings/rbMarkups`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setError(null);
+      } catch (err) {
+        console.error('Failed to save markup:', err);
+        const nextError = err instanceof Error ? err.message : 'Failed to save markup';
+        setError(nextError);
+        throw err instanceof Error ? err : new Error(nextError);
+      }
     },
-    [clearRateCache]
+    [],
   );
 
   const refreshMarkups = useCallback(() => loadMarkups(), []);

@@ -1,14 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { StoresProvider } from './contexts/StoresContext'
 import { MarkupsProvider } from './contexts/MarkupsContext'
-import { ToastProvider } from './contexts/ToastContext'
+import { ToastContext, ToastProvider } from './contexts/ToastContext'
 import { StoreVisibilityProvider } from './contexts/StoreVisibilityContext'
+import { apiClient } from './api/client'
 import { useInitStores } from './hooks'
 import Sidebar from './components/Sidebar/Sidebar'
 import OrdersView from './components/Views/OrdersView'
+import InventoryView from './components/Views/InventoryView'
+import LocationsView from './components/Views/LocationsView'
+import PackagesView from './components/Views/PackagesView'
+import RatesView from './components/Views/RatesView'
+import AnalysisView from './components/Views/AnalysisView'
+import SettingsView from './components/Views/SettingsView'
+import BillingView from './components/Views/BillingView'
+import ManifestsView from './components/Views/ManifestsView'
+import { formatSyncPill } from './components/Views/orders-parity'
 import './App.css'
 
 type ViewType = 'orders' | 'inventory' | 'locations' | 'packages' | 'rates' | 'analysis' | 'settings' | 'billing' | 'manifests'
+type ContentView = Exclude<ViewType, 'manifests'>
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 type OrdersDateFilter = '' | 'this-month' | 'last-month' | 'last-30' | 'last-90' | 'custom'
 
@@ -51,7 +62,9 @@ function PlaceholderView({ title }: { title: string }) {
 
 function PrepShipRoot() {
   const { stores: sidebarStores } = useInitStores()
+  const toastContext = useContext(ToastContext)
   const [currentView, setCurrentView] = useState<ViewType>('orders')
+  const [lastContentView, setLastContentView] = useState<ContentView>('orders')
   const [currentStatus, setCurrentStatus] = useState<OrderStatus>('awaiting_shipment')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeStore, setActiveStore] = useState<number | null>(null)
@@ -59,6 +72,28 @@ function PrepShipRoot() {
   const [dateFilter, setDateFilter] = useState<OrdersDateFilter>('last-30')
   const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([])
   const [activeOrderId, setActiveOrderId] = useState<number | null>(null)
+  const [columnMenuRequestId, setColumnMenuRequestId] = useState(0)
+  const [labelsActionRequestId, setLabelsActionRequestId] = useState(0)
+  const [queueToggleRequestId, setQueueToggleRequestId] = useState(0)
+  const [queueBadgeCount, setQueueBadgeCount] = useState(0)
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [ordersRefreshVersion, setOrdersRefreshVersion] = useState(0)
+  const [syncStatus, setSyncStatus] = useState<{
+    status: 'idle' | 'syncing' | 'done' | 'error'
+    mode: 'idle' | 'incremental' | 'full'
+    page: number
+    lastSync: number | null
+    count: number
+    error: string | null
+  }>({
+    status: 'idle',
+    mode: 'idle',
+    page: 0,
+    lastSync: null,
+    count: 0,
+    error: null,
+  })
+  const lastSeenSyncRef = useRef<number>(0)
   const [zoomPct, setZoomPct] = useState(() => {
     if (typeof window === 'undefined') return 100
     const stored = Number.parseInt(window.localStorage.getItem('prepship_zoom') ?? '100', 10)
@@ -71,13 +106,19 @@ function PrepShipRoot() {
     [sidebarStores, activeStore],
   )
 
-  const viewTitle = currentView === 'orders'
+  useEffect(() => {
+    if (currentView === 'manifests') return
+    setLastContentView(currentView)
+  }, [currentView])
+
+  const displayView = currentView === 'manifests' ? lastContentView : currentView
+  const manifestOpen = currentView === 'manifests'
+
+  const viewTitle = displayView === 'orders'
     ? activeStoreName
       ? `${STATUS_LABELS[currentStatus]} · ${activeStoreName}`
       : STATUS_LABELS[currentStatus]
-    : currentView === 'manifests'
-      ? 'Manifests'
-      : VIEW_LABELS[currentView as Exclude<ViewType, 'orders' | 'manifests'>]
+    : VIEW_LABELS[displayView as Exclude<ContentView, 'orders'>]
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -116,7 +157,44 @@ function PrepShipRoot() {
   useEffect(() => {
     setSelectedOrderIds([])
     setActiveOrderId(null)
-  }, [currentView, currentStatus, activeStore, dateFilter])
+  }, [displayView, currentStatus, activeStore, dateFilter])
+
+  useEffect(() => {
+    if (displayView !== 'orders') return
+
+    let active = true
+
+    const poll = async () => {
+      try {
+        const next = await apiClient.fetchLegacySyncStatus()
+        if (!active) return
+        setSyncStatus(next)
+
+        if (next.status === 'done' && next.count > 0 && (next.lastSync ?? 0) > lastSeenSyncRef.current) {
+          lastSeenSyncRef.current = next.lastSync ?? 0
+          setOrdersRefreshVersion((value) => value + 1)
+          if (next.count <= 10) {
+            toastContext?.addToast(`🆕 ${next.count} order${next.count === 1 ? '' : 's'} updated`)
+          }
+        }
+      } catch (error) {
+        if (!active) return
+        setSyncStatus((current) => ({ ...current, status: 'error', error: error instanceof Error ? error.message : 'Sync error' }))
+      }
+    }
+
+    void poll()
+    const intervalId = window.setInterval(() => {
+      void poll()
+    }, 10000)
+
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [displayView, toastContext])
+
+  const syncPill = useMemo(() => formatSyncPill(syncStatus), [syncStatus])
 
   return (
     <>
@@ -124,7 +202,7 @@ function PrepShipRoot() {
 
       <Sidebar
         currentStatus={currentStatus}
-        currentView={currentView}
+        currentView={displayView}
         stores={sidebarStores}
         onSelectStatus={(status) => {
           setCurrentStatus(status)
@@ -133,7 +211,6 @@ function PrepShipRoot() {
           setMobileMenuOpen(false)
         }}
         onShowView={(view) => {
-          if (view === 'manifests') return
           setCurrentView(view)
           setMobileMenuOpen(false)
         }}
@@ -168,7 +245,7 @@ function PrepShipRoot() {
 
           <div className="topbar-title" id="viewTitle">{viewTitle}</div>
 
-          <div className={`batch-bar${currentView === 'orders' && selectedOrderIds.length > 0 ? ' show' : ''}`} id="batchBar">
+          <div className={`batch-bar${displayView === 'orders' && selectedOrderIds.length > 0 ? ' show' : ''}`} id="batchBar">
             <span id="batchCount">{selectedOrderIds.length} selected</span>
             <div className="batch-btns">
               <button className="batch-btn" type="button">🗂️ Batch</button>
@@ -186,21 +263,72 @@ function PrepShipRoot() {
             </div>
           </div>
 
-          {currentView === 'orders' ? (
+          {displayView === 'orders' ? (
             <div className="topbar-right" id="topbarActions">
-              <div className="sync-pill done" id="syncPill">
+              <div className={syncPill.className} id="syncPill">
                 <span className="sync-dot" />
-                <span id="syncText">Parity shell</span>
+                <span id="syncText">{syncPill.text}</span>
               </div>
-              <button className="btn btn-ghost btn-sm" id="btnSyncIncr" type="button">↻</button>
-              <button className="btn btn-ghost btn-sm" id="btnSyncFull" type="button" style={{ fontSize: 11, padding: '4px 8px', color: 'var(--text3)' }}>Full↻</button>
+              <button
+                className="btn btn-ghost btn-sm"
+                id="btnSyncIncr"
+                type="button"
+                onClick={async () => {
+                  try {
+                    await apiClient.triggerLegacySync('incremental')
+                    setSyncStatus((current) => ({ ...current, status: 'syncing', mode: 'incremental' }))
+                    toastContext?.addToast('🔄 Incremental sync triggered')
+                  } catch (error) {
+                    toastContext?.addToast(error instanceof Error ? error.message : 'Failed to trigger sync', 'error')
+                  }
+                }}
+              >
+                ↻
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                id="btnSyncFull"
+                type="button"
+                style={{ fontSize: 11, padding: '4px 8px', color: 'var(--text3)' }}
+                onClick={async () => {
+                  try {
+                    await apiClient.triggerLegacySync('full')
+                    setSyncStatus((current) => ({ ...current, status: 'syncing', mode: 'full' }))
+                    toastContext?.addToast('🔄 Full re-sync triggered')
+                  } catch (error) {
+                    toastContext?.addToast(error instanceof Error ? error.message : 'Failed to trigger sync', 'error')
+                  }
+                }}
+              >
+                Full↻
+              </button>
               <div className="col-toggle-wrap">
-                <button className="btn btn-outline btn-sm" type="button">⊞ Columns</button>
+                <button className="btn btn-outline btn-sm" type="button" onClick={() => setColumnMenuRequestId((value) => value + 1)}>⊞ Columns</button>
               </div>
-              <button className="btn btn-primary btn-sm" type="button">🖨️ Labels</button>
-              <button className="btn btn-outline btn-sm" id="pq-toggle-btn" type="button" style={{ position: 'relative', gap: 4 }}>
-                🖨️ Print Queue
-                <span id="pq-badge" style={{ display: 'none', position: 'absolute', top: -6, right: -6, background: '#f59e0b', color: '#000', borderRadius: 99, fontSize: 9, fontWeight: 700, minWidth: 16, height: 16, padding: '0 3px', alignItems: 'center', justifyContent: 'center' }}>0</span>
+              <button className="btn btn-primary btn-sm" type="button" onClick={() => setLabelsActionRequestId((value) => value + 1)}>🖨️ Labels</button>
+              <button className="btn btn-outline btn-sm" id="pq-toggle-btn" type="button" style={{ position: 'relative', gap: 4 }} onClick={() => setQueueToggleRequestId((value) => value + 1)}>
+                {queueOpen ? '✕ Close Queue' : `🖨️ Print Queue${queueBadgeCount > 0 ? ` (${queueBadgeCount})` : ''}`}
+                <span
+                  id="pq-badge"
+                  style={{
+                    display: queueBadgeCount > 0 ? 'inline-flex' : 'none',
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#f59e0b',
+                    color: '#000',
+                    borderRadius: 99,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    minWidth: 16,
+                    height: 16,
+                    padding: '0 3px',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {queueBadgeCount}
+                </span>
               </button>
             </div>
           ) : null}
@@ -249,7 +377,7 @@ function PrepShipRoot() {
           </div>
         </div>
 
-        {currentView === 'orders' ? (
+        {displayView === 'orders' ? (
           <OrdersView
             currentStatus={currentStatus}
             searchQuery={searchQuery}
@@ -261,10 +389,50 @@ function PrepShipRoot() {
             onSelectedOrderIdsChange={setSelectedOrderIds}
             activeOrderId={activeOrderId}
             onActiveOrderIdChange={setActiveOrderId}
+            onNavigateView={(view) => setCurrentView(view)}
+            columnMenuRequestId={columnMenuRequestId}
+            labelsActionRequestId={labelsActionRequestId}
+            queueToggleRequestId={queueToggleRequestId}
+            onQueueStateChange={({ count, isOpen }) => {
+              setQueueBadgeCount(count)
+              setQueueOpen(isOpen)
+            }}
+            refreshVersion={ordersRefreshVersion}
+          />
+        ) : displayView === 'inventory' ? (
+          <InventoryView />
+        ) : displayView === 'locations' ? (
+          <LocationsView />
+        ) : displayView === 'packages' ? (
+          <PackagesView
+            onOpenOrder={(orderId) => {
+              setCurrentView('orders')
+              setActiveOrderId(orderId)
+            }}
+          />
+        ) : displayView === 'rates' ? (
+          <RatesView />
+        ) : displayView === 'analysis' ? (
+          <AnalysisView />
+        ) : displayView === 'settings' ? (
+          <SettingsView />
+        ) : displayView === 'billing' ? (
+          <BillingView
+            onOpenOrder={(orderId) => {
+              setCurrentView('orders')
+              setCurrentStatus('shipped')
+              setActiveStore(null)
+              setActiveOrderId(orderId)
+            }}
           />
         ) : (
           <PlaceholderView title={viewTitle} />
         )}
+
+        <ManifestsView
+          open={manifestOpen}
+          onClose={() => setCurrentView(lastContentView)}
+        />
       </div>
     </>
   )

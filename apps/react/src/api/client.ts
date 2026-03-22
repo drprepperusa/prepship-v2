@@ -8,12 +8,14 @@ import type {
   ListOrdersResponse,
   OrderFullDto,
   ClientDto,
+  CreateClientInput,
   CarrierAccountDto,
   InitCountsDto,
   InitStoreDto,
   InventoryItemDto,
   InventoryLedgerEntryDto,
   InventoryAlertDto,
+  BulkUpdateInventoryDimensionsInput,
   LocationDto,
   ShipmentSyncStatusDto,
   LegacySyncStatusDto,
@@ -22,26 +24,83 @@ import type {
   ReceiveInventoryResultDto,
   AdjustInventoryInput,
   UpdateInventoryItemInput,
+  SaveParentSkuInput,
+  SetInventoryParentInput,
   SaveLocationInput,
   UpdateClientInput,
   SaveProductDefaultsInput,
   SaveProductDefaultsResult,
   ParentSkuDetailDto,
+  ParentSkuDto,
   ListInventoryQuery,
   ListInventoryLedgerQuery,
+  PackageDto,
+  PackageLedgerEntryDto,
+  PackageMutationResult,
+  OrdersDailyStatsDto,
+  OrderPicklistResponseDto,
+  CreateClientResult,
+  CreateLabelRequestDto,
+  CreateLabelResponseDto,
+  CreateParentSkuResult,
+  InventoryBulkUpdateDimsResult,
+  InventoryImportDimsResult,
+  InventoryPopulateResult,
+  InventorySkuOrdersDto,
+  LocationMutationResult,
+  OkResult,
+  RetrieveLabelResponseDto,
+  ReturnLabelResponseDto,
+  SetDefaultLocationResult,
+  SyncClientsResult,
+  VoidLabelResponseDto,
+  PrintQueueResponseDto,
+  QueueAddResponseDto,
+  QueueClearResponseDto,
+  QueuePrintJobDto,
+  QueuePrintJobStatusDto,
+  ColumnPrefsDto,
+  ClearAndRefetchResultDto,
+  SavePackageInput,
+  PackageAdjustmentInput,
+  BillingConfigDto,
+  UpdateBillingConfigInput,
+  BillingSummaryDto,
+  BillingDetailDto,
+  GenerateBillingResult,
+  BillingPackagePriceDto,
+  SaveBillingPackagePricesInput,
+  SetDefaultBillingPackagePriceResult,
+  FetchBillingReferenceRatesResult,
+  BillingReferenceRateFetchStatusDto,
+  BackfillBillingReferenceRatesInput,
+  BackfillBillingReferenceRatesResult,
 } from "../types/api";
+import type {
+  AnalysisDailySalesQuery,
+  AnalysisDailySalesResponse,
+  AnalysisSkuQuery,
+  AnalysisSkusResponse,
+} from "@prepshipv2/contracts/analysis/contracts";
+import type { GenerateManifestInput } from "@prepshipv2/contracts/manifests/contracts";
+import type { LiveRatesRequestDto, RateDto } from "@prepshipv2/contracts/rates/contracts";
 
 /**
  * API Error class
  */
 export class ApiError extends Error {
+  status: number;
+  statusText: string;
+
   constructor(
-    public status: number,
-    public statusText: string,
+    status: number,
+    statusText: string,
     message?: string
   ) {
     super(message || `API Error: ${status} ${statusText}`);
     this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
   }
 }
 
@@ -100,6 +159,41 @@ class ApiClient {
     }
 
     return headers;
+  }
+
+  private async parseErrorMessage(response: Response): Promise<string> {
+    const text = await response.text();
+    if (!text) return `HTTP ${response.status}`;
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      try {
+        const body = JSON.parse(text) as { error?: string };
+        if (typeof body.error === "string" && body.error.trim()) {
+          return body.error;
+        }
+      } catch {
+        // Fall through to raw text below.
+      }
+    }
+
+    return text;
+  }
+
+  private getDownloadFilename(contentDisposition: string | null, fallback: string): string {
+    if (!contentDisposition) return fallback;
+
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+    }
+
+    const simpleMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+    if (simpleMatch?.[1]) {
+      return simpleMatch[1].trim();
+    }
+
+    return fallback;
   }
 
   /**
@@ -251,6 +345,13 @@ class ApiClient {
     });
   }
 
+  async createClientRecord(data: CreateClientInput): Promise<CreateClientResult> {
+    return this.request<CreateClientResult>("/clients", {
+      method: "POST",
+      body: data,
+    });
+  }
+
   /**
    * PUT /clients/:id
    */
@@ -261,6 +362,28 @@ class ApiClient {
     return this.request<ClientDto>(`/clients/${clientId}`, {
       method: "PUT",
       body: data,
+    });
+  }
+
+  async updateClientRecord(
+    clientId: number,
+    data: UpdateClientInput
+  ): Promise<OkResult> {
+    return this.request<OkResult>(`/clients/${clientId}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async deleteClientRecord(clientId: number): Promise<OkResult> {
+    return this.request<OkResult>(`/clients/${clientId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async syncClientsFromStores(): Promise<SyncClientsResult> {
+    return this.request<SyncClientsResult>("/clients/sync-stores", {
+      method: "POST",
     });
   }
 
@@ -310,6 +433,12 @@ class ApiClient {
     });
   }
 
+  async fetchInventoryItemLedger(invSkuId: number): Promise<InventoryLedgerEntryDto[]> {
+    return this.request<InventoryLedgerEntryDto[]>(`/inventory/${invSkuId}/ledger`, {
+      method: "GET",
+    });
+  }
+
   /**
    * GET /inventory/ledger
    */
@@ -352,6 +481,74 @@ class ApiClient {
     });
   }
 
+  async submitInventoryReceive(
+    data: ReceiveInventoryInput
+  ): Promise<{ ok: true; received: ReceiveInventoryResultDto[] }> {
+    return this.request<{ ok: true; received: ReceiveInventoryResultDto[] }>("/inventory/receive", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async submitInventoryAdjustment(
+    data: AdjustInventoryInput
+  ): Promise<{ ok: boolean; newStock: number }> {
+    return this.request<{ ok: boolean; newStock: number }>("/inventory/adjust", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async populateInventory(): Promise<InventoryPopulateResult> {
+    return this.request<InventoryPopulateResult>("/inventory/populate", {
+      method: "POST",
+    });
+  }
+
+  async importInventoryDimensions(clientId?: number): Promise<InventoryImportDimsResult> {
+    return this.request<InventoryImportDimsResult>("/inventory/import-dims", {
+      method: "POST",
+      query: clientId ? { clientId } : undefined,
+    });
+  }
+
+  async bulkUpdateInventoryDimensions(
+    data: BulkUpdateInventoryDimensionsInput
+  ): Promise<InventoryBulkUpdateDimsResult> {
+    return this.request<InventoryBulkUpdateDimsResult>("/inventory/bulk-update-dims", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async listParentSkus(clientId: number): Promise<ParentSkuDto[]> {
+    return this.request<ParentSkuDto[]>("/parent-skus", {
+      method: "GET",
+      query: { clientId },
+    });
+  }
+
+  async createParentSku(data: SaveParentSkuInput): Promise<CreateParentSkuResult> {
+    return this.request<CreateParentSkuResult>("/parent-skus", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async setInventoryParent(invSkuId: number, data: SetInventoryParentInput): Promise<OkResult> {
+    return this.request<OkResult>(`/inventory/${invSkuId}/set-parent`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async fetchInventorySkuOrders(invSkuId: number, days?: number): Promise<InventorySkuOrdersDto> {
+    return this.request<InventorySkuOrdersDto>(`/inventory/${invSkuId}/sku-orders`, {
+      method: "GET",
+      query: days ? { days } : undefined,
+    });
+  }
+
   /**
    * GET /inventory/parent/:id
    */
@@ -387,38 +584,80 @@ class ApiClient {
   /**
    * POST /locations
    */
-  async createLocation(data: SaveLocationInput): Promise<LocationDto> {
-    return this.request<LocationDto>("/locations", {
+  async createLocationMutation(data: SaveLocationInput): Promise<LocationMutationResult> {
+    return this.request<LocationMutationResult>("/locations", {
       method: "POST",
       body: data,
     });
   }
 
+  async createLocation(data: SaveLocationInput): Promise<LocationDto> {
+    const result = await this.createLocationMutation(data);
+    if (typeof result.locationId !== "number") {
+      throw new Error("Location creation did not return a locationId");
+    }
+
+    const locations = await this.fetchLocations();
+    const created = locations.find((location) => location.locationId === result.locationId);
+    if (!created) {
+      throw new Error(`Created location ${result.locationId} was not returned by /locations`);
+    }
+
+    return created;
+  }
+
   /**
    * PUT /locations/:id
    */
-  async updateLocation(
+  async updateLocationMutation(
     locationId: number,
     data: SaveLocationInput
-  ): Promise<LocationDto> {
-    return this.request<LocationDto>(`/locations/${locationId}`, {
+  ): Promise<OkResult> {
+    return this.request<OkResult>(`/locations/${locationId}`, {
       method: "PUT",
       body: data,
     });
   }
 
+  async updateLocation(
+    locationId: number,
+    data: SaveLocationInput
+  ): Promise<LocationDto> {
+    await this.updateLocationMutation(locationId, data);
+    const locations = await this.fetchLocations();
+    const updated = locations.find((location) => location.locationId === locationId);
+    if (!updated) {
+      throw new Error(`Updated location ${locationId} was not returned by /locations`);
+    }
+
+    return updated;
+  }
+
   /**
    * DELETE /locations/:id
    */
+  async deleteLocationMutation(locationId: number): Promise<OkResult> {
+    return this.request<OkResult>(`/locations/${locationId}`, { method: "DELETE" });
+  }
+
   async deleteLocation(locationId: number): Promise<void> {
-    await this.request(`/locations/${locationId}`, { method: "DELETE" });
+    await this.deleteLocationMutation(locationId);
+  }
+
+  /**
+   * POST /locations/:id/setDefault
+   */
+  async setDefaultLocation(locationId: number): Promise<SetDefaultLocationResult> {
+    return this.request<SetDefaultLocationResult>(`/locations/${locationId}/setDefault`, {
+      method: "POST",
+    });
   }
 
   /**
    * GET /shipments/sync-status
    */
   async fetchShipmentSyncStatus(): Promise<ShipmentSyncStatusDto> {
-    return this.request<ShipmentSyncStatusDto>("/shipments/sync-status", {
+    return this.request<ShipmentSyncStatusDto>("/shipments/status", {
       method: "GET",
     });
   }
@@ -436,7 +675,7 @@ class ApiClient {
    * GET /legacy-sync-status
    */
   async fetchLegacySyncStatus(): Promise<LegacySyncStatusDto> {
-    return this.request<LegacySyncStatusDto>("/legacy-sync-status", {
+    return this.request<LegacySyncStatusDto>("/sync/status", {
       method: "GET",
     });
   }
@@ -445,9 +684,393 @@ class ApiClient {
    * POST /legacy-sync
    */
   async triggerLegacySync(mode?: "incremental" | "full"): Promise<{ queued: boolean }> {
-    return this.request<{ queued: boolean }>("/legacy-sync", {
+    return this.request<{ queued: boolean }>("/sync/trigger", {
       method: "POST",
-      body: mode ? { mode } : undefined,
+      body: mode === "full" ? { full: true } : undefined,
+    });
+  }
+
+  async fetchColumnPrefs(): Promise<ColumnPrefsDto | null> {
+    return this.request<ColumnPrefsDto | null>("/settings/colPrefs", { method: "GET" });
+  }
+
+  async saveColumnPrefs(data: ColumnPrefsDto): Promise<ColumnPrefsDto> {
+    return this.request<ColumnPrefsDto>("/settings/colPrefs", {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async clearAndRefetchAllRates(): Promise<ClearAndRefetchResultDto> {
+    return this.request<ClearAndRefetchResultDto>("/cache/clear-and-refetch", {
+      method: "POST",
+      body: { scope: "all" },
+    });
+  }
+
+  async fetchPackages(source?: string): Promise<PackageDto[]> {
+    return this.request<PackageDto[]>("/packages", {
+      method: "GET",
+      query: source ? { source } : undefined,
+    });
+  }
+
+  async fetchLowStockPackages(): Promise<PackageDto[]> {
+    return this.request<PackageDto[]>("/packages/low-stock", {
+      method: "GET",
+    });
+  }
+
+  async createPackageMutation(data: SavePackageInput): Promise<PackageMutationResult> {
+    return this.request<PackageMutationResult>("/packages", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async updatePackageMutation(packageId: number, data: SavePackageInput): Promise<PackageMutationResult> {
+    return this.request<PackageMutationResult>(`/packages/${packageId}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async deletePackageMutation(packageId: number): Promise<OkResult> {
+    return this.request<OkResult>(`/packages/${packageId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async setPackageReorderLevel(packageId: number, reorderLevel: number): Promise<OkResult> {
+    return this.request<OkResult>(`/packages/${packageId}/reorder-level`, {
+      method: "PATCH",
+      body: { reorderLevel },
+    });
+  }
+
+  async receivePackage(packageId: number, data: PackageAdjustmentInput): Promise<PackageMutationResult> {
+    return this.request<PackageMutationResult>(`/packages/${packageId}/receive`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async adjustPackage(packageId: number, data: PackageAdjustmentInput): Promise<PackageMutationResult> {
+    return this.request<PackageMutationResult>(`/packages/${packageId}/adjust`, {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async fetchPackageLedger(packageId: number): Promise<PackageLedgerEntryDto[]> {
+    return this.request<PackageLedgerEntryDto[]>(`/packages/${packageId}/ledger`, {
+      method: "GET",
+    });
+  }
+
+  async syncCarrierPackages(): Promise<{ queued: boolean }> {
+    return this.request<{ queued: boolean }>("/packages/sync", {
+      method: "POST",
+    });
+  }
+
+  async setDefaultPackagePrice(packageId: number, price: number): Promise<SetDefaultBillingPackagePriceResult> {
+    return this.request<SetDefaultBillingPackagePriceResult>("/billing/package-prices/set-default", {
+      method: "POST",
+      body: { packageId, price },
+    });
+  }
+
+  async fetchBillingConfigs(): Promise<BillingConfigDto[]> {
+    return this.request<BillingConfigDto[]>("/billing/config", {
+      method: "GET",
+    });
+  }
+
+  async updateBillingConfig(clientId: number, data: UpdateBillingConfigInput): Promise<OkResult> {
+    return this.request<OkResult>(`/billing/config/${clientId}`, {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async generateBilling(from: string, to: string, clientId?: number): Promise<GenerateBillingResult> {
+    return this.request<GenerateBillingResult>("/billing/generate", {
+      method: "POST",
+      body: {
+        from,
+        to,
+        ...(clientId != null ? { clientId } : {}),
+      },
+    });
+  }
+
+  async fetchBillingSummary(from: string, to: string, clientId?: number): Promise<BillingSummaryDto[]> {
+    return this.request<BillingSummaryDto[]>("/billing/summary", {
+      method: "GET",
+      query: {
+        from,
+        to,
+        ...(clientId != null ? { clientId } : {}),
+      },
+    });
+  }
+
+  async fetchBillingDetails(from: string, to: string, clientId: number): Promise<BillingDetailDto[]> {
+    return this.request<BillingDetailDto[]>("/billing/details", {
+      method: "GET",
+      query: {
+        from,
+        to,
+        clientId,
+      },
+    });
+  }
+
+  async fetchBillingPackagePrices(clientId: number): Promise<BillingPackagePriceDto[]> {
+    return this.request<BillingPackagePriceDto[]>("/billing/package-prices", {
+      method: "GET",
+      query: { clientId },
+    });
+  }
+
+  async saveBillingPackagePrices(data: SaveBillingPackagePricesInput): Promise<OkResult> {
+    return this.request<OkResult>("/billing/package-prices", {
+      method: "PUT",
+      body: data,
+    });
+  }
+
+  async fetchBillingReferenceRates(): Promise<FetchBillingReferenceRatesResult> {
+    return this.request<FetchBillingReferenceRatesResult>("/billing/fetch-ref-rates", {
+      method: "POST",
+    });
+  }
+
+  async fetchBillingReferenceRateStatus(): Promise<BillingReferenceRateFetchStatusDto> {
+    return this.request<BillingReferenceRateFetchStatusDto>("/billing/fetch-ref-rates/status", {
+      method: "GET",
+    });
+  }
+
+  async backfillBillingReferenceRates(data: BackfillBillingReferenceRatesInput): Promise<BackfillBillingReferenceRatesResult> {
+    return this.request<BackfillBillingReferenceRatesResult>("/billing/backfill-ref-rates", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async fetchProductsBySku(sku: string): Promise<ProductDefaultsDto | null> {
+    try {
+      return await this.request<ProductDefaultsDto>(`/products/by-sku/${encodeURIComponent(sku)}`, {
+        method: "GET",
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  async saveProductDefaultsV2(data: SaveProductDefaultsInput): Promise<SaveProductDefaultsResult> {
+    return this.request<SaveProductDefaultsResult>("/products/save-defaults", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async fetchCarriersForStore(storeId?: number | null): Promise<{ carriers: CarrierAccountDto[] }> {
+    return this.request<{ carriers: CarrierAccountDto[] }>("/carriers-for-store", {
+      method: "GET",
+      query: storeId != null ? { storeId } : undefined,
+    });
+  }
+
+  async browseRates(data: Record<string, unknown>): Promise<{ rates: unknown[] }> {
+    return this.request<{ rates: unknown[] }>("/rates/browse", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async fetchRates(data: LiveRatesRequestDto): Promise<RateDto[]> {
+    return this.request<RateDto[]>("/rates", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async fetchAnalysisSkus(query: AnalysisSkuQuery): Promise<AnalysisSkusResponse> {
+    return this.request<AnalysisSkusResponse>("/analysis/skus", {
+      method: "GET",
+      query: {
+        from: query.from,
+        to: query.to,
+        clientId: query.clientId,
+      },
+    });
+  }
+
+  async fetchAnalysisDailySales(query: Partial<AnalysisDailySalesQuery>): Promise<AnalysisDailySalesResponse> {
+    return this.request<AnalysisDailySalesResponse>("/analysis/daily-sales", {
+      method: "GET",
+      query: {
+        from: query.from,
+        to: query.to,
+        clientId: query.clientId,
+        top: query.top,
+      },
+    });
+  }
+
+  async downloadManifest(data: GenerateManifestInput): Promise<{ blob: Blob; filename: string }> {
+    const response = await fetch(`${this.baseUrl}/manifests/generate`, {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        response.statusText,
+        await this.parseErrorMessage(response),
+      );
+    }
+
+    const fallbackFilename = `manifest_${data.startDate}_${data.endDate}.csv`;
+    return {
+      blob: await response.blob(),
+      filename: this.getDownloadFilename(response.headers.get("content-disposition"), fallbackFilename),
+    };
+  }
+
+  async fetchDailyStats(): Promise<OrdersDailyStatsDto> {
+    return this.request<OrdersDailyStatsDto>("/orders/daily-stats", {
+      method: "GET",
+    });
+  }
+
+  async fetchPicklist(query: {
+    orderStatus?: string;
+    storeId?: number;
+    dateStart?: string;
+    dateEnd?: string;
+  }): Promise<OrderPicklistResponseDto> {
+    return this.request<OrderPicklistResponseDto>("/orders/picklist", {
+      method: "GET",
+      query,
+    });
+  }
+
+  async markOrderShippedExternal(orderId: number, source: string): Promise<unknown> {
+    return this.request(`/orders/${orderId}/shipped-external`, {
+      method: "POST",
+      body: { flag: 1, source },
+    });
+  }
+
+  async setOrderResidential(orderId: number, residential: boolean | null): Promise<unknown> {
+    return this.request(`/orders/${orderId}/residential`, {
+      method: "POST",
+      body: { residential },
+    });
+  }
+
+  async setOrderSelectedPid(orderId: number, selectedPid: number | null): Promise<unknown> {
+    return this.request(`/orders/${orderId}/selected-pid`, {
+      method: "POST",
+      body: { selectedPid },
+    });
+  }
+
+  async setOrderSelectedPackageId(orderId: number, packageId: number | null): Promise<unknown> {
+    return this.request(`/orders/${orderId}/selected-package-id`, {
+      method: "POST",
+      body: { packageId },
+    });
+  }
+
+  async saveOrderBestRate(orderId: number, best: unknown, dims?: string | null): Promise<unknown> {
+    return this.request(`/orders/${orderId}/best-rate`, {
+      method: "POST",
+      body: { best, dims: dims ?? null },
+    });
+  }
+
+  async fetchOrderDims(orderId: number): Promise<{ orderId: number; sku: string | null; qty: number | null; dims: { length: number; width: number; height: number } | null }> {
+    return this.request(`/orders/${orderId}/dims`, { method: "GET" });
+  }
+
+  async createLabel(data: CreateLabelRequestDto): Promise<CreateLabelResponseDto> {
+    return this.request<CreateLabelResponseDto>("/labels/create", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async retrieveLabel(orderLookup: number | string, fresh = false): Promise<RetrieveLabelResponseDto> {
+    return this.request<RetrieveLabelResponseDto>(`/labels/${encodeURIComponent(String(orderLookup))}/retrieve`, {
+      method: "GET",
+      query: fresh ? { fresh: true } : undefined,
+    });
+  }
+
+  async voidLabel(shipmentId: number): Promise<VoidLabelResponseDto> {
+    return this.request<VoidLabelResponseDto>(`/labels/${shipmentId}/void`, {
+      method: "POST",
+      body: {},
+    });
+  }
+
+  async createReturnLabel(shipmentId: number, reason = "Customer Return"): Promise<ReturnLabelResponseDto> {
+    return this.request<ReturnLabelResponseDto>(`/labels/${shipmentId}/return`, {
+      method: "POST",
+      body: { reason },
+    });
+  }
+
+  async fetchQueue(clientId: number, includePrinted = false): Promise<PrintQueueResponseDto> {
+    return this.request<PrintQueueResponseDto>("/queue", {
+      method: "GET",
+      query: includePrinted ? { client_id: clientId, include_printed: 1 } : { client_id: clientId },
+    });
+  }
+
+  async addToQueue(data: Record<string, unknown>): Promise<QueueAddResponseDto> {
+    return this.request<QueueAddResponseDto>("/queue/add", {
+      method: "POST",
+      body: data,
+    });
+  }
+
+  async clearQueue(clientId: number): Promise<QueueClearResponseDto> {
+    return this.request<QueueClearResponseDto>("/queue/clear", {
+      method: "POST",
+      body: { client_id: clientId },
+    });
+  }
+
+  async removeFromQueue(entryId: string, clientId: number): Promise<{ ok: true; removed_entry: string }> {
+    return this.request<{ ok: true; removed_entry: string }>(`/queue/${entryId}`, {
+      method: "DELETE",
+      body: { client_id: clientId },
+    });
+  }
+
+  async startQueuePrintJob(clientId: number, entryIds: string[], mergeHeaders = true): Promise<QueuePrintJobDto> {
+    return this.request<QueuePrintJobDto>("/queue/print", {
+      method: "POST",
+      body: {
+        client_id: clientId,
+        queue_entry_ids: entryIds,
+        merge_headers: mergeHeaders,
+      },
+    });
+  }
+
+  async fetchQueuePrintJobStatus(jobId: string): Promise<QueuePrintJobStatusDto> {
+    return this.request<QueuePrintJobStatusDto>(`/queue/print/status/${jobId}`, {
+      method: "GET",
     });
   }
 

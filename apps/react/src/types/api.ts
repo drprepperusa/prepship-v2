@@ -322,6 +322,18 @@ export interface UpdateInventoryItemInput {
   cuFtOverride?: number | null;
 }
 
+export interface SaveParentSkuInput {
+  clientId: number;
+  name: string;
+  sku?: string;
+  baseUnitQty?: number;
+}
+
+export interface SetInventoryParentInput {
+  parentSkuId: number | null;
+  baseUnitQty?: number;
+}
+
 export interface ListInventoryQuery {
   clientId?: number;
   sku?: string;
@@ -333,6 +345,82 @@ export interface ListInventoryLedgerQuery {
   dateStart?: number;
   dateEnd?: number;
   limit: number;
+}
+
+export interface BulkUpdateInventoryDimensionsInput {
+  updates: Array<{
+    invSkuId: number;
+    weightOz?: number;
+    productLength?: number;
+    productWidth?: number;
+    productHeight?: number;
+  }>;
+}
+
+export interface OkResult {
+  ok: boolean;
+  error?: string;
+}
+
+export interface CreateClientResult extends OkResult {
+  clientId: number;
+}
+
+export interface LocationMutationResult extends OkResult {
+  locationId?: number;
+}
+
+export interface SetDefaultLocationResult extends OkResult {
+  shipFrom: Record<string, unknown> | null;
+}
+
+export interface SyncClientsResult extends OkResult {
+  clients: ClientDto[];
+}
+
+export interface InventoryPopulateResult extends OkResult {
+  skusRegistered: number;
+  shippedProcessed: number;
+}
+
+export interface InventoryImportDimsResult extends OkResult {
+  updated: number;
+  skipped: number;
+  noMatch: number;
+  total: number;
+}
+
+export interface InventoryBulkUpdateDimsResult extends OkResult {
+  updated: number;
+}
+
+export interface CreateParentSkuResult extends OkResult {
+  parentSkuId: number;
+  sku?: string;
+  baseUnitQty: number;
+}
+
+export interface InventorySkuOrdersDto {
+  sku: string;
+  name: string;
+  clientId: number;
+  totalUnits: number;
+  dailySales: Array<{
+    day: string;
+    units: number;
+  }>;
+  orders: Array<{
+    orderId: number;
+    orderNumber: string | null;
+    orderStatus: string | null;
+    orderDate: string | null;
+    shipToName: string | null;
+    carrierCode?: string | null;
+    serviceCode?: string | null;
+    unitPrice?: number | null;
+    itemName?: string | null;
+    qty: number;
+  }>;
 }
 
 // ============================================================================
@@ -362,6 +450,54 @@ export interface CarrierAccountDto {
   clientId: number | null;
   code: string;
   _label: string;
+}
+
+export interface PackageDto {
+  packageId: number;
+  name: string;
+  type: string;
+  length: number;
+  width: number;
+  height: number;
+  tareWeightOz: number;
+  source: string | null;
+  carrierCode: string | null;
+  stockQty?: number | null;
+  reorderLevel?: number | null;
+  unitCost?: number | null;
+}
+
+export interface SavePackageInput {
+  name: string;
+  type?: string;
+  length?: number;
+  width?: number;
+  height?: number;
+  tareWeightOz?: number;
+  reorderLevel?: number | null;
+  unitCost?: number | null;
+}
+
+export interface PackageAdjustmentInput {
+  qty: number;
+  note?: string;
+  costPerUnit?: number | null;
+}
+
+export interface PackageMutationResult {
+  ok: boolean;
+  packageId?: number;
+  package?: PackageDto | null;
+}
+
+export interface PackageLedgerEntryDto {
+  id?: number;
+  packageId?: number;
+  delta: number;
+  reason?: string | null;
+  unitCost?: number | null;
+  createdAt: number;
+  orderId?: number | null;
 }
 
 /** Row type for Locations table */
@@ -399,6 +535,33 @@ export interface LegacySyncStatusDto {
   mode: "idle" | "incremental" | "full";
   ratesCached: number;
   ratePrefetchRunning: boolean;
+}
+
+export interface OrdersDailyStatsDto {
+  window: {
+    from: string;
+    to: string;
+    fromLabel: string;
+    toLabel: string;
+  };
+  totalOrders: number;
+  needToShip: number;
+  upcomingOrders: number;
+}
+
+export interface OrderPicklistItemDto {
+  storeId: number | null;
+  clientName: string;
+  sku: string;
+  name: string | null;
+  imageUrl: string | null;
+  totalQty: number;
+  orderCount: number;
+}
+
+export interface OrderPicklistResponseDto {
+  skus: OrderPicklistItemDto[];
+  orderStatus?: string;
 }
 
 // ============================================================================
@@ -446,6 +609,265 @@ export interface SaveProductDefaultsResult {
     height: number | null;
     source: string | null;
   } | null;
+}
+
+// ============================================================================
+// BILLING
+// ============================================================================
+
+export interface BillingConfigDto {
+  clientId: number;
+  clientName: string;
+  pickPackFee: number;
+  additionalUnitFee: number;
+  packageCostMarkup: number;
+  shippingMarkupPct: number;
+  shippingMarkupFlat: number;
+  billing_mode: string;
+  storageFeePerCuFt: number;
+  storageFeeMode: string;
+  palletPricingPerMonth: number;
+  palletCuFt: number;
+}
+
+export interface UpdateBillingConfigInput {
+  pickPackFee?: number;
+  additionalUnitFee?: number;
+  shippingMarkupPct?: number;
+  shippingMarkupFlat?: number;
+  billing_mode?: string;
+  storageFeePerCuFt?: number;
+  storageFeeMode?: string;
+  palletPricingPerMonth?: number;
+  palletCuFt?: number;
+}
+
+export interface BillingSummaryDto {
+  clientId: number;
+  clientName: string;
+  pickPackTotal: number;
+  additionalTotal: number;
+  packageTotal: number;
+  shippingTotal: number;
+  storageTotal: number;
+  orderCount: number;
+  grandTotal: number;
+}
+
+export interface BillingDetailDto {
+  orderId: number;
+  orderNumber: string;
+  shipDate: string;
+  totalQty: number;
+  pickpackTotal: number;
+  additionalTotal: number;
+  packageTotal: number;
+  shippingTotal: number;
+  actualLabelCost: number | null;
+  label_weight_oz: number | null;
+  label_dims_l: number | null;
+  label_dims_w: number | null;
+  label_dims_h: number | null;
+  ref_usps_rate: number | null;
+  ref_ups_rate: number | null;
+  packageName: string | null;
+  itemNames: string | null;
+  itemSkus: string | null;
+}
+
+export interface GenerateBillingResult {
+  ok: true;
+  generated: number;
+  total: number;
+}
+
+export interface BillingPackagePriceDto {
+  packageId: number;
+  price: number;
+  is_custom: number;
+  name: string;
+  length: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface SaveBillingPackagePriceInput {
+  packageId: number;
+  price: number;
+}
+
+export interface SaveBillingPackagePricesInput {
+  clientId?: number;
+  prices?: SaveBillingPackagePriceInput[];
+}
+
+export interface SetDefaultBillingPackagePriceResult {
+  ok: true;
+  updated: number;
+  skipped: number;
+}
+
+export interface BillingReferenceRateFetchStatusDto {
+  running: boolean;
+  total: number;
+  done: number;
+  errors: number;
+  startedAt: number | null;
+}
+
+export interface FetchBillingReferenceRatesResult {
+  ok: boolean;
+  message: string;
+  total?: number;
+  queued?: number;
+  orders?: number;
+  status?: BillingReferenceRateFetchStatusDto;
+}
+
+export interface BackfillBillingReferenceRatesInput {
+  from?: string;
+  to?: string;
+}
+
+export interface BackfillBillingReferenceRatesResult {
+  ok: true;
+  filled: number;
+  missing: number;
+  total?: number;
+  message?: string;
+}
+
+// ============================================================================
+// LABELS / QUEUE / SETTINGS
+// ============================================================================
+
+export interface CreateLabelRequestDto {
+  orderId: number;
+  orderNumber?: string;
+  carrierCode?: string;
+  serviceCode: string;
+  packageCode?: string;
+  customPackageId?: number | null;
+  shippingProviderId: number;
+  weightOz?: number;
+  length?: number;
+  width?: number;
+  height?: number;
+  confirmation?: string;
+  testLabel?: boolean;
+  shipTo?: Record<string, unknown>;
+  shipFrom?: Record<string, unknown>;
+}
+
+export interface CreateLabelResponseDto {
+  shipmentId: number;
+  trackingNumber: string | null;
+  labelUrl: string | null;
+  cost: number;
+  voided: boolean;
+  orderStatus: string;
+  apiVersion: "v2";
+}
+
+export interface RetrieveLabelResponseDto {
+  orderId: number;
+  orderNumber: string | null;
+  shipmentId: number;
+  trackingNumber: string | null;
+  labelUrl: string;
+  createdAt: string | null;
+  carrier: string;
+  service: string;
+  cost: number;
+}
+
+export interface ReturnLabelResponseDto {
+  success: true;
+  shipmentId: number;
+  orderNumber: string | null;
+  returnTrackingNumber: string;
+  returnShipmentId: number | null;
+  cost: number;
+  reason: string;
+  createdAt: string;
+}
+
+export interface VoidLabelResponseDto {
+  success: true;
+  shipmentId: number;
+  orderNumber: string | null;
+  voided: true;
+  voidedAt: string;
+  trackingNumber: string | null;
+  refundAmount: number | null;
+  refundInitiated: true;
+  refundEstimate: string;
+  note: string;
+}
+
+export interface PrintQueueEntryDto {
+  queue_entry_id: string;
+  order_id: string;
+  order_number: string | null;
+  client_id: number;
+  label_url: string;
+  sku_group_id: string;
+  primary_sku: string | null;
+  item_description: string | null;
+  order_qty: number | null;
+  multi_sku_data?: unknown;
+  status: "queued" | "printed";
+  print_count: number;
+  last_printed_at: string | null;
+  queued_at: string;
+}
+
+export interface PrintQueueResponseDto {
+  ok: true;
+  queuedOrders: PrintQueueEntryDto[];
+  totalOrders: number;
+  totalQty: number;
+}
+
+export interface QueueAddResponseDto {
+  ok: true;
+  queue_entry_id: string;
+  queued_at: string;
+  already_queued: boolean;
+}
+
+export interface QueueClearResponseDto {
+  ok: true;
+  cleared_count: number;
+}
+
+export interface QueuePrintJobDto {
+  ok: true;
+  job_id: string;
+  total: number;
+}
+
+export interface QueuePrintJobStatusDto {
+  jobId: string;
+  status: "pending" | "running" | "done" | "error";
+  progress: number;
+  total: number;
+  current: number;
+  message: string;
+  errorMessage?: string;
+  createdAt: number;
+}
+
+export interface ColumnPrefsDto {
+  order?: string[];
+  hidden?: string[];
+  widths?: Record<string, number>;
+}
+
+export interface ClearAndRefetchResultDto {
+  ok: true;
+  message: string;
+  ordersQueued: number;
 }
 
 // ============================================================================

@@ -1,9 +1,42 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { apiClient } from '../../api/client'
+import { ToastContext } from '../../contexts/ToastContext'
 import { useLocations, useOrderDetail, useOrders, useShippingAccounts } from '../../hooks'
 import { useMarkups } from '../../contexts/MarkupsContext'
 import { applyCarrierMarkup } from '../../utils/markups'
-import type { CarrierAccountDto, LocationDto, OrderFullDto, OrderSummaryDto } from '../../types/api'
+import type {
+  CarrierAccountDto,
+  CreateLabelRequestDto,
+  LocationDto,
+  OrderFullDto,
+  OrderPicklistResponseDto,
+  OrderSummaryDto,
+  OrdersDailyStatsDto,
+  PackageDto,
+  PrintQueueEntryDto,
+} from '../../types/api'
 import { getOrdersDateRange, type OrdersDateFilter } from './orders-view-filters'
+import {
+  buildDailyStripProgress,
+  buildColumnPrefs,
+  buildPicklistPrintHtml,
+  buildQueueAddPayload,
+  groupPrintQueueEntries,
+  resolveColumnPrefs,
+  type ColumnPrefs,
+  type PrintQueueGroup,
+} from './orders-parity'
+import {
+  getInitialPanelServiceCode,
+  getInitialPanelShipAccountId,
+  getMatchedPackageIdByDimensions,
+  getPanelConfirmation,
+  getPanelInsurance,
+  getPanelPackageId,
+  getPanelRequestedService,
+  getPanelWarehouseId,
+  getProductDefaultPackageId,
+} from './orders-panel-state'
 
 type OrderStatus = 'awaiting_shipment' | 'shipped' | 'cancelled'
 type SortDirection = 'asc' | 'desc'
@@ -22,6 +55,12 @@ interface OrdersViewProps {
   onSelectedOrderIdsChange?: (ids: number[]) => void
   activeOrderId?: number | null
   onActiveOrderIdChange?: (id: number | null) => void
+  onNavigateView?: (view: 'locations' | 'packages') => void
+  columnMenuRequestId?: number
+  labelsActionRequestId?: number
+  queueToggleRequestId?: number
+  onQueueStateChange?: (state: { count: number; isOpen: boolean }) => void
+  refreshVersion?: number
 }
 
 interface TableColumn {
@@ -122,6 +161,54 @@ const SERVICE_NAMES: Record<string, string> = {
   fedex_priority_overnight: 'FedEx Priority Overnight',
   fedex_standard_overnight: 'FedEx Standard Overnight',
   fedex_first_overnight: 'FedEx First Overnight',
+}
+
+const CARRIER_SERVICES: Record<string, Array<{ code: string; label: string }>> = {
+  stamps_com: [
+    { code: 'usps_media_mail', label: 'USPS Media Mail' },
+    { code: 'usps_first_class_mail', label: 'USPS First Class Mail' },
+    { code: 'usps_ground_advantage', label: 'USPS Ground Advantage' },
+    { code: 'usps_priority_mail', label: 'USPS Priority Mail' },
+    { code: 'usps_priority_mail_express', label: 'USPS Priority Express' },
+    { code: 'usps_parcel_select', label: 'USPS Parcel Select' },
+  ],
+  ups: [
+    { code: 'ups_ground', label: 'UPS Ground' },
+    { code: 'ups_ground_saver', label: 'UPS Ground Saver' },
+    { code: 'ups_surepost_less_than_1_lb', label: 'UPS SurePost (<1 lb)' },
+    { code: 'ups_surepost_1_lb_or_greater', label: 'UPS SurePost (≥1 lb)' },
+    { code: 'ups_3_day_select', label: 'UPS 3 Day Select' },
+    { code: 'ups_2nd_day_air', label: 'UPS 2nd Day Air' },
+    { code: 'ups_2nd_day_air_am', label: 'UPS 2nd Day Air AM' },
+    { code: 'ups_next_day_air_saver', label: 'UPS Next Day Air Saver' },
+    { code: 'ups_next_day_air', label: 'UPS Next Day Air' },
+  ],
+  ups_walleted: [
+    { code: 'ups_ground', label: 'UPS Ground' },
+    { code: 'ups_ground_saver', label: 'UPS Ground Saver' },
+    { code: 'ups_surepost_less_than_1_lb', label: 'UPS SurePost (<1 lb)' },
+    { code: 'ups_surepost_1_lb_or_greater', label: 'UPS SurePost (≥1 lb)' },
+    { code: 'ups_3_day_select', label: 'UPS 3 Day Select' },
+    { code: 'ups_2nd_day_air', label: 'UPS 2nd Day Air' },
+    { code: 'ups_next_day_air_saver', label: 'UPS Next Day Air Saver' },
+    { code: 'ups_next_day_air', label: 'UPS Next Day Air' },
+  ],
+  fedex: [
+    { code: 'fedex_ground', label: 'FedEx Ground' },
+    { code: 'fedex_home_delivery', label: 'FedEx Home Delivery' },
+    { code: 'fedex_2day', label: 'FedEx 2Day' },
+    { code: 'fedex_express_saver', label: 'FedEx Express Saver' },
+    { code: 'fedex_priority_overnight', label: 'FedEx Priority Overnight' },
+    { code: 'fedex_standard_overnight', label: 'FedEx Standard Overnight' },
+  ],
+  fedex_walleted: [
+    { code: 'fedex_ground', label: 'FedEx Ground' },
+    { code: 'fedex_home_delivery', label: 'FedEx Home Delivery' },
+    { code: 'fedex_2day', label: 'FedEx 2Day' },
+    { code: 'fedex_express_saver', label: 'FedEx Express Saver' },
+    { code: 'fedex_priority_overnight', label: 'FedEx Priority Overnight' },
+    { code: 'fedex_standard_overnight', label: 'FedEx Standard Overnight' },
+  ],
 }
 
 const clientPaletteCache = new Map<string, ClientPalette>()
@@ -345,7 +432,7 @@ function getAddressBlock(order: OrderSummaryDto, detail: OrderFullDto | null) {
 }
 
 function getDimensions(order: OrderSummaryDto, detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
+  const rawOrder = toRecord(detail?.raw) ?? toRecord(order.raw)
   const rawDims = toRecord(rawOrder?.dimensions)
 
   const length = toNumberValue(rawDims?.length) ?? order.rateDims?.length ?? 0
@@ -363,38 +450,7 @@ function getDimensions(order: OrderSummaryDto, detail: OrderFullDto | null) {
 }
 
 function getRequestedService(order: OrderSummaryDto, detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
-  const requested = toStringValue(rawOrder?.requestedShippingService) ?? toStringValue(rawOrder?.serviceCode)
-  return requested ?? getBestRateServiceCode(order) ?? order.selectedRate?.serviceCode ?? order.label?.serviceCode ?? order.serviceCode
-}
-
-function getConfirmation(detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
-  const advancedOptions = toRecord(rawOrder?.advancedOptions)
-  const confirmation = toStringValue(advancedOptions?.deliveryConfirmation)
-  if (!confirmation || confirmation === 'none') return 'delivery'
-  return confirmation
-}
-
-function getInsurance(detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
-  const insurance = toRecord(rawOrder?.insuranceOptions)
-
-  return {
-    type: toStringValue(insurance?.provider) ?? 'none',
-    value: toNumberValue(insurance?.insuredValue),
-  }
-}
-
-function getWarehouseId(detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
-  const advancedOptions = toRecord(rawOrder?.advancedOptions)
-  return toNumberValue(advancedOptions?.warehouseId)
-}
-
-function getSelectedPackage(detail: OrderFullDto | null) {
-  const rawOrder = toRecord(detail?.raw)
-  return toStringValue(rawOrder?.packageCode)
+  return getPanelRequestedService(order, detail)
 }
 
 function getShipAccountDisplay(order: OrderSummaryDto, accounts: CarrierAccountDto[]) {
@@ -408,6 +464,12 @@ function getShipAccountDisplay(order: OrderSummaryDto, accounts: CarrierAccountD
     if (nickname) return nickname
   }
   return formatCarrierCode(order.label?.carrierCode ?? order.selectedRate?.carrierCode ?? order.bestRate?.carrierCode ?? order.carrierCode)
+}
+
+function getShipAccountLabelById(accounts: CarrierAccountDto[], accountId: string) {
+  if (!accountId) return null
+  const account = accounts.find((candidate) => String(candidate.shippingProviderId) === accountId)
+  return account ? account._label || account.nickname || account.code : null
 }
 
 function getBestRateBaseCost(order: OrderSummaryDto) {
@@ -559,7 +621,14 @@ export default function OrdersView({
   onSelectedOrderIdsChange,
   activeOrderId = null,
   onActiveOrderIdChange,
+  onNavigateView,
+  columnMenuRequestId = 0,
+  labelsActionRequestId = 0,
+  queueToggleRequestId = 0,
+  onQueueStateChange,
+  refreshVersion = 0,
 }: OrdersViewProps) {
+  const toastContext = useContext(ToastContext)
   const [page, setPage] = useState(1)
   const [skuFilter, setSkuFilter] = useState('')
   const [customDateFrom, setCustomDateFrom] = useState('')
@@ -573,6 +642,56 @@ export default function OrdersView({
     items: false,
     recipient: false,
   })
+  const [packages, setPackages] = useState<PackageDto[]>([])
+  const [dailyStats, setDailyStats] = useState<OrdersDailyStatsDto | null>(null)
+  const [columnPrefs, setColumnPrefs] = useState<ColumnPrefs | null>(null)
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false)
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [queueHistoryVisible, setQueueHistoryVisible] = useState(false)
+  const [queueEntries, setQueueEntries] = useState<PrintQueueEntryDto[]>([])
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queuePrintMessage, setQueuePrintMessage] = useState<string | null>(null)
+  const [queuePrintInFlight, setQueuePrintInFlight] = useState(false)
+  const [rateBrowserOpen, setRateBrowserOpen] = useState(false)
+  const [rateBrowserLoading, setRateBrowserLoading] = useState(false)
+  const [rateBrowserRates, setRateBrowserRates] = useState<Array<Record<string, unknown>>>([])
+  const [rateBrowserCarrierFilter, setRateBrowserCarrierFilter] = useState<number | null>(null)
+  const [printMenuOpen, setPrintMenuOpen] = useState(false)
+  const [batchMenuOpen, setBatchMenuOpen] = useState(false)
+  const [extShipMenuOpen, setExtShipMenuOpen] = useState(false)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchTestMode, setBatchTestMode] = useState(false)
+  const [singleActionBusy, setSingleActionBusy] = useState(false)
+  const [panelForm, setPanelForm] = useState<{
+    locationId: string
+    shipAccountId: string
+    serviceCode: string
+    weightLb: string
+    weightOz: string
+    length: string
+    width: string
+    height: string
+    packageId: string
+    confirmation: string
+    insurance: string
+    insuranceValue: string
+  }>({
+    locationId: '',
+    shipAccountId: '',
+    serviceCode: '',
+    weightLb: '',
+    weightOz: '',
+    length: '',
+    width: '',
+    height: '',
+    packageId: '',
+    confirmation: 'delivery',
+    insurance: 'none',
+    insuranceValue: '',
+  })
+  const [panelRatePreview, setPanelRatePreview] = useState<Array<Record<string, unknown>>>([])
+  const [panelRateLoading, setPanelRateLoading] = useState(false)
+  const columnMenuRef = useRef<HTMLDivElement | null>(null)
 
   const dateRange = dateFilter === 'custom'
     ? {
@@ -589,7 +708,7 @@ export default function OrdersView({
         }
       })()
 
-  const { orders, total, pages, currentPage, loading, error } = useOrders(currentStatus, {
+  const { orders, total, pages, currentPage, loading, error, refetch: refetchOrders } = useOrders(currentStatus, {
     page,
     pageSize: 50,
     storeId: activeStore ?? undefined,
@@ -611,7 +730,20 @@ export default function OrdersView({
   ), [activeOrderId, activeOrderDetail])
 
   const selectedIdSet = useMemo(() => new Set(selectedOrderIds), [selectedOrderIds])
-  const visibleColumns = useMemo(() => getVisibleColumns(currentStatus), [currentStatus])
+  const resolvedColumnPrefs = useMemo(
+    () => resolveColumnPrefs(TABLE_COLUMNS.map((column) => ({ key: column.key, label: column.label, width: column.width })), currentStatus, columnPrefs),
+    [currentStatus, columnPrefs],
+  )
+  const visibleColumns = useMemo(
+    () => resolvedColumnPrefs.orderedColumns
+      .filter((column) => !resolvedColumnPrefs.hiddenColumns.has(column.key))
+      .map((column) => (
+        column.key === 'bestrate' && currentStatus !== 'awaiting_shipment'
+          ? { ...TABLE_COLUMNS.find((candidate) => candidate.key === column.key)!, label: 'Selected Rate', width: resolvedColumnPrefs.widths[column.key] }
+          : { ...TABLE_COLUMNS.find((candidate) => candidate.key === column.key)!, width: resolvedColumnPrefs.widths[column.key] }
+      )),
+    [currentStatus, resolvedColumnPrefs],
+  )
 
   const skuOptions = useMemo(() => {
     const skus = new Set<string>()
@@ -673,7 +805,14 @@ export default function OrdersView({
   const panelOrder = orderedFilteredOrders.find((order) => order.orderId === panelOrderId)
     ?? orders.find((order) => order.orderId === panelOrderId)
     ?? null
+  const dailyStripProgress = dailyStats ? buildDailyStripProgress(dailyStats) : null
   const panelDetail = panelOrderId != null ? orderDetailsById.get(panelOrderId) ?? null : null
+  const queueClientId = useMemo(() => {
+    const selected = orders.find((order) => selectedIdSet.has(order.orderId) && order.clientId != null)
+    if (selected?.clientId != null) return selected.clientId
+    if (panelOrder?.clientId != null) return panelOrder.clientId
+    return orders.find((order) => order.clientId != null)?.clientId ?? null
+  }, [orders, panelOrder, selectedIdSet])
 
   useEffect(() => {
     setPage(1)
@@ -694,6 +833,258 @@ export default function OrdersView({
       onActiveOrderIdChange?.(null)
     }
   }, [orders, selectedOrderIds, activeOrderId, onSelectedOrderIdsChange, onActiveOrderIdChange])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void apiClient.fetchPackages()
+      .then((payload) => {
+        if (!cancelled) setPackages(payload)
+      })
+      .catch(() => {
+        if (!cancelled) setPackages([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void apiClient.fetchColumnPrefs()
+      .then((payload) => {
+        if (!cancelled) setColumnPrefs(payload)
+      })
+      .catch(() => {
+        if (!cancelled) setColumnPrefs(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (currentStatus !== 'awaiting_shipment' && currentStatus !== 'shipped') {
+      setDailyStats(null)
+      return
+    }
+
+    let cancelled = false
+
+    const loadDailyStats = async () => {
+      try {
+        const payload = await apiClient.fetchDailyStats()
+        if (!cancelled) setDailyStats(payload)
+      } catch {
+        if (!cancelled) setDailyStats(null)
+      }
+    }
+
+    void loadDailyStats()
+    const timer = window.setInterval(() => {
+      void loadDailyStats()
+    }, 5 * 60 * 1000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [currentStatus])
+
+  useEffect(() => {
+    if (refreshVersion === 0) return
+    void refetchOrders()
+  }, [refreshVersion, refetchOrders])
+
+  useEffect(() => {
+    if (columnMenuRequestId === 0) return
+    setColumnMenuOpen((open) => !open)
+  }, [columnMenuRequestId])
+
+  useEffect(() => {
+    if (queueToggleRequestId === 0) return
+    setQueueOpen((open) => !open)
+  }, [queueToggleRequestId])
+
+  useEffect(() => {
+    if (labelsActionRequestId === 0) return
+    void handleTopbarLabels()
+  }, [labelsActionRequestId])
+
+  useEffect(() => {
+    if (!columnMenuOpen) return
+
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.react-column-menu')) return
+      setColumnMenuOpen(false)
+    }
+
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [columnMenuOpen])
+
+  useEffect(() => {
+    onQueueStateChange?.({
+      count: queueEntries.filter((entry) => entry.status === 'queued').length,
+      isOpen: queueOpen,
+    })
+  }, [queueEntries, queueOpen, onQueueStateChange])
+
+  useEffect(() => {
+    if (!queueOpen || queueClientId == null) return
+
+    let cancelled = false
+
+    const hydrateQueue = async () => {
+      setQueueLoading(true)
+      try {
+        const payload = await apiClient.fetchQueue(queueClientId, queueHistoryVisible)
+        if (!cancelled) setQueueEntries(payload.queuedOrders)
+      } catch (error) {
+        if (!cancelled) {
+          toastContext?.addToast(error instanceof Error ? error.message : 'Failed to load print queue', 'error')
+        }
+      } finally {
+        if (!cancelled) setQueueLoading(false)
+      }
+    }
+
+    void hydrateQueue()
+    const interval = window.setInterval(() => {
+      void hydrateQueue()
+    }, 30000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [queueOpen, queueClientId, queueHistoryVisible, toastContext])
+
+  useEffect(() => {
+    if (!panelOrder) {
+      return
+    }
+
+    const dimensions = getDimensions(panelOrder, panelDetail)
+    const locationId = getPanelWarehouseId(panelOrder, panelDetail) ?? locations.find((location) => location.isDefault)?.locationId ?? locations[0]?.locationId ?? null
+    const matchedPackageId = getMatchedPackageIdByDimensions(dimensions, packages)
+    const selectedAccountValue = getInitialPanelShipAccountId(panelOrder, panelDetail)
+    const currentWeight = panelOrder.weight?.value ?? 0
+    const insurance = getPanelInsurance(panelOrder, panelDetail)
+
+    setPanelForm({
+      locationId: locationId != null ? String(locationId) : '',
+      shipAccountId: selectedAccountValue != null ? String(selectedAccountValue) : '',
+      serviceCode: getInitialPanelServiceCode(panelOrder, panelDetail),
+      weightLb: currentWeight ? String(Math.floor(currentWeight / 16)) : '',
+      weightOz: currentWeight ? String(Math.round(currentWeight % 16)) : '',
+      length: dimensions?.length ? String(dimensions.length) : '',
+      width: dimensions?.width ? String(dimensions.width) : '',
+      height: dimensions?.height ? String(dimensions.height) : '',
+      packageId: getPanelPackageId(panelOrder, panelDetail, packages) || matchedPackageId,
+      confirmation: getPanelConfirmation(panelOrder, panelDetail),
+      insurance: insurance.type,
+      insuranceValue: insurance.value != null ? String(insurance.value) : '',
+    })
+    setPanelRatePreview([])
+
+    const activeItems = getActiveItems(panelOrder, panelDetail).filter((item) => item.sku)
+    const uniqueSkus = [...new Set(activeItems.map((item) => item.sku).filter(Boolean))]
+    if (uniqueSkus.length !== 1) {
+      return
+    }
+
+    void apiClient.fetchProductsBySku(uniqueSkus[0]!)
+      .then((payload) => {
+        if (!payload) return
+        setPanelForm((current) => {
+          const nextWeightLb = current.weightLb || current.weightOz
+            ? current.weightLb
+            : payload.weightOz > 0
+              ? String(Math.floor(payload.weightOz / 16))
+              : ''
+          const nextWeightOz = current.weightLb || current.weightOz
+            ? current.weightOz
+            : payload.weightOz > 0
+              ? String(Math.round(payload.weightOz % 16))
+              : ''
+          const nextLength = current.length || payload.length <= 0 ? current.length : String(payload.length)
+          const nextWidth = current.width || payload.width <= 0 ? current.width : String(payload.width)
+          const nextHeight = current.height || payload.height <= 0 ? current.height : String(payload.height)
+          const nextPackageId = current.packageId
+            || getProductDefaultPackageId(payload, packages)
+            || getMatchedPackageIdByDimensions(
+              nextLength && nextWidth && nextHeight
+                ? {
+                    length: Number.parseFloat(nextLength) || 0,
+                    width: Number.parseFloat(nextWidth) || 0,
+                    height: Number.parseFloat(nextHeight) || 0,
+                  }
+                : null,
+              packages,
+            )
+
+          return {
+            ...current,
+            weightLb: nextWeightLb,
+            weightOz: nextWeightOz,
+            length: nextLength,
+            width: nextWidth,
+            height: nextHeight,
+            packageId: nextPackageId,
+          }
+        })
+      })
+      .catch(() => {})
+  }, [panelOrderId, panelOrder, panelDetail, locations, packages])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+
+      if (event.key === 'Escape') {
+        if (rateBrowserOpen) {
+          setRateBrowserOpen(false)
+          return
+        }
+        clearSelection()
+        return
+      }
+
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const currentIndex = kbRowId != null ? orderedFilteredOrders.findIndex((order) => order.orderId === kbRowId) : -1
+        const nextIndex = Math.max(0, Math.min(orderedFilteredOrders.length - 1, currentIndex + (event.key === 'ArrowDown' ? 1 : -1)))
+        const nextOrder = orderedFilteredOrders[nextIndex]
+        if (!nextOrder) return
+        setKbRowId(nextOrder.orderId)
+        document.getElementById(`row-${nextOrder.orderId}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        return
+      }
+
+      if (event.key === 'Enter' && kbRowId != null) {
+        toggleOrderSelection(kbRowId)
+        return
+      }
+
+      if (event.key.toLowerCase() === 'c' && (event.ctrlKey || event.metaKey) && !event.shiftKey && kbRowId != null) {
+        const order = orderedFilteredOrders.find((candidate) => candidate.orderId === kbRowId)
+        if (order?.orderNumber) {
+          copyText(order.orderNumber)
+          showToast(`📋 Copied: ${order.orderNumber}`)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [rateBrowserOpen, kbRowId, orderedFilteredOrders])
+
 
   const updateSelection = (ids: number[]) => {
     const nextIds = [...new Set(ids)]
@@ -719,6 +1110,444 @@ export default function OrdersView({
   const clearSelection = () => {
     onSelectedOrderIdsChange?.([])
     onActiveOrderIdChange?.(null)
+  }
+
+  function showToast(message: string, type: 'success' | 'error' | 'info' = 'info') {
+    toastContext?.addToast(message, type)
+  }
+
+  function getPanelWeightOz() {
+    const lb = Number.parseFloat(panelForm.weightLb) || 0
+    const oz = Number.parseFloat(panelForm.weightOz) || 0
+    return (lb * 16) + oz
+  }
+
+  function getPanelDims() {
+    const length = Number.parseFloat(panelForm.length) || 0
+    const width = Number.parseFloat(panelForm.width) || 0
+    const height = Number.parseFloat(panelForm.height) || 0
+    return { length, width, height }
+  }
+
+  function getServiceOptionsForAccount(accountId: string) {
+    const account = shippingAccounts.find((candidate) => String(candidate.shippingProviderId) === accountId)
+    if (!account) return []
+    return CARRIER_SERVICES[account.code] ?? []
+  }
+
+  async function saveColumnPrefsToServer(nextPrefs: ColumnPrefs) {
+    setColumnPrefs(nextPrefs)
+    try {
+      await apiClient.saveColumnPrefs(nextPrefs)
+    } catch {
+      showToast('Failed to save column preferences', 'error')
+    }
+  }
+
+  async function hydrateQueue(forceOpen = false) {
+    if (queueClientId == null) {
+      if (forceOpen) showToast('No client selected for print queue', 'error')
+      return
+    }
+
+    setQueueLoading(true)
+    try {
+      const payload = await apiClient.fetchQueue(queueClientId, queueHistoryVisible)
+      setQueueEntries(payload.queuedOrders)
+      if (forceOpen) setQueueOpen(true)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to load print queue', 'error')
+    } finally {
+      setQueueLoading(false)
+    }
+  }
+
+  async function queueExistingLabels(orderIds: number[]) {
+    if (orderIds.length === 0) {
+      await hydrateQueue(true)
+      return
+    }
+
+    let sent = 0
+    let failed = 0
+    let queueClient: number | null = null
+
+    for (const orderId of orderIds) {
+      const order = orders.find((candidate) => candidate.orderId === orderId)
+      if (!order?.label?.labelUrl || order.clientId == null) {
+        failed += 1
+        continue
+      }
+
+      try {
+        queueClient = queueClient ?? order.clientId
+        await apiClient.addToQueue(buildQueueAddPayload(order, order.label.labelUrl))
+        sent += 1
+      } catch {
+        failed += 1
+      }
+    }
+
+    if (sent > 0 && queueClient != null) {
+      const payload = await apiClient.fetchQueue(queueClient, queueHistoryVisible)
+      setQueueEntries(payload.queuedOrders)
+      setQueueOpen(true)
+    }
+
+    if (sent > 0) {
+      showToast(`✅ ${sent} order${sent === 1 ? '' : 's'} added to print queue${failed > 0 ? ` (${failed} skipped — no label)` : ''}`, 'success')
+    } else {
+      showToast('⚠ No orders added — create labels first')
+    }
+  }
+
+  async function handleTopbarLabels() {
+    if (selectedOrderIds.length === 0) {
+      await hydrateQueue(true)
+      return
+    }
+    await queueExistingLabels(selectedOrderIds)
+  }
+
+  async function createOrQueueLabel(mode: 'print' | 'queue' | 'test', order = panelOrder) {
+    if (!order) {
+      showToast('No order selected', 'error')
+      return null
+    }
+
+    const shippingProviderId = Number.parseInt(panelForm.shipAccountId, 10)
+    const weightOz = getPanelWeightOz()
+    const { length, width, height } = getPanelDims()
+    const account = shippingAccounts.find((candidate) => candidate.shippingProviderId === shippingProviderId)
+    if (!shippingProviderId || !account) {
+      showToast('Select a carrier account', 'error')
+      return null
+    }
+    if (!panelForm.serviceCode) {
+      showToast('Select a shipping service', 'error')
+      return null
+    }
+    if (!weightOz) {
+      showToast('Enter shipment weight', 'error')
+      return null
+    }
+
+    const location = locations.find((candidate) => String(candidate.locationId) === panelForm.locationId) ?? null
+    const shipTo = getShipTo(order, panelDetail)
+    const selectedPackage = packages.find((candidate) => String(candidate.packageId) === panelForm.packageId)
+
+    const payload: CreateLabelRequestDto = {
+      orderId: order.orderId,
+      orderNumber: order.orderNumber ?? undefined,
+      carrierCode: account.code,
+      serviceCode: panelForm.serviceCode,
+      shippingProviderId,
+      packageCode: 'package',
+      customPackageId: selectedPackage && selectedPackage.source !== 'ss_carrier' ? selectedPackage.packageId : null,
+      weightOz,
+      length,
+      width,
+      height,
+      confirmation: panelForm.confirmation === 'none' ? 'delivery' : panelForm.confirmation,
+      testLabel: mode === 'test',
+      shipTo: {
+        name: shipTo.name ?? '',
+        company: shipTo.company ?? '',
+        street1: shipTo.street1 ?? '',
+        street2: shipTo.street2 ?? '',
+        city: shipTo.city ?? '',
+        state: shipTo.state ?? '',
+        postalCode: shipTo.postalCode ?? '',
+        country: shipTo.country ?? 'US',
+        phone: shipTo.phone ?? '',
+      },
+      shipFrom: location ? {
+        name: location.name,
+        company: location.company,
+        street1: location.street1,
+        street2: location.street2,
+        city: location.city,
+        state: location.state,
+        postalCode: location.postalCode,
+        country: location.country,
+        phone: location.phone,
+      } : undefined,
+    }
+
+    setSingleActionBusy(true)
+    try {
+      const response = await apiClient.createLabel(payload)
+      if (mode === 'queue' && response.labelUrl && order.clientId != null) {
+        await apiClient.addToQueue(buildQueueAddPayload(order, response.labelUrl))
+        await hydrateQueue(true)
+        showToast(`✅ Label created & queued${response.trackingNumber ? `: ${response.trackingNumber}` : ''}`, 'success')
+      } else if (response.labelUrl) {
+        window.open(response.labelUrl, '_blank', 'noopener,noreferrer')
+        showToast(mode === 'test' ? `🧪 Test label created${response.trackingNumber ? `: ${response.trackingNumber}` : ''}` : `✅ Label created${response.trackingNumber ? `: ${response.trackingNumber}` : ''}`, 'success')
+      } else {
+        showToast('Label created but no PDF returned', 'info')
+      }
+
+      await refetchOrders()
+      return response
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Label creation failed', 'error')
+      return null
+    } finally {
+      setSingleActionBusy(false)
+    }
+  }
+
+  async function saveSkuDefaults() {
+    if (!panelOrder) return
+
+    const items = getActiveItems(panelOrder, panelDetail).filter((item) => item.sku)
+    const uniqueSkus = [...new Set(items.map((item) => item.sku).filter(Boolean))]
+    if (uniqueSkus.length === 0) {
+      showToast('No products found on this order', 'error')
+      return
+    }
+    if (uniqueSkus.length > 1) {
+      showToast("Multi-SKU order — edit each product's defaults in the Products tab", 'error')
+      return
+    }
+
+    const sku = uniqueSkus[0]!
+    const qty = items.filter((item) => item.sku === sku).reduce((sum, item) => sum + item.quantity, 0)
+    const weightOz = getPanelWeightOz()
+    const dims = getPanelDims()
+
+    if (!weightOz && !dims.length) {
+      showToast('Enter weight or dims first', 'error')
+      return
+    }
+
+    try {
+      await apiClient.saveProductDefaultsV2({
+        sku,
+        weightOz: qty > 1 ? Number((weightOz / qty).toFixed(2)) : weightOz,
+        length: dims.length,
+        width: dims.width,
+        height: dims.height,
+        packageId: panelForm.packageId ? Number.parseInt(panelForm.packageId, 10) : null,
+      })
+      showToast(`✅ Saved dims & weight for ${sku}`, 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Save failed', 'error')
+    }
+  }
+
+  async function toggleResidential() {
+    if (!panelOrder) return
+    const next = panelOrder.residential == null ? true : panelOrder.residential ? false : null
+
+    try {
+      await apiClient.setOrderResidential(panelOrder.orderId, next)
+      await refetchOrders()
+      showToast('Address type updated', 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update address type', 'error')
+    }
+  }
+
+  async function markOrderShippedExternal(source: string) {
+    if (!panelOrder) return
+
+    try {
+      await apiClient.markOrderShippedExternal(panelOrder.orderId, source)
+      showToast(`✅ Marked shipped via ${source}`, 'success')
+      clearSelection()
+      await refetchOrders()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to mark shipped', 'error')
+    }
+  }
+
+  async function reprintLabel() {
+    if (!panelOrder) return
+
+    try {
+      const data = await apiClient.retrieveLabel(panelOrder.orderId)
+      window.open(data.labelUrl, '_blank', 'noopener,noreferrer')
+      showToast(`📄 Label opened for ${data.trackingNumber || panelOrder.orderNumber || panelOrder.orderId}`)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to retrieve label', 'error')
+    }
+  }
+
+  async function openRateBrowser() {
+    if (!panelOrder) return
+
+    setRateBrowserOpen(true)
+    setRateBrowserLoading(true)
+    try {
+      const weightOz = getPanelWeightOz() || (panelOrder.weight?.value ?? 0)
+      const dims = getPanelDims()
+      const payload = await apiClient.fetchOrderDims(panelOrder.orderId)
+      const length = dims.length || payload.dims?.length || getDimensions(panelOrder, panelDetail)?.length || 0
+      const width = dims.width || payload.dims?.width || getDimensions(panelOrder, panelDetail)?.width || 0
+      const height = dims.height || payload.dims?.height || getDimensions(panelOrder, panelDetail)?.height || 0
+      const liveRates = await fetch('/api/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toPostalCode: getShipTo(panelOrder, panelDetail).postalCode ?? '',
+          toCountry: getShipTo(panelOrder, panelDetail).country ?? 'US',
+          weight: { value: weightOz, units: 'ounces' },
+          dimensions: { units: 'inches', length, width, height },
+          residential: Boolean(panelOrder.residential ?? panelOrder.sourceResidential),
+          storeId: panelOrder.storeId ?? undefined,
+        }),
+      })
+      const data = await liveRates.json() as Array<Record<string, unknown>> | { rates?: Array<Record<string, unknown>> }
+      const rates = Array.isArray(data) ? data : data.rates ?? []
+      setRateBrowserRates(rates)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to browse rates', 'error')
+      setRateBrowserRates([])
+    } finally {
+      setRateBrowserLoading(false)
+    }
+  }
+
+  function applyRateSelection(rate: Record<string, unknown>) {
+    const shippingProviderId = toNumberValue(rate.shippingProviderId)
+    const serviceCode = toStringValue(rate.serviceCode)
+    if (shippingProviderId == null || !serviceCode) return
+
+    setPanelForm((current) => ({
+      ...current,
+      shipAccountId: String(shippingProviderId),
+      serviceCode,
+    }))
+    setPanelRatePreview([rate])
+    setRateBrowserOpen(false)
+    void apiClient.saveOrderBestRate(panelOrderId ?? 0, rate, `${panelForm.length || 0}x${panelForm.width || 0}x${panelForm.height || 0}`)
+  }
+
+  async function printPicklist() {
+    try {
+      const data: OrderPicklistResponseDto = await apiClient.fetchPicklist({
+        orderStatus: currentStatus,
+        storeId: activeStore ?? undefined,
+        dateStart: dateRange.start,
+        dateEnd: dateRange.end,
+      })
+      if (!data.skus.length) {
+        showToast('No items found for current filter')
+        return
+      }
+
+      const dateLabel = dateFilter === 'custom' && dateRange.start
+        ? `${dateRange.start}${dateRange.end ? ` – ${dateRange.end}` : ''}`
+        : dateFilter || 'all dates'
+      const html = buildPicklistPrintHtml(data.skus, {
+        generatedAt: new Date().toLocaleString(),
+        dateLabel,
+        statusLabel: currentStatus.replace(/_/g, ' '),
+      })
+      const printWindow = window.open('', '_blank')
+      if (!printWindow) {
+        showToast('Allow popups to print pick list', 'error')
+        return
+      }
+      printWindow.document.write(html)
+      printWindow.document.close()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Picklist error', 'error')
+    }
+  }
+
+  async function printQueueEntries(entryIds: string[]) {
+    if (queueClientId == null || entryIds.length === 0) return
+
+    setQueuePrintInFlight(true)
+    setQueuePrintMessage('Starting merge…')
+    try {
+      const job = await apiClient.startQueuePrintJob(queueClientId, entryIds, true)
+
+      let done = false
+      while (!done) {
+        await new Promise((resolve) => window.setTimeout(resolve, 600))
+        const status = await apiClient.fetchQueuePrintJobStatus(job.job_id)
+        setQueuePrintMessage(status.message)
+
+        if (status.status === 'done') {
+          window.open(`/api/queue/print/download/${job.job_id}`, '_blank', 'noopener,noreferrer')
+          done = true
+        }
+        if (status.status === 'error') {
+          throw new Error(status.errorMessage || 'PDF merge failed')
+        }
+      }
+
+      await hydrateQueue()
+      showToast(`✅ ${entryIds.length} label${entryIds.length === 1 ? '' : 's'} — opened in new tab`, 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Print failed', 'error')
+    } finally {
+      setQueuePrintInFlight(false)
+      setQueuePrintMessage(null)
+    }
+  }
+
+  async function handleBatchAction(mode: 'print' | 'queue') {
+    const batchOrders = orders.filter((order) => selectedIdSet.has(order.orderId))
+    if (batchOrders.length === 0) {
+      showToast('No orders selected', 'error')
+      return
+    }
+
+    setBatchBusy(true)
+    let created = 0
+    let failed = 0
+
+    for (const order of batchOrders) {
+      const bestRate = order.bestRate
+      const selectedRate = order.selectedRate
+      const shippingProviderId = toNumberValue(bestRate?.shippingProviderId) ?? selectedRate?.shippingProviderId ?? order.label?.shippingProviderId ?? null
+      const serviceCode = toStringValue(bestRate?.serviceCode) ?? selectedRate?.serviceCode ?? order.serviceCode
+      const carrierCode = toStringValue(bestRate?.carrierCode) ?? selectedRate?.carrierCode ?? order.label?.carrierCode
+      const weightOz = order.weight?.value ?? 0
+      const dims = getDimensions(order, null)
+
+      if (shippingProviderId == null || !serviceCode || !carrierCode) {
+        failed += 1
+        continue
+      }
+
+      try {
+        const response = await apiClient.createLabel({
+          orderId: order.orderId,
+          serviceCode,
+          carrierCode,
+          shippingProviderId,
+          packageCode: 'package',
+          weightOz,
+          length: dims?.length,
+          width: dims?.width,
+          height: dims?.height,
+          testLabel: batchTestMode,
+        })
+
+        if (mode === 'queue' && response.labelUrl && order.clientId != null) {
+          await apiClient.addToQueue(buildQueueAddPayload(order, response.labelUrl))
+        } else if (response.labelUrl) {
+          window.open(response.labelUrl, '_blank', 'noopener,noreferrer')
+        }
+        created += 1
+      } catch {
+        failed += 1
+      }
+    }
+
+    setBatchBusy(false)
+    if (mode === 'queue' && created > 0) {
+      await hydrateQueue(true)
+    }
+    await refetchOrders()
+    if (failed === 0) showToast(`✅ ${mode === 'queue' ? 'Queued' : 'Created'} ${created} orders`, 'success')
+    else showToast(`⚠ ${created} ${mode === 'queue' ? 'queued' : 'created'}, ${failed} failed`)
   }
 
   const toggleSort = (key: SortKey) => {
@@ -753,6 +1582,20 @@ export default function OrdersView({
   const openShipStationOrder = (orderId: number) => {
     window.open(`https://ship.shipstation.com/orders/${orderId}`, '_blank', 'noopener,noreferrer')
   }
+
+  const queuedEntries = useMemo(
+    () => queueEntries.filter((entry) => entry.status === 'queued'),
+    [queueEntries],
+  )
+  const printedEntries = useMemo(
+    () => queueHistoryVisible ? queueEntries.filter((entry) => entry.status === 'printed') : [],
+    [queueEntries, queueHistoryVisible],
+  )
+  const queueGroups = useMemo<PrintQueueGroup[]>(
+    () => groupPrintQueueEntries(queueEntries),
+    [queueEntries],
+  )
+  const queueCount = queuedEntries.length
 
   const renderBestRatePrice = (order: OrderSummaryDto) => {
     const bestRateBaseCost = getBestRateBaseCost(order)
@@ -1148,19 +1991,24 @@ export default function OrdersView({
               </div>
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className="create-label-btn" type="button" style={{ flex: 1 }} disabled title="TODO: wire batch label actions in the React parity port">
+                <button className="create-label-btn" type="button" style={{ flex: 1 }} onClick={() => void handleBatchAction('print')} disabled={batchBusy}>
                   🖨️ Create + Print Label
                 </button>
                 <button
                   className="create-label-btn"
                   type="button"
                   style={{ flex: 1, background: '#16a34a' }}
-                  disabled
-                  title="TODO: wire print-queue actions in the React parity port"
+                  onClick={() => void handleBatchAction('queue')}
+                  disabled={batchBusy}
                 >
                   📥 Send to Queue
                 </button>
               </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12, fontWeight: 600 }}>
+                <input type="checkbox" checked={batchTestMode} onChange={(event) => setBatchTestMode(event.target.checked)} />
+                🧪 Test mode (no charges)
+              </label>
 
               <div style={{ marginTop: 16, padding: 12, background: 'var(--surface2)', borderRadius: 4, marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8, fontWeight: 600 }}>Shipping Parameters (from 1st order):</div>
@@ -1179,7 +2027,7 @@ export default function OrdersView({
               </div>
 
               <div style={{ fontSize: 10, color: 'var(--text4)', lineHeight: 1.5 }}>
-                TODO: batch shipping controls still need to be wired to the React label/create flows.
+                Print creates labels and opens PDFs. Queue creates labels and adds them to the print queue without opening PDFs.
               </div>
             </div>
           </div>
@@ -1196,19 +2044,12 @@ export default function OrdersView({
     const shipTo = getShipTo(panelOrder, panelDetail)
     const dims = getDimensions(panelOrder, panelDetail)
     const requestedService = getRequestedService(panelOrder, panelDetail)
-    const confirmation = getConfirmation(panelDetail)
-    const insurance = getInsurance(panelDetail)
-    const warehouseId = getWarehouseId(panelDetail)
-    const packageCode = getSelectedPackage(panelDetail)
     const panelIndex = orderedFilteredOrders.findIndex((order) => order.orderId === panelOrder.orderId)
     const prevOrderId = panelIndex > 0 ? orderedFilteredOrders[panelIndex - 1]?.orderId ?? null : null
     const nextOrderId = panelIndex >= 0 && panelIndex < orderedFilteredOrders.length - 1 ? orderedFilteredOrders[panelIndex + 1]?.orderId ?? null : null
     const currentWeight = panelOrder.weight?.value ?? 0
-    const currentWeightLb = Math.floor(currentWeight / 16)
-    const currentWeightOz = Math.round(currentWeight % 16)
-    const selectedAccountValue = panelOrder.label?.shippingProviderId ?? panelOrder.selectedRate?.shippingProviderId ?? getBestRateShippingProviderId(panelOrder) ?? null
-    const selectedAccountString = selectedAccountValue != null ? String(selectedAccountValue) : ''
-    const serviceValue = panelOrder.label?.serviceCode ?? panelOrder.selectedRate?.serviceCode ?? getBestRateServiceCode(panelOrder) ?? panelOrder.serviceCode ?? ''
+    const serviceOptions = getServiceOptionsForAccount(panelForm.shipAccountId)
+    const selectedPanelAccountLabel = getShipAccountLabelById(shippingAccounts, panelForm.shipAccountId) ?? getShipAccountDisplay(panelOrder, shippingAccounts)
     const shipped = panelOrder.orderStatus !== 'awaiting_shipment'
     const trackingNumber = panelOrder.label?.trackingNumber ?? null
     const deliveryLine = panelOrder.label?.shipDate
@@ -1216,7 +2057,6 @@ export default function OrdersView({
       : 'Delivery: —'
     const addressBlock = getAddressBlock(panelOrder, panelDetail)
 
-    // TODO: Wire these controls to the React rate/package/create-label flows once the operator actions are migrated.
     return (
       <>
         <div className="panel-topbar">
@@ -1266,8 +2106,27 @@ export default function OrdersView({
               {panelIndex >= 0 ? `${panelIndex + 1}/${orderedFilteredOrders.length}` : ''}
             </span>
           </div>
-          <button className="panel-topbar-btn" type="button" title="TODO: batch menu parity still needs live actions">Batch ▾</button>
-          <button className="panel-topbar-btn" type="button" title="TODO: print menu parity still needs live actions">Print ▾</button>
+          <div style={{ position: 'relative' }}>
+            <button className="panel-topbar-btn" type="button" onClick={() => setBatchMenuOpen((open) => !open)}>Batch ▾</button>
+            {batchMenuOpen ? (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, boxShadow: '0 4px 16px rgba(0,0,0,.15)', zIndex: 999, minWidth: 200, padding: '4px 0', fontSize: 12.5 }}>
+                <button className="panel-topbar-btn" type="button" style={{ width: '100%', justifyContent: 'flex-start', border: 'none' }} onClick={() => { setBatchMenuOpen(false); updateSelection([panelOrder.orderId, ...selectedOrderIds.filter((id) => id !== panelOrder.orderId)]) }}>📦 Add to Batch Queue</button>
+                <button className="panel-topbar-btn" type="button" style={{ width: '100%', justifyContent: 'flex-start', border: 'none' }} onClick={() => { setBatchMenuOpen(false); void queueExistingLabels([panelOrder.orderId]) }}>🔄 Quick Reprint (Batch)</button>
+              </div>
+            ) : null}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button className="panel-topbar-btn" type="button" onClick={() => setPrintMenuOpen((open) => !open)}>Print ▾</button>
+            {printMenuOpen ? (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, boxShadow: '0 4px 16px rgba(0,0,0,.15)', zIndex: 999, minWidth: 180, padding: '4px 0', fontSize: 12.5 }}>
+                {shipped && trackingNumber ? (
+                  <button className="panel-topbar-btn" type="button" style={{ width: '100%', justifyContent: 'flex-start', border: 'none' }} onClick={() => { setPrintMenuOpen(false); void reprintLabel() }}>🖨️ Reprint Label</button>
+                ) : (
+                  <button className="panel-topbar-btn" type="button" style={{ width: '100%', justifyContent: 'flex-start', border: 'none' }} onClick={() => { setPrintMenuOpen(false); void createOrQueueLabel('test') }}>📄 Create Test Label</button>
+                )}
+              </div>
+            ) : null}
+          </div>
           <a
             className="panel-topbar-btn"
             href={`https://ship.shipstation.com/orders/${panelOrder.orderId}`}
@@ -1279,9 +2138,20 @@ export default function OrdersView({
             ↗ SS
           </a>
           {shipped ? null : (
-            <button className="panel-topbar-btn" type="button" style={{ color: '#b45309', borderColor: '#fbbf24' }} title="TODO: external ship action parity still needs wiring">
-              ✈ Mark as Shipped
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button className="panel-topbar-btn" type="button" style={{ color: '#b45309', borderColor: '#fbbf24' }} onClick={() => setExtShipMenuOpen((open) => !open)}>
+                ✈ Mark as Shipped
+              </button>
+              {extShipMenuOpen ? (
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,.15)', zIndex: 999, minWidth: 150, overflow: 'hidden', fontSize: 12.5 }}>
+                  {['Shopify', 'Amazon', 'Walmart', 'eBay', 'Etsy', 'Other'].map((source) => (
+                    <button key={source} type="button" style={{ display: 'block', width: '100%', padding: '8px 14px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }} onClick={() => { setExtShipMenuOpen(false); void markOrderShippedExternal(source) }}>
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           )}
           <button className="panel-close" type="button" onClick={clearSelection}>✕</button>
         </div>
@@ -1306,7 +2176,7 @@ export default function OrdersView({
               <div className="ship-field-row">
                 <span className="ship-field-label">Ship From</span>
                 <div className="ship-field-value">
-                  <select className="ship-select" style={{ flex: 1 }} value={warehouseId != null ? String(warehouseId) : ''} disabled>
+                  <select className="ship-select" style={{ flex: 1 }} value={panelForm.locationId} onChange={(event) => setPanelForm((current) => ({ ...current, locationId: event.target.value }))} disabled={shipped}>
                     {locations.length === 0 ? <option value="">Loading…</option> : null}
                     {locations.map((location: LocationDto) => (
                       <option key={location.locationId} value={location.locationId}>
@@ -1314,14 +2184,28 @@ export default function OrdersView({
                       </option>
                     ))}
                   </select>
-                  <button className="ship-icon-btn" type="button" title="Manage locations" disabled>📍</button>
+                  <button className="ship-icon-btn" type="button" title="Manage locations" onClick={() => onNavigateView?.('locations')}>📍</button>
                 </div>
               </div>
 
               <div className="ship-field-row">
                 <span className="ship-field-label">Ship Acct</span>
                 <div className="ship-field-value">
-                  <select className="ship-select" style={{ flex: 1 }} value={selectedAccountString} disabled>
+                  <select
+                    className="ship-select"
+                    style={{ flex: 1 }}
+                    value={panelForm.shipAccountId}
+                    disabled={shipped}
+                    onChange={(event) => {
+                      const nextValue = event.target.value
+                      setPanelForm((current) => ({
+                        ...current,
+                        shipAccountId: nextValue,
+                        serviceCode: getServiceOptionsForAccount(nextValue)[0]?.code ?? current.serviceCode,
+                      }))
+                      void apiClient.setOrderSelectedPid(panelOrder.orderId, nextValue ? Number.parseInt(nextValue, 10) : null)
+                    }}
+                  >
                     <option value="">— Select Account —</option>
                     {shippingAccounts.map((account) => (
                       <option key={account.shippingProviderId} value={account.shippingProviderId}>
@@ -1335,8 +2219,11 @@ export default function OrdersView({
               <div className="ship-field-row">
                 <span className="ship-field-label">Service</span>
                 <div className="ship-field-value">
-                  <select className="ship-select" style={{ flex: 1 }} value={serviceValue} disabled>
-                    <option value="">{serviceValue ? formatServiceCode(serviceValue) : 'Select Service'}</option>
+                  <select className="ship-select" style={{ flex: 1 }} value={panelForm.serviceCode} disabled={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, serviceCode: event.target.value }))}>
+                    <option value="">{panelForm.serviceCode ? formatServiceCode(panelForm.serviceCode) : 'Select Service'}</option>
+                    {serviceOptions.map((option) => (
+                      <option key={option.code} value={option.code}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1344,9 +2231,9 @@ export default function OrdersView({
               <div className="ship-field-row">
                 <span className="ship-field-label">Weight</span>
                 <div className="ship-field-value">
-                  <input type="number" className="ship-input ship-input-sm" value={currentWeightLb} readOnly />
+                  <input type="number" className="ship-input ship-input-sm" value={panelForm.weightLb} readOnly={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, weightLb: event.target.value }))} />
                   <span className="ship-input-unit">lb</span>
-                  <input type="number" className="ship-input ship-input-sm" value={currentWeightOz} readOnly />
+                  <input type="number" className="ship-input ship-input-sm" value={panelForm.weightOz} readOnly={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, weightOz: event.target.value }))} />
                   <span className="ship-input-unit">oz</span>
                 </div>
               </div>
@@ -1354,11 +2241,11 @@ export default function OrdersView({
               <div className="ship-field-row">
                 <span className="ship-field-label">Size</span>
                 <div className="ship-field-value" style={{ gap: 3, flexWrap: 'wrap' }}>
-                  <input type="number" className="ship-input ship-input-sm" value={dims?.length ?? ''} readOnly />
+                  <input type="number" className="ship-input ship-input-sm" value={panelForm.length} readOnly={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, length: event.target.value }))} />
                   <span className="ship-input-unit">L</span>
-                  <input type="number" className="ship-input ship-input-sm" value={dims?.width ?? ''} readOnly />
+                  <input type="number" className="ship-input ship-input-sm" value={panelForm.width} readOnly={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, width: event.target.value }))} />
                   <span className="ship-input-unit">W</span>
-                  <input type="number" className="ship-input ship-input-sm" value={dims?.height ?? ''} readOnly />
+                  <input type="number" className="ship-input ship-input-sm" value={panelForm.height} readOnly={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, height: event.target.value }))} />
                   <span className="ship-input-unit">H (in)</span>
                 </div>
               </div>
@@ -1366,10 +2253,22 @@ export default function OrdersView({
               <div className="ship-field-row" style={{ borderBottom: 'none', paddingBottom: 2 }}>
                 <span className="ship-field-label">Package</span>
                 <div className="ship-field-value">
-                  <select className="ship-select" style={{ flex: 1 }} value={packageCode ?? ''} disabled>
-                    <option value="">{packageCode ?? '— Select Package —'}</option>
+                  <select
+                    className="ship-select"
+                    style={{ flex: 1 }}
+                    value={panelForm.packageId}
+                    disabled={shipped}
+                  onChange={(event) => {
+                      setPanelForm((current) => ({ ...current, packageId: event.target.value }))
+                      void apiClient.setOrderSelectedPackageId(panelOrder.orderId, event.target.value ? Number.parseInt(event.target.value, 10) : null)
+                    }}
+                  >
+                    <option value="">— Select Package —</option>
+                    {packages.map((pkg) => (
+                      <option key={pkg.packageId} value={pkg.packageId}>{pkg.name}</option>
+                    ))}
                   </select>
-                  <button className="ship-icon-btn" type="button" title="Manage packages" disabled>📐</button>
+                  <button className="ship-icon-btn" type="button" title="Manage packages" onClick={() => onNavigateView?.('packages')}>📐</button>
                 </div>
               </div>
 
@@ -1379,15 +2278,17 @@ export default function OrdersView({
 
               {shipped ? null : (
                 <div style={{ padding: '4px 0' }}>
-                  <button className="btn btn-primary btn-sm" type="button" style={{ fontSize: 11.5, gap: 4 }} disabled>🔍 Browse Rates</button>
+                  <button className="btn btn-primary btn-sm" type="button" style={{ fontSize: 11.5, gap: 4 }} onClick={() => void openRateBrowser()}>🔍 Browse Rates</button>
                 </div>
               )}
 
               <div className="ship-field-row">
                 <span className="ship-field-label">Confirmation</span>
                 <div className="ship-field-value">
-                  <select className="ship-select" value={confirmation} disabled>
-                    <option value={confirmation}>{confirmation.replace(/_/g, ' ')}</option>
+                  <select className="ship-select" value={panelForm.confirmation} disabled={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, confirmation: event.target.value }))}>
+                    {['none', 'delivery', 'signature', 'adult_signature', 'direct_signature'].map((option) => (
+                      <option key={option} value={option}>{option.replace(/_/g, ' ')}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1395,16 +2296,19 @@ export default function OrdersView({
               <div className="ship-field-row">
                 <span className="ship-field-label">Insurance</span>
                 <div className="ship-field-value" style={{ gap: 5, flexWrap: 'wrap' }}>
-                  <select className="ship-select" value={insurance.type} style={{ flex: 1 }} disabled>
-                    <option value={insurance.type}>{insurance.type === 'none' ? 'None' : insurance.type}</option>
+                  <select className="ship-select" value={panelForm.insurance} style={{ flex: 1 }} disabled={shipped} onChange={(event) => setPanelForm((current) => ({ ...current, insurance: event.target.value }))}>
+                    <option value="none">None</option>
+                    <option value="carrier">Carrier (up to $100)</option>
+                    <option value="shipsurance">Shipsurance</option>
                   </select>
                   <input
                     type="number"
                     className="ship-input ship-input-sm"
-                    value={insurance.value != null ? insurance.value.toFixed(2) : ''}
+                    value={panelForm.insuranceValue}
                     placeholder="$0.00"
-                    style={{ width: 68, display: insurance.value != null ? 'block' : 'none' }}
-                    readOnly
+                    style={{ width: 68, display: panelForm.insurance !== 'none' ? 'block' : 'none' }}
+                    readOnly={shipped}
+                    onChange={(event) => setPanelForm((current) => ({ ...current, insuranceValue: event.target.value }))}
                   />
                 </div>
               </div>
@@ -1415,12 +2319,12 @@ export default function OrdersView({
                   <span style={{ fontSize: 10.5, color: 'var(--text3)' }}>
                     {getIsExternallyFulfilled(panelOrder)
                       ? '📦 Ext. label — purchased externally'
-                      : `${formatMoney(panelOrder.label?.cost ?? panelOrder.selectedRate?.cost ?? getSelectedRateBaseCost(panelOrder))} · ${getShipAccountDisplay(panelOrder, shippingAccounts)} · ${formatServiceCode(serviceValue)}`}
+                      : `${formatMoney(panelOrder.label?.cost ?? panelOrder.selectedRate?.cost ?? getSelectedRateBaseCost(panelOrder))} · ${selectedPanelAccountLabel} · ${formatServiceCode(panelForm.serviceCode)}`}
                   </span>
                 ) : (
                   <>
                     <span className="ship-rate-val" id="panel-rate-val">
-                      {panelOrder.bestRate ? `${formatMoney(applyCarrierMarkup({
+                      {panelRateLoading ? 'Loading rates…' : panelRatePreview[0] ? `${formatMoney((toNumberValue(panelRatePreview[0].shipmentCost) ?? 0) + (toNumberValue(panelRatePreview[0].otherCost) ?? 0))} · ${formatCarrierCode(toStringValue(panelRatePreview[0].carrierCode))} · ${formatServiceCode(toStringValue(panelRatePreview[0].serviceCode))}` : panelOrder.bestRate ? `${formatMoney(applyCarrierMarkup({
                         shippingProviderId: getBestRateShippingProviderId(panelOrder),
                         carrierCode: panelOrder.bestRate.carrierCode ?? '',
                         serviceCode: getBestRateServiceCode(panelOrder) ?? '',
@@ -1429,16 +2333,16 @@ export default function OrdersView({
                         shipmentCost: typeof panelOrder.bestRate.shipmentCost === 'number' ? panelOrder.bestRate.shipmentCost : undefined,
                         otherCost: typeof panelOrder.bestRate.otherCost === 'number' ? panelOrder.bestRate.otherCost : undefined,
                         carrierNickname: getBestRateCarrierNickname(panelOrder),
-                      }, markups))} · ${getShipAccountDisplay(panelOrder, shippingAccounts)} · ${formatServiceCode(getBestRateServiceCode(panelOrder))}` : '—'}
+                      }, markups))} · ${selectedPanelAccountLabel} · ${formatServiceCode(panelForm.serviceCode || getBestRateServiceCode(panelOrder))}` : '—'}
                     </span>
                     <span style={{ flex: 1 }} />
-                    <span className="ship-scout" title="Refresh rates">🔄 <span id="panel-scout-label">Scout Review</span></span>
+                    <span className="ship-scout" title="Refresh rates" onClick={() => void openRateBrowser()}>🔄 <span id="panel-scout-label">Scout Review</span></span>
                   </>
                 )}
               </div>
 
               {shipped ? null : (
-                <button className="save-sku-btn" id="saveSkuBtn" type="button" disabled title="TODO: SKU defaults save parity still needs wiring">
+                <button className="save-sku-btn" id="saveSkuBtn" type="button" onClick={() => void saveSkuDefaults()}>
                   💾 Save weights and dims as SKU defaults
                 </button>
               )}
@@ -1447,13 +2351,13 @@ export default function OrdersView({
 
           {shipped ? null : (
             <div className="create-label-wrap" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button className="create-label-btn" type="button" style={{ flex: 1 }} disabled>
+              <button className="create-label-btn" type="button" style={{ flex: 1 }} onClick={() => void createOrQueueLabel('print')} disabled={singleActionBusy}>
                 🖨️ Create + Print Label <span className="create-label-caret">▾</span>
               </button>
-              <button className="create-label-btn" type="button" style={{ flex: 1, background: '#16a34a' }} disabled>
+              <button className="create-label-btn" type="button" style={{ flex: 1, background: '#16a34a' }} onClick={() => void createOrQueueLabel('queue')} disabled={singleActionBusy}>
                 📥 Send to Queue
               </button>
-              <button className="btn btn-ghost btn-sm" type="button" style={{ fontSize: 10.5, color: 'var(--text3)', padding: '4px 7px' }} disabled>
+              <button className="btn btn-ghost btn-sm" type="button" style={{ fontSize: 10.5, color: 'var(--text3)', padding: '4px 7px' }} onClick={() => void createOrQueueLabel('test')} disabled={singleActionBusy}>
                 Test
               </button>
             </div>
@@ -1469,7 +2373,7 @@ export default function OrdersView({
               >
                 {trackingNumber}
               </span>
-              <button className="btn btn-sm btn-ghost" type="button" style={{ marginLeft: 'auto', fontSize: 10.5 }} disabled>
+              <button className="btn btn-sm btn-ghost" type="button" style={{ marginLeft: 'auto', fontSize: 10.5 }} onClick={() => void reprintLabel()}>
                 🖨️ Reprint
               </button>
             </div>
@@ -1518,7 +2422,7 @@ export default function OrdersView({
               <div className="recip-header">
                 <span className="recip-title">Ship To</span>
                 <span className="recip-edit" onClick={() => copyText(addressBlock)} title="Copy address">📋</span>
-                <span className="recip-edit" title="TODO: recipient edit parity still needs wiring">Edit</span>
+                <span className="recip-edit" title="Web app parity: edit recipient is not migrated beyond this entry point" onClick={() => showToast('Edit recipient — Phase 3')}>Edit</span>
               </div>
               <div className="recip-name">{shipTo.name ?? '—'}</div>
               <div className="recip-addr">{addressBlock || '—'}</div>
@@ -1527,15 +2431,15 @@ export default function OrdersView({
                 {panelOrder.residential ?? panelOrder.sourceResidential ? '🏠 Residential' : '🏢 Commercial'}
                 {panelOrder.residential != null ? ' (manual)' : ' (auto)'}
                 {' — '}
-                <a href="#" onClick={(event) => event.preventDefault()} style={{ color: 'var(--ss-blue)' }}>change</a>
+                <a href="#" onClick={(event) => { event.preventDefault(); void toggleResidential() }} style={{ color: 'var(--ss-blue)' }}>change</a>
               </div>
               <div className="recip-validated">
                 {shipTo.addressVerified && shipTo.addressVerified !== 'Not Validated' ? '🏠 Address Validated' : '⚠ Address Not Validated'}
-                <span className="recip-revert">Revert</span>
+                <span className="recip-revert" onClick={() => showToast('Address reverted')}>Revert</span>
               </div>
               <div className="recip-tax">
                 Tax Information: <span style={{ color: 'var(--text3)' }}>0 Tax IDs added</span>
-                <span className="recip-tax-add">Add</span>
+                <span className="recip-tax-add" onClick={() => showToast('Add tax ID — Phase 3')}>Add</span>
               </div>
               <div className="recip-sold" style={{ marginTop: 7, paddingTop: 7, borderTop: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', color: 'var(--text3)', marginBottom: 4 }}>Sold To</div>
@@ -1628,7 +2532,30 @@ export default function OrdersView({
           </div>
 
           <div className="col-toggle-wrap">
-            <button className="btn btn-outline btn-sm" type="button" id="colBtnFilter" style={{ display: 'none' }}>⊞ Columns</button>
+            <button className="btn btn-outline btn-sm" type="button" id="colBtnFilter" style={{ display: 'none' }} onClick={() => setColumnMenuOpen((open) => !open)}>⊞ Columns</button>
+            {columnMenuOpen ? (
+              <div ref={columnMenuRef} className="react-column-menu" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 8, boxShadow: 'var(--shadow-lg)', padding: '8px 0', zIndex: 300, minWidth: 220 }}>
+                <div style={{ padding: '0 12px 6px', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Toggle Columns</div>
+                {resolvedColumnPrefs.orderedColumns.filter((column) => column.key !== 'select' && column.key !== 'orderNum').map((column) => {
+                  const checked = !resolvedColumnPrefs.hiddenColumns.has(column.key)
+                  return (
+                    <label key={column.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const nextHidden = new Set(resolvedColumnPrefs.hiddenColumns)
+                          if (event.target.checked) nextHidden.delete(column.key)
+                          else nextHidden.add(column.key)
+                          void saveColumnPrefsToServer(buildColumnPrefs(resolvedColumnPrefs.orderedColumns, nextHidden, resolvedColumnPrefs.widths))
+                        }}
+                      />
+                      {column.label}
+                    </label>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
           <button id="btnSelectAll" className="btn btn-ghost btn-sm" type="button" onClick={selectAll}>Select All</button>
           <button
@@ -1661,14 +2588,55 @@ export default function OrdersView({
             type="button"
             style={{ fontSize: 11.5, gap: 4, marginLeft: 'auto', display: currentStatus === 'awaiting_shipment' ? '' : 'none' }}
             id="picklistBtn"
-            disabled
-            title="TODO: picklist parity still needs wiring"
+            onClick={() => void printPicklist()}
           >
             🖨️ Picklist
           </button>
         </div>
 
-        <div id="daily-strip" style={{ display: 'none' }} />
+        <div id="daily-strip" style={{ display: dailyStats ? 'block' : 'none' }}>
+          {dailyStats ? (
+            <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', fontSize: 12 }}>
+              <div style={{ color: 'var(--text3)', fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                📅 <span style={{ color: 'var(--text2)' }}>{dailyStats.window.fromLabel || dailyStats.window.from}</span>
+                <span style={{ margin: '0 4px' }}>→</span>
+                <span style={{ color: 'var(--text2)' }}>{dailyStats.window.toLabel || dailyStats.window.to}</span>
+                <span style={{ marginLeft: 4, color: 'var(--text3)' }}>(shifts at 6 PM)</span>
+              </div>
+              <div style={{ width: 1, height: 28, background: 'var(--border2)', flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 16 }}>📦</span>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: 'var(--text)' }}>{dailyStats.totalOrders}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.2, marginTop: 1 }}>Total Orders</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 16 }}>🚚</span>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: dailyStripProgress?.needToShipColor }}>{dailyStats.needToShip}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.2, marginTop: 1 }}>Need to Ship</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <span style={{ fontSize: 16 }}>🔔</span>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: dailyStripProgress?.upcomingColor }}>{dailyStats.upcomingOrders}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.2, marginTop: 1 }}>Upcoming</div>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 120, maxWidth: 220 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>{dailyStripProgress?.shipped} of {dailyStats.totalOrders} shipped</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: dailyStripProgress?.barColor }}>{dailyStripProgress?.pct}%</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--border2)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${dailyStripProgress?.barFill ?? 0}%`, background: dailyStripProgress?.barColor, borderRadius: 3, transition: 'width .4s ease' }} />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="content-split">
           <div className="orders-section" id="ordersSection">
@@ -1774,6 +2742,95 @@ export default function OrdersView({
           Next →
         </button>
       </div>
+
+      {queueOpen ? (
+        <div id="print-queue-panel" style={{ display: 'flex', position: 'fixed', top: 56, right: 12, width: 520, maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 80px)', background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,.18)', zIndex: 1200, flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+            <strong>Print Queue</strong>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost btn-xs" type="button" id="pq-history-btn" onClick={() => setQueueHistoryVisible((value) => !value)}>{queueHistoryVisible ? '🔼 Hide History' : '🕐 History'}</button>
+              <button className="btn btn-ghost btn-xs" type="button" onClick={() => queueClientId != null ? void apiClient.clearQueue(queueClientId).then(() => hydrateQueue()).catch((error) => showToast(error instanceof Error ? error.message : 'Failed to clear queue', 'error')) : undefined}>🗑️ Clear</button>
+              <button className="btn btn-ghost btn-xs" type="button" onClick={() => setQueueOpen(false)}>✕</button>
+            </div>
+          </div>
+          <div id="pq-summary" style={{ display: 'flex', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 11 }}>
+            <div>{queueCount} Orders</div>
+            <div>{queuedEntries.reduce((sum, entry) => sum + (entry.order_qty ?? 1), 0)} Total Qty</div>
+            <div>{queueGroups.length} SKU Groups</div>
+          </div>
+          {queuePrintMessage ? <div id="pq-progress" style={{ padding: '8px 12px', fontSize: 11, borderBottom: '1px solid var(--border)' }}>{queuePrintMessage}</div> : null}
+          <div id="pq-order-list" style={{ overflow: 'auto', padding: 12, flex: 1 }}>
+            {queueLoading ? <div className="empty-state">Loading queue…</div> : null}
+            {!queueLoading && queueGroups.length === 0 ? <div className="pq-empty">📭 Queue is empty<br /><small>Click "Send to Queue" on any order with a label</small></div> : null}
+            {!queueLoading && queueGroups.map((group) => (
+              <div key={group.groupId} className="pq-group" style={{ border: '1px solid var(--border)', borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
+                <div className="pq-group-header" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface2)' }}>
+                  <span className="pq-group-label" style={{ fontWeight: 700 }}>{group.label}{group.description ? ` — ${group.description}` : ''}</span>
+                  <span className="pq-group-meta" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>{group.orders.length} order{group.orders.length === 1 ? '' : 's'} · Qty {group.totalQty}</span>
+                  <button className="btn btn-ghost btn-xs" type="button" onClick={() => void printQueueEntries(group.orders.map((entry) => entry.queue_entry_id))}>🖨️ Print Group</button>
+                </div>
+                <div className="pq-group-orders">
+                  {group.orders.map((entry) => (
+                    <div key={entry.queue_entry_id} className="pq-order-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderTop: '1px solid var(--border)' }}>
+                      <span className="pq-order-num" style={{ flex: 1, fontFamily: 'monospace', color: 'var(--ss-blue)' }}>Order #{entry.order_number || entry.order_id}{entry.print_count > 0 ? ` · Reprint #${entry.print_count}` : ''}</span>
+                      <span className="pq-order-qty" style={{ fontSize: 11 }}>Qty: {entry.order_qty ?? 1}</span>
+                      <span className="pq-order-time" style={{ fontSize: 11, color: 'var(--text3)' }}>{new Date(entry.queued_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <button className="pq-remove-btn" type="button" onClick={() => queueClientId != null ? void apiClient.removeFromQueue(entry.queue_entry_id, queueClientId).then(() => hydrateQueue()).catch((error) => showToast(error instanceof Error ? error.message : 'Failed to remove queue entry', 'error')) : undefined}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {printedEntries.length > 0 ? (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--text3)', marginBottom: 6, fontWeight: 600 }}>
+                  📋 Printed History ({printedEntries.length})
+                </div>
+                {printedEntries.map((entry) => (
+                  <div key={entry.queue_entry_id} className="pq-order-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', opacity: 0.7 }}>
+                    <span className="pq-order-num" style={{ flex: 1 }}>Order #{entry.order_number || entry.order_id}</span>
+                    <span className="pq-order-qty">Qty: {entry.order_qty ?? 1}</span>
+                    <span className="pq-order-time">✅ {entry.last_printed_at ? new Date(entry.last_printed_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)' }}>
+            <button className="btn btn-primary btn-sm" id="pq-print-all-btn" type="button" disabled={queueCount === 0 || queuePrintInFlight} onClick={() => void printQueueEntries(queuedEntries.map((entry) => entry.queue_entry_id))}>🖨️ Print All</button>
+          </div>
+        </div>
+      ) : null}
+
+      {rateBrowserOpen ? (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={(event) => { if (event.target === event.currentTarget) setRateBrowserOpen(false) }}>
+          <div style={{ width: 'min(980px, 100%)', maxHeight: '85vh', background: 'var(--surface)', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <strong>Browse Rates</strong>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setRateBrowserOpen(false)}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <select className="filter-sel" value={rateBrowserCarrierFilter != null ? String(rateBrowserCarrierFilter) : ''} onChange={(event) => setRateBrowserCarrierFilter(event.target.value ? Number.parseInt(event.target.value, 10) : null)}>
+                <option value="">All carrier accounts</option>
+                {shippingAccounts.map((account) => (
+                  <option key={account.shippingProviderId} value={account.shippingProviderId}>{account._label || account.nickname || account.code}</option>
+                ))}
+              </select>
+            </div>
+            <div id="rb-rates" style={{ overflow: 'auto', padding: 16 }}>
+              {rateBrowserLoading ? <div className="empty-state">Fetching live rates…</div> : null}
+              {!rateBrowserLoading && rateBrowserRates.length === 0 ? <div className="empty-state">No rates returned.</div> : null}
+              {!rateBrowserLoading && rateBrowserRates.filter((rate) => rateBrowserCarrierFilter == null || toNumberValue(rate.shippingProviderId) === rateBrowserCarrierFilter).map((rate, index) => (
+                <button key={`${toStringValue(rate.serviceCode) ?? 'rate'}-${index}`} type="button" style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, background: index === 0 ? 'var(--ss-blue-bg)' : 'var(--surface)', marginBottom: 8, cursor: 'pointer' }} onClick={() => applyRateSelection(rate)}>
+                  <strong style={{ minWidth: 120, textAlign: 'left' }}>{formatCarrierCode(toStringValue(rate.carrierCode))}</strong>
+                  <span style={{ flex: 1, textAlign: 'left' }}>{formatServiceCode(toStringValue(rate.serviceCode) ?? toStringValue(rate.serviceName))}</span>
+                  <span style={{ fontWeight: 700 }}>{formatMoney((toNumberValue(rate.shipmentCost) ?? 0) + (toNumberValue(rate.otherCost) ?? 0))}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }

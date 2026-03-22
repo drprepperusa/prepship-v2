@@ -36,6 +36,7 @@ Run these first:
 - order list
 - order detail/full view
 - daily stats
+- React orders shipping panel versus V2 web for requested service, ship account, service, weight/dims, and selected package display
 - selected package / best-rate / residential / selected-pid overrides
 
 ### Rates
