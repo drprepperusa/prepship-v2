@@ -23,6 +23,7 @@ import type { AddressRecord, LabelOrderRecord, LabelShipmentRecord } from "../do
 import {
   generateFakeShipmentId,
   generateFakeTrackingNumber,
+  generateMockLabelPdf,
   serviceCodeToLabel,
 } from "./mock-label-generator.ts";
 
@@ -310,8 +311,8 @@ export class LabelServices {
       this.repository.backfillOrderLocalTracking(order.orderId, fakeTracking, null, Math.floor(Date.now() / 1000));
       this.repository.markOrderShipped(order.orderId, Date.now());
 
-      // Store mock label data in repo so /api/labels/mock/:id can serve it
-      this.repository.saveMockLabelData(fakeShipmentId, {
+      // Generate mock label as real PDF so it can be merged in print queue
+      const mockData = {
         shipmentId: fakeShipmentId,
         orderNumber: order.orderNumber,
         trackingNumber: fakeTracking,
@@ -320,6 +321,13 @@ export class LabelServices {
         shipFrom,
         shipTo,
         shipDate,
+      };
+      // Generate PDF async (non-blocking for label response, stored for later)
+      generateMockLabelPdf(mockData).then((pdfBase64) => {
+        this.repository.saveMockLabelData(fakeShipmentId, { ...mockData, pdfBase64 });
+      }).catch(() => {
+        // Store without PDF — HTML fallback still works
+        this.repository.saveMockLabelData(fakeShipmentId, mockData);
       });
 
       return {

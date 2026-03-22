@@ -61,6 +61,19 @@ export class LabelsHttpHandler {
         headers: { "content-type": "text/plain" },
       });
     }
+    // Serve as PDF if available (generated at label creation time)
+    if (data.pdfBase64) {
+      const pdfBytes = Buffer.from(data.pdfBase64, "base64");
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `inline; filename="mock-label-${shipmentId}.pdf"`,
+          "content-length": String(pdfBytes.byteLength),
+        },
+      });
+    }
+    // Fallback to HTML if PDF not yet generated
     const html = generateMockLabelHtml(data);
     return new Response(html, {
       status: 200,

@@ -25,6 +25,7 @@ export interface MockLabelData {
     postalCode: string;
   };
   shipDate: string;
+  pdfBase64?: string; // pre-generated PDF bytes
 }
 
 function fakeBarcodeSvg(trackingNumber: string): string {
@@ -184,4 +185,79 @@ export function serviceCodeToLabel(serviceCode: string): string {
     fedex_2day: "FEDEX 2DAY",
   };
   return map[serviceCode] ?? serviceCode.replace(/_/g, " ").toUpperCase();
+}
+
+/**
+ * Generate a real PDF mock label using pdf-lib.
+ * Returns base64-encoded PDF bytes.
+ */
+export async function generateMockLabelPdf(data: MockLabelData): Promise<string> {
+  const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
+
+  // 4"×6" at 72dpi = 288×432 points
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([288, 432]);
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontReg = await doc.embedFont(StandardFonts.Helvetica);
+  const red = rgb(0.85, 0, 0);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.4, 0.4, 0.4);
+  const white = rgb(1, 1, 1);
+
+  // Red VOID banner at top
+  page.drawRectangle({ x: 0, y: 400, width: 288, height: 32, color: red });
+  page.drawText("⚠ VOID — TEST LABEL — DO NOT SHIP ⚠", {
+    x: 8, y: 410, size: 7, font, color: white,
+  });
+
+  // Ship From
+  page.drawText("SHIP FROM", { x: 8, y: 388, size: 7, font, color: gray });
+  page.drawText(data.shipFrom.name, { x: 8, y: 376, size: 9, font, color: black });
+  page.drawText(data.shipFrom.street1, { x: 8, y: 364, size: 8, font: fontReg, color: black });
+  page.drawText(`${data.shipFrom.city}, ${data.shipFrom.state} ${data.shipFrom.postalCode}`, { x: 8, y: 354, size: 8, font: fontReg, color: black });
+
+  // Divider
+  page.drawLine({ start: { x: 8, y: 348 }, end: { x: 280, y: 348 }, thickness: 0.5, color: gray });
+
+  // Ship To
+  page.drawText("SHIP TO", { x: 8, y: 338, size: 7, font, color: gray });
+  page.drawText(data.shipTo.name ?? "TESTING", { x: 8, y: 326, size: 11, font, color: black });
+  page.drawText(data.shipTo.street1 ?? "TESTING", { x: 8, y: 312, size: 9, font: fontReg, color: black });
+  page.drawText(`${data.shipTo.city ?? ""}, ${data.shipTo.state ?? ""} ${data.shipTo.postalCode ?? ""}`, { x: 8, y: 300, size: 10, font, color: black });
+
+  // Divider
+  page.drawLine({ start: { x: 8, y: 292 }, end: { x: 280, y: 292 }, thickness: 1, color: black });
+
+  // Service
+  page.drawText(data.serviceLabel, { x: 8, y: 278, size: 13, font, color: black });
+  page.drawText(`${data.weightOz} oz`, { x: 220, y: 278, size: 9, font: fontReg, color: black });
+
+  // Divider
+  page.drawLine({ start: { x: 8, y: 270 }, end: { x: 280, y: 270 }, thickness: 1, color: black });
+
+  // Tracking
+  page.drawText("TRACKING NUMBER", { x: 8, y: 258, size: 7, font, color: gray });
+  page.drawText(data.trackingNumber, { x: 8, y: 244, size: 8, font, color: black });
+
+  // Simple barcode representation (vertical bars)
+  let bx = 8;
+  for (let i = 0; i < data.trackingNumber.length * 2; i++) {
+    const ch = data.trackingNumber.charCodeAt(i % data.trackingNumber.length);
+    const w = ((ch + i) % 3) + 1;
+    if ((ch + i) % 3 !== 0) {
+      page.drawRectangle({ x: bx, y: 210, width: w, height: 28, color: black });
+    }
+    bx += w + 1;
+    if (bx > 280) break;
+  }
+
+  // Footer
+  page.drawLine({ start: { x: 8, y: 200 }, end: { x: 280, y: 200 }, thickness: 0.5, color: gray });
+  page.drawText(`Order: ${data.orderNumber ?? "—"}`, { x: 8, y: 188, size: 7, font: fontReg, color: gray });
+  page.drawText(`Ship Date: ${data.shipDate}`, { x: 150, y: 188, size: 7, font: fontReg, color: gray });
+  page.drawText(`Shipment ID: ${data.shipmentId}`, { x: 8, y: 176, size: 7, font: fontReg, color: gray });
+  page.drawText("TEST MODE — $0.00", { x: 180, y: 176, size: 7, font, color: red });
+
+  const pdfBytes = await doc.save();
+  return Buffer.from(pdfBytes).toString("base64");
 }

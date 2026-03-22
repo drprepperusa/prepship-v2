@@ -210,8 +210,15 @@ export class QueueServices {
         let labelError: string | null = null;
 
         try {
-          const response = await fetch(entry.labelUrl, {
-            headers: { 'Accept': 'application/pdf' },
+          // Resolve relative URLs (e.g. /api/labels/mock/:id) against local API
+          const labelFetchUrl = entry.labelUrl.startsWith('/')
+            ? `http://127.0.0.1:${process.env.API_PORT ?? '4010'}${entry.labelUrl}`
+            : entry.labelUrl;
+          const response = await fetch(labelFetchUrl, {
+            headers: {
+              'Accept': 'application/pdf',
+              'x-app-token': process.env.SESSION_TOKEN ?? '',
+            },
             signal: AbortSignal.timeout(15_000),
           });
 
