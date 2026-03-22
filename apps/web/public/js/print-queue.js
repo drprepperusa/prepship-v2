@@ -287,8 +287,18 @@ async function printAll(entryIds) {
       if (statusData.status === 'done') {
         done = true;
 
-        // Open the PDF directly via API URL — Chrome renders it inline
-        window.open(`/api/queue/print/download/${jobId}`, '_blank');
+        // Fetch PDF via same-origin proxy (preserves CF Access session),
+        // then open as blob URL so Chrome renders it inline in a new tab.
+        const dlRes = await fetch(`/api/queue/print/download/${jobId}`);
+        if (!dlRes.ok) throw new Error(`PDF download failed: ${dlRes.status}`);
+        const pdfBlob = await dlRes.blob();
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        const printTab = window.open(blobUrl, '_blank');
+        // Revoke after 10 minutes to free memory
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10 * 60_000);
+        if (!printTab) {
+          showToast('⚠ Popup blocked — allow popups for this site');
+        }
 
         showToast(`✅ ${total} label${total !== 1 ? 's' : ''} — opened in new tab`);
         await hydrateQueueFromDB(queueState.clientId);
