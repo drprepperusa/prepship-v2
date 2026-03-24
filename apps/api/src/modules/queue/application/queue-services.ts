@@ -337,92 +337,91 @@ export class QueueServices {
   ): void {
     const { width, height } = page.getSize();
     const cx = width / 2;
+    const pad = 16;
 
-    // Background
-    page.drawRectangle({
-      x: 0, y: 0, width, height,
-      color: rgb(1, 1, 1),
-    });
+    // Helper: draw wrapped text, returns new y after drawing
+    const drawWrapped = (
+      text: string, startY: number, fontSize: number, f: typeof font, color: ReturnType<typeof rgb>, lineGap = 6,
+    ): number => {
+      const words = text.split(' ');
+      let line = '';
+      let y = startY;
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (f.widthOfTextAtSize(test, fontSize) > width - pad * 2 && line) {
+          page.drawText(line, { x: cx - f.widthOfTextAtSize(line, fontSize) / 2, y, size: fontSize, font: f, color });
+          y -= fontSize + lineGap;
+          line = word;
+        } else {
+          line = test;
+        }
+      }
+      if (line) {
+        page.drawText(line, { x: cx - f.widthOfTextAtSize(line, fontSize) / 2, y, size: fontSize, font: f, color });
+        y -= fontSize + lineGap;
+      }
+      return y;
+    };
+
+    // White background
+    page.drawRectangle({ x: 0, y: 0, width, height, color: rgb(1, 1, 1) });
 
     // Header band
-    page.drawRectangle({
-      x: 0, y: height - 36, width, height: 36,
-      color: rgb(0.1, 0.1, 0.1),
-    });
+    page.drawRectangle({ x: 0, y: height - 40, width, height: 40, color: rgb(0.1, 0.1, 0.1) });
     page.drawText('BATCH HEADER', {
-      x: cx - 42, y: height - 24,
-      size: 10, font, color: rgb(1, 1, 1),
+      x: cx - font.widthOfTextAtSize('BATCH HEADER', 13) / 2,
+      y: height - 27, size: 13, font, color: rgb(1, 1, 1),
     });
 
+    // ── Top section: SKU info (upper 3/4 of page) ──────────────────────────
+    // Top section occupies y = height-48 down to y = height*0.25+20
     let y = height - 60;
 
     if (entry.multiSkuData && entry.multiSkuData.length > 0) {
-      // Multi-SKU header
-      page.drawText('MULTI-SKU', {
-        x: cx - font.widthOfTextAtSize('MULTI-SKU', 22) / 2,
-        y, size: 22, font, color: rgb(0.1, 0.1, 0.1),
-      });
-      y -= 32;
-
-      for (const item of entry.multiSkuData) {
-        const skuLine = `${item.sku}: Qty ${item.qty}`;
-        page.drawText(skuLine, {
-          x: cx - fontRegular.widthOfTextAtSize(skuLine, 11) / 2,
-          y, size: 11, font: fontRegular, color: rgb(0.3, 0.3, 0.3),
-        });
-        y -= 16;
-      }
+      y = drawWrapped('MULTI-SKU', y, 26, font, rgb(0.1, 0.1, 0.1));
       y -= 8;
-
-      const totalQty = entry.multiSkuData.reduce((s, i) => s + i.qty, 0);
-      const qtyLine = `QTY: ${totalQty} (per order)`;
-      page.drawText(qtyLine, {
-        x: cx - font.widthOfTextAtSize(qtyLine, 16) / 2,
-        y, size: 16, font, color: rgb(0.1, 0.1, 0.1),
-      });
-    } else {
-      // Single-SKU header
-      const sku = entry.primarySku ?? 'UNKNOWN SKU';
-      page.drawText(sku, {
-        x: cx - font.widthOfTextAtSize(sku, Math.min(26, 18)) / 2,
-        y, size: Math.min(26, 18), font, color: rgb(0.1, 0.1, 0.1),
-      });
-      y -= 32;
-
-      if (entry.itemDescription) {
-        page.drawText(entry.itemDescription, {
-          x: cx - fontRegular.widthOfTextAtSize(entry.itemDescription, 12) / 2,
-          y, size: 12, font: fontRegular, color: rgb(0.3, 0.3, 0.3),
-        });
-        y -= 22;
+      for (const item of entry.multiSkuData) {
+        y = drawWrapped(`${item.sku}  x${item.qty}`, y, 15, fontRegular, rgb(0.3, 0.3, 0.3));
       }
-
-      const qtyLine = `QTY: ${entry.orderQty} (per order)`;
-      page.drawText(qtyLine, {
-        x: cx - font.widthOfTextAtSize(qtyLine, 18) / 2,
-        y, size: 18, font, color: rgb(0.1, 0.1, 0.1),
-      });
+      y -= 6;
+      const totalQty = entry.multiSkuData.reduce((s, i) => s + i.qty, 0);
+      y = drawWrapped(`QTY: ${totalQty} per order`, y, 22, font, rgb(0.1, 0.1, 0.1));
+    } else {
+      const sku = entry.primarySku ?? 'UNKNOWN SKU';
+      y = drawWrapped(sku, y, 24, font, rgb(0.1, 0.1, 0.1), 5);
+      y -= 10;
+      if (entry.itemDescription) {
+        y = drawWrapped(entry.itemDescription, y, 15, fontRegular, rgb(0.35, 0.35, 0.35), 4);
+        y -= 8;
+      }
+      y = drawWrapped(`QTY: ${entry.orderQty} per order`, y, 22, font, rgb(0.1, 0.1, 0.1));
     }
 
-    y -= 28;
-
-    // Order count
-    const orderLine = `${totalOrders} ORDER${totalOrders !== 1 ? 'S' : ''} IN THIS BATCH`;
-    page.drawText(orderLine, {
-      x: cx - fontRegular.widthOfTextAtSize(orderLine, 14) / 2,
-      y, size: 14, font: fontRegular, color: rgb(0.2, 0.2, 0.2),
-    });
-
-    // Bottom divider
+    // ── Divider between top info and order count block ─────────────────────
+    const dividerY = height * 0.27;
     page.drawLine({
-      start: { x: 20, y: 24 }, end: { x: width - 20, y: 24 },
-      thickness: 0.5, color: rgb(0.8, 0.8, 0.8),
+      start: { x: pad, y: dividerY + 2 }, end: { x: width - pad, y: dividerY + 2 },
+      thickness: 1, color: rgb(0.85, 0.85, 0.85),
     });
 
-    const orderNum = entry.orderNumber ?? entry.orderId;
-    page.drawText(`Order: ${orderNum}`, {
-      x: cx - fontRegular.widthOfTextAtSize(`Order: ${orderNum}`, 9) / 2,
-      y: 10, size: 9, font: fontRegular, color: rgb(0.5, 0.5, 0.5),
+    // ── Bottom 1/4: large order count ─────────────────────────────────────
+    // Big number takes up ~1/4 of page height
+    const countFontSize = Math.min(height * 0.22, 90); // ~1/4 of 432pt page ≈ 95pt
+    const countStr = String(totalOrders);
+    const countW = font.widthOfTextAtSize(countStr, countFontSize);
+    const countY = dividerY - 14;
+    page.drawText(countStr, {
+      x: cx - countW / 2,
+      y: countY - countFontSize,
+      size: countFontSize, font, color: rgb(0.05, 0.05, 0.05),
+    });
+
+    const labelStr = `ORDER${totalOrders !== 1 ? 'S' : ''}`;
+    const labelSize = 15;
+    page.drawText(labelStr, {
+      x: cx - font.widthOfTextAtSize(labelStr, labelSize) / 2,
+      y: countY - countFontSize - labelSize - 4,
+      size: labelSize, font, color: rgb(0.4, 0.4, 0.4),
     });
   }
 }
