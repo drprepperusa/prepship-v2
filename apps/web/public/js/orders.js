@@ -1,4 +1,10 @@
 import { state } from './state.js';
+
+// ── EXT_LABEL_BADGE ───────────────────────────────────────────────────────────
+// Single source of truth for the "Ext. Label" badge HTML.
+// Used in carrier, custcarrier, bestrate, and order panel columns.
+// LOCKED: Do not change this without updating column-display.test.js.
+const EXT_LABEL_BADGE = `<span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Shipped via external carrier (Amazon/marketplace/eBay)">Ext. Label</span>`;
 import { escHtml, fmtDate, fmtWeight, ageHours, ageStr, showToast, getDateRangePreset } from './utils.js';
 import { COLS, CARRIER_NAMES, SERVICE_NAMES, carrierLogo, clientPalette, clientBadge, fmtCarrier, formatCarrierDisplay, isBlockedRate } from './constants.js';
 import { applyCarrierMarkup, applyRbMarkup, priceDisplay, pickBestRate, isResidential, isOrionRate, formatOrionRateDisplay } from './markups.js';
@@ -417,7 +423,7 @@ export function renderOrders(skipRates = false) {
           // Check if order is shipped: either status=shipped OR has a label
           const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
-            if (o.externalShipped) return `<td data-col="carrier"><span style="font-size:10px;color:var(--text2)">Externally Shipped</span></td>`;
+            if (o.externalShipped) return `<td data-col="carrier">${EXT_LABEL_BADGE}</td>`;
             return `<td data-col="carrier">${cc}</td>`;
           }
           // For awaiting_shipment orders: check weight and dimensions first
@@ -439,11 +445,11 @@ export function renderOrders(skipRates = false) {
           if (isShipped) {
             // Check if marked as externally fulfilled (highest priority) - takes precedence over any rate data
             if (isExternallyFulfilledOrder(o)) {
-              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
+              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap">${EXT_LABEL_BADGE}</td>`;
             }
             // Check if marked as externally shipped
             if (o.externalShipped) {
-              return `<td data-col="custcarrier" data-acct-name="Externally Shipped" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">Externally Shipped</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$0.00</div></div></td>`;
+              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap">${EXT_LABEL_BADGE}</td>`;
             }
             // Check for selectedRate (actual rate used at label creation)
             if (o.selectedRate) {
@@ -455,7 +461,7 @@ export function renderOrders(skipRates = false) {
             }
             // No rate data available → eBay/Amazon/Walmart generated the label externally
             if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
-              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
+              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap">${EXT_LABEL_BADGE}</td>`;
             }
             // For shipped orders: shippingProviderId is authoritative.
             // shippingProviderId → numeric spid → state.carriersList lookup → nickname.
@@ -700,13 +706,13 @@ export function renderActualRateCell(id, o) {
   
   // Check if marked as externally shipped (shipped outside ShipStation)
   if (o.externalShipped) {
-    cell.innerHTML = '<span style="font-size:10.5px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;white-space:nowrap" title="Shipped outside ShipStation">Externally Shipped</span>';
+    cell.innerHTML = EXT_LABEL_BADGE;
     return;
   }
   
   // No label and no selectedRate → marketplace/external label
   if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
-    cell.innerHTML = '<span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span>';
+    cell.innerHTML = EXT_LABEL_BADGE;
     return;
   }
 
