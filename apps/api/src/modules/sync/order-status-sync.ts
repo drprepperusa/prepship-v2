@@ -275,6 +275,50 @@ async function runStatusSync(
   return updated;
 }
 
+// ─── Job 1b: Cancellation Sync ────────────────────────────────────────────────
+
+async function runCancellationSync(
+  db: DatabaseSync,
+  accounts: SyncAccount[],
+  modifyDateStart: string,
+): Promise<number> {
+  let cancelled = 0;
+
+  for (const account of accounts) {
+    let page = 1, pages = 1;
+    do {
+      const result = await fetchOrderPage(account, "cancelled", modifyDateStart, page);
+      pages = result.pages;
+
+      for (const order of result.orders) {
+        if (!order.orderNumber) continue;
+
+        // Only update orders we currently show as awaiting_shipment
+        const existing = db.prepare(`
+          SELECT orderId FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
+        `).get(order.orderNumber) as { orderId: number } | undefined;
+
+        if (!existing) continue;
+
+        db.prepare(`UPDATE orders SET orderStatus = 'cancelled', updatedAt = ? WHERE orderId = ?`)
+          .run(Date.now(), existing.orderId);
+
+        cancelled++;
+        console.log(`[sync] Marked cancelled: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
+      }
+
+      page++;
+      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
+    } while (page <= pages);
+
+    if (accounts.indexOf(account) < accounts.length - 1) {
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+  }
+
+  return cancelled;
+}
+
 // ─── Job 2: Order Ingest (new awaiting_shipment orders) ──────────────────────
 
 async function runOrderIngest(
@@ -405,12 +449,15 @@ export class OrderStatusSyncWorker {
       const statusStart = toISOStringUTC(new Date(Date.now() - 2 * 60 * 60 * 1000));
       const statusUpdated = await runStatusSync(this.db, accounts, statusStart);
 
+      // Job 1b: Cancellation sync — 2h lookback
+      const cancelled = await runCancellationSync(this.db, accounts, statusStart);
+
       // Job 2: Ingest — 30min lookback for new orders
       const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
       const ingested = await runOrderIngest(this.db, accounts, ingestStart);
 
-      if (statusUpdated > 0 || ingested > 0) {
-        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${ingested} new orders ingested`);
+      if (statusUpdated > 0 || cancelled > 0 || ingested > 0) {
+        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${cancelled} marked cancelled, ${ingested} new orders ingested`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
