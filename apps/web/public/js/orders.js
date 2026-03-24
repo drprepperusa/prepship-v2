@@ -437,41 +437,19 @@ export function renderOrders(skipRates = false) {
           // Check if order is shipped: either status=shipped OR has a label
           const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
-            // Check if marked as externally fulfilled (highest priority) - takes precedence over any rate data
-            if (isExternallyFulfilledOrder(o)) {
-              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
+            // carrierDisplay is resolved by the API — single source of truth.
+            // badge='ext-label' → show pill. nickname → show account name + service.
+            const cd = o.carrierDisplay || {};
+            if (cd.badge === 'ext-label') {
+              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Shipped via external carrier (Amazon/marketplace/eBay)">Ext. Label</span></td>`;
             }
-            // Check if marked as externally shipped
-            if (o.externalShipped) {
-              return `<td data-col="custcarrier" data-acct-name="Externally Shipped" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">Externally Shipped</div><div style="font-size:10px;color:var(--text3)" class="svc-label">$0.00</div></div></td>`;
-            }
-            // Check for selectedRate (actual rate used at label creation)
-            if (o.selectedRate) {
-              const selectedRate = getOrderSelectedRate(o);
-              let acctName = selectedRate?.providerAccountNickname || 'External';
-              const serviceCode = selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '';
+            if (cd.nickname) {
+              const serviceCode = o.selectedRate?.serviceCode || o.label?.serviceCode || o.serviceCode || '';
               const serviceLabel = SERVICE_NAMES[serviceCode] || serviceCode.replace(/_/g, ' ');
-              return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
+              return `<td data-col="custcarrier" data-acct-name="${escHtml(cd.nickname)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(cd.nickname)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
             }
-            // No rate data available → eBay/Amazon/Walmart generated the label externally
-            if (!o.label?.cost && !o.label?.trackingNumber && !o.label?.shippingProviderId && !o.selectedRate) {
-              return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap"><span style="display:inline-block;background:#f0f0f0;color:#666;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;cursor:help" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">Ext. Label</span></td>`;
-            }
-            // For shipped orders: shippingProviderId is authoritative.
-            // shippingProviderId → numeric spid → state.carriersList lookup → nickname.
-            // Fall back to generic carrier name if shippingProviderId not set.
-            let acctName = custCarrierName;
-            if (o.label?.shippingProviderId) {
-              const acct = state.carriersList.find(c => c.shippingProviderId === o.label.shippingProviderId);
-              if (acct) acctName = acct._label || acct.nickname || acct.accountNumber || acct.name || custCarrierName;
-            } else {
-              // shippingProviderId not set — show generic carrier name
-              const effectiveCode = o.label?.carrierCode || o.carrierCode;
-              if (effectiveCode) acctName = CARRIER_NAMES[effectiveCode] || effectiveCode.replace(/_/g, ' ').toUpperCase();
-            }
-            const serviceCode = o.label?.serviceCode || o.serviceCode || '';
-            const serviceLabel = SERVICE_NAMES[serviceCode] || serviceCode.replace(/_/g, ' ');
-            return `<td data-col="custcarrier" data-acct-name="${escHtml(acctName)}" style="white-space:nowrap"><div style="line-height:1.4"><div style="font-size:14px;font-weight:600;color:var(--text2)">${escHtml(acctName)}</div><div style="font-size:10px;color:var(--text3)" class="svc-label">${escHtml((serviceLabel + '').substring(0, 22))}</div></div></td>`;
+            // No carrier data at all
+            return `<td data-col="custcarrier" style="white-space:nowrap"><span style="font-size:10px;color:var(--text3)">—</span></td>`;
           }
           // For awaiting_shipment orders: check weight and dimensions first
           const wt2 = (o.weight?.value) || 0;

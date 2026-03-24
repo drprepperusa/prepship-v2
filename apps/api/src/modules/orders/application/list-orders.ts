@@ -11,45 +11,7 @@ import {
   normalizeOrderSelectedRateDto,
   parseOrderRateJson,
 } from "./order-rate-dto.ts";
-import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
-
-function resolveCarrierNickname(
-  providerAccountId: number | null,
-  carrierCode: string | null,
-  trackingNumber?: string | null,
-): string | null {
-  if (!carrierCode) return null;
-
-  // 1. Exact match by providerAccountId
-  if (providerAccountId) {
-    const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
-    if (exact) return exact.nickname;
-  }
-
-  // 2. UPS: decode account code from tracking number (format: 1Z[acct6][service2][seq8][check1])
-  if ((carrierCode === "ups" || carrierCode === "ups_walleted") && trackingNumber) {
-    const tn = trackingNumber.replace(/\s/g, "").toUpperCase();
-    if (tn.startsWith("1Z") && tn.length >= 8) {
-      const acctCode = tn.slice(2, 8); // chars 3-8 = UPS account code
-      const matched = CARRIER_ACCOUNTS_V2.find((a) =>
-        (a.carrierCode === "ups" || a.carrierCode === "ups_walleted") &&
-        a.accountNumber?.toUpperCase() === acctCode
-      );
-      if (matched) return matched.nickname;
-    }
-  }
-
-  // 3. Single account for this carrierCode
-  const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
-  if (matching.length === 1) return matching[0]!.nickname;
-
-  // 4. Last resort: readable carrier name (should rarely hit this)
-  const CARRIER_DISPLAY: Record<string, string> = {
-    stamps_com: "USPS", ups: "UPS", ups_walleted: "UPS", fedex: "FedEx",
-    fedex_walleted: "FedEx One Balance", dhl_express: "DHL Express",
-  };
-  return CARRIER_DISPLAY[carrierCode] ?? carrierCode.replace(/_/g, " ").toUpperCase();
-}
+import { resolveCarrierDisplay, resolveCarrierNickname } from "./carrier-resolver.ts";
 
 function parseRawJson(value: string | null): unknown | null {
   if (!value) return null;
@@ -136,8 +98,8 @@ function toOrderDto(
     residential: record.residential,
     sourceResidential: record.sourceResidential,
     externalShipped: record.externalShipped,
-    bestRate,
-    selectedRate: (() => {
+    ...(() => {
+      // Compute selectedRate first so carrierDisplay can use hasSelectedRate.
       // For shipped orders: selectedRate comes ONLY from shipments table data.
       // Never fall back to bestRate or best_rate_json for shipped orders.
       const parsed = parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`);
@@ -151,15 +113,12 @@ function toOrderDto(
           : null,
       };
 
-      // If we have parsed selectedRate json, use it with shipment fallback
+      let selectedRate = null;
       if (parsed != null) {
-        return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
-      }
-
-      // No stored selectedRate json — for shipped orders, build from shipment record data
-      if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
+        selectedRate = normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+      } else if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
         const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking);
-        return normalizeOrderSelectedRateDto(
+        selectedRate = normalizeOrderSelectedRateDto(
           {
             providerAccountId: record.labelProvider,
             providerAccountNickname: nickname,
@@ -173,7 +132,18 @@ function toOrderDto(
         );
       }
 
-      return null;
+      const carrierDisplay = resolveCarrierDisplay({
+        orderStatus: record.orderStatus,
+        externallyFulfilled: Boolean(record.externallyFulfilledVerified),
+        externalShipped: Boolean(record.externalShipped),
+        providerAccountId: record.labelProvider,
+        carrierCode: record.labelCarrier,
+        serviceCode: record.labelService,
+        trackingNumber: record.labelTracking,
+        hasSelectedRate: selectedRate !== null,
+      });
+
+      return { selectedRate, carrierDisplay };
     })(),
     label: {
       shipmentId: record.labelShipmentId,
