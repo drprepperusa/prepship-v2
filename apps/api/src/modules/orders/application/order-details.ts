@@ -6,33 +6,7 @@ import {
   normalizeOrderSelectedRateDto,
   parseOrderRateJson,
 } from "./order-rate-dto.ts";
-import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
-
-function resolveCarrierNickname(providerAccountId: number | null, carrierCode: string | null, trackingNumber?: string | null): string | null {
-  if (!carrierCode) return null;
-  if (providerAccountId) {
-    const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
-    if (exact) return exact.nickname;
-  }
-  if ((carrierCode === "ups" || carrierCode === "ups_walleted") && trackingNumber) {
-    const tn = trackingNumber.replace(/\s/g, "").toUpperCase();
-    if (tn.startsWith("1Z") && tn.length >= 8) {
-      const acctCode = tn.slice(2, 8);
-      const matched = CARRIER_ACCOUNTS_V2.find((a) =>
-        (a.carrierCode === "ups" || a.carrierCode === "ups_walleted") &&
-        a.accountNumber?.toUpperCase() === acctCode
-      );
-      if (matched) return matched.nickname;
-    }
-  }
-  const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
-  if (matching.length === 1) return matching[0]!.nickname;
-  const CARRIER_DISPLAY: Record<string, string> = {
-    stamps_com: "USPS", ups: "UPS", ups_walleted: "UPS", fedex: "FedEx",
-    fedex_walleted: "FedEx One Balance", dhl_express: "DHL Express",
-  };
-  return CARRIER_DISPLAY[carrierCode] ?? carrierCode.replace(/_/g, " ").toUpperCase();
-}
+import { resolveCarrierNickname } from "./carrier-resolver.ts";
 
 export class OrderDetailsService {
   private readonly repository: OrderRepository;

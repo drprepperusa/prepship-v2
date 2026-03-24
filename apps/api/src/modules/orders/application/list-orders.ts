@@ -11,45 +11,7 @@ import {
   normalizeOrderSelectedRateDto,
   parseOrderRateJson,
 } from "./order-rate-dto.ts";
-import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
-
-function resolveCarrierNickname(
-  providerAccountId: number | null,
-  carrierCode: string | null,
-  trackingNumber?: string | null,
-): string | null {
-  if (!carrierCode) return null;
-
-  // 1. Exact match by providerAccountId
-  if (providerAccountId) {
-    const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
-    if (exact) return exact.nickname;
-  }
-
-  // 2. UPS: decode account code from tracking number (format: 1Z[acct6][service2][seq8][check1])
-  if ((carrierCode === "ups" || carrierCode === "ups_walleted") && trackingNumber) {
-    const tn = trackingNumber.replace(/\s/g, "").toUpperCase();
-    if (tn.startsWith("1Z") && tn.length >= 8) {
-      const acctCode = tn.slice(2, 8); // chars 3-8 = UPS account code
-      const matched = CARRIER_ACCOUNTS_V2.find((a) =>
-        (a.carrierCode === "ups" || a.carrierCode === "ups_walleted") &&
-        a.accountNumber?.toUpperCase() === acctCode
-      );
-      if (matched) return matched.nickname;
-    }
-  }
-
-  // 3. Single account for this carrierCode
-  const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
-  if (matching.length === 1) return matching[0]!.nickname;
-
-  // 4. Last resort: readable carrier name (should rarely hit this)
-  const CARRIER_DISPLAY: Record<string, string> = {
-    stamps_com: "USPS", ups: "UPS", ups_walleted: "UPS", fedex: "FedEx",
-    fedex_walleted: "FedEx One Balance", dhl_express: "DHL Express",
-  };
-  return CARRIER_DISPLAY[carrierCode] ?? carrierCode.replace(/_/g, " ").toUpperCase();
-}
+import { resolveCarrierNickname } from "./carrier-resolver.ts";
 
 function parseRawJson(value: string | null): unknown | null {
   if (!value) return null;
