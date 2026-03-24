@@ -59,18 +59,23 @@ function toOrderDto(
     ? { value: record.weightValue, units: "ounces" }
     : null;
   
-  // If bestRate is missing from database, try to calculate from cached rates
-  let bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
-  if (!bestRate && rateServices && weight && record.shipToPostalCode) {
-    const cached = rateServices.getCached({
-      wt: weight.value,
-      zip: record.shipToPostalCode,
-      dims: null,
-      storeId: record.storeId,
-      residential: record.residential ?? false,
-    });
-    if (cached.cached && cached.best) {
-      bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
+  // bestRate is ONLY for awaiting_shipment orders (used for rate shopping UI).
+  // Shipped/cancelled orders must never expose bestRate — it is stale and misleading.
+  // selectedRate (from shipments table) is the source of truth for shipped orders.
+  let bestRate = null;
+  if (record.orderStatus === "awaiting_shipment") {
+    bestRate = normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`));
+    if (!bestRate && rateServices && weight && record.shipToPostalCode) {
+      const cached = rateServices.getCached({
+        wt: weight.value,
+        zip: record.shipToPostalCode,
+        dims: null,
+        storeId: record.storeId,
+        residential: record.residential ?? false,
+      });
+      if (cached.cached && cached.best) {
+        bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
+      }
     }
   }
   
@@ -93,9 +98,11 @@ function toOrderDto(
     sourceResidential: record.sourceResidential,
     externalShipped: record.externalShipped,
     bestRate,
-    selectedRate: normalizeOrderSelectedRateDto(
-      parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`),
-      {
+    selectedRate: (() => {
+      // For shipped orders: selectedRate comes ONLY from shipments table data.
+      // Never fall back to bestRate or best_rate_json for shipped orders.
+      const parsed = parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`);
+      const fallback = {
         providerAccountId: record.labelProvider,
         carrierCode: record.labelCarrier,
         serviceCode: record.labelService,
@@ -103,9 +110,30 @@ function toOrderDto(
         otherCost: record.labelCost != null && record.labelRawCost != null
           ? record.labelCost - record.labelRawCost
           : null,
-      },
-      `order ${record.orderId} selectedRate`,
-    ),
+      };
+
+      // If we have parsed selectedRate json, use it with shipment fallback
+      if (parsed != null) {
+        return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+      }
+
+      // No stored selectedRate json — for shipped orders, build from shipment record data
+      if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
+        return normalizeOrderSelectedRateDto(
+          {
+            providerAccountId: record.labelProvider,
+            carrierCode: record.labelCarrier,
+            serviceCode: record.labelService,
+            shipmentCost: record.labelRawCost,
+            otherCost: 0,
+          },
+          fallback,
+          `order ${record.orderId} selectedRate`,
+        );
+      }
+
+      return null;
+    })(),
     label: {
       shipmentId: record.labelShipmentId,
       trackingNumber: record.labelTracking,

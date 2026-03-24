@@ -100,22 +100,23 @@ export class OrderDetailsService {
       rawData.externallyFulfilled = true;
     }
 
-    // If bestRate is missing from database, try to calculate from cached rates
-    // IMPORTANT: Only attempt if dims > 0 — no weight-only fallback
-    // Also: if dimensions were deemed stale above (rateDims=null), discard any stale bestRate from DB
-    let bestRate = rateDims 
-      ? normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`))
-      : null; // Stale dimensions detected — discard stale bestRate from DB too
-    if (!bestRate && this.rateServices && weight && record.shipToPostalCode && rateDims) {
-      const cached = this.rateServices.getCached({
-        wt: weight.value,
-        zip: record.shipToPostalCode,
-        dims: rateDims,
-        storeId: record.storeId,
-        residential: record.residential ?? false,
-      });
-      if (cached.cached && cached.best) {
-        bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
+    // bestRate is ONLY for awaiting_shipment — never expose on shipped/cancelled orders
+    let bestRate = null;
+    if (record.orderStatus === "awaiting_shipment") {
+      bestRate = rateDims 
+        ? normalizeOrderBestRateDto(parseOrderRateJson(record.bestRateJson, `order ${record.orderId} bestRateJson`))
+        : null;
+      if (!bestRate && this.rateServices && weight && record.shipToPostalCode && rateDims) {
+        const cached = this.rateServices.getCached({
+          wt: weight.value,
+          zip: record.shipToPostalCode,
+          dims: rateDims,
+          storeId: record.storeId,
+          residential: record.residential ?? false,
+        });
+        if (cached.cached && cached.best) {
+          bestRate = normalizeOrderBestRateDto(cached.best, `order ${record.orderId} cachedBestRate`);
+        }
       }
     }
 
@@ -138,9 +139,9 @@ export class OrderDetailsService {
       sourceResidential: record.sourceResidential,
       externalShipped: record.externalShipped,
       bestRate,
-      selectedRate: normalizeOrderSelectedRateDto(
-        parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`),
-        {
+      selectedRate: (() => {
+        const parsed = parseOrderRateJson(record.selectedRateJson, `order ${record.orderId} selectedRateJson`);
+        const fallback = {
           providerAccountId: record.labelProvider,
           carrierCode: record.labelCarrier,
           serviceCode: record.labelService,
@@ -148,9 +149,18 @@ export class OrderDetailsService {
           otherCost: record.labelCost != null && record.labelRawCost != null
             ? record.labelCost - record.labelRawCost
             : null,
-        },
-        `order ${record.orderId} selectedRate`,
-      ),
+        };
+        if (parsed != null) {
+          return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+        }
+        if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
+          return normalizeOrderSelectedRateDto(
+            { providerAccountId: record.labelProvider, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
+            fallback, `order ${record.orderId} selectedRate`,
+          );
+        }
+        return null;
+      })(),
       label: {
         shipmentId: record.labelShipmentId,
         trackingNumber: record.labelTracking,
