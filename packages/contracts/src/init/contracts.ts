@@ -28,6 +28,7 @@ export interface CarrierAccountDto {
   clientId: number | null;
   code: string;
   _label: string;
+  accountNumber?: string | null; // UPS/FedEx account number for tracking-based resolution
 }
 
 export interface OrdersByStatusDto {

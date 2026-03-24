@@ -30,10 +30,10 @@ function resolveCarrierNickname(
   if ((carrierCode === "ups" || carrierCode === "ups_walleted") && trackingNumber) {
     const tn = trackingNumber.replace(/\s/g, "").toUpperCase();
     if (tn.startsWith("1Z") && tn.length >= 8) {
-      const acctCode = tn.slice(2, 8); // chars 3-8 = account code
+      const acctCode = tn.slice(2, 8); // chars 3-8 = UPS account code
       const matched = CARRIER_ACCOUNTS_V2.find((a) =>
         (a.carrierCode === "ups" || a.carrierCode === "ups_walleted") &&
-        a.nickname.toUpperCase().includes(acctCode)
+        a.accountNumber?.toUpperCase() === acctCode
       );
       if (matched) return matched.nickname;
     }
