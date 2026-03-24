@@ -16,6 +16,8 @@ import type {
   PrintQueueEntryDto,
 } from '../../types/api'
 import { getOrdersDateRange, type OrdersDateFilter } from './orders-view-filters'
+import { groupOrdersBySku } from './orders-grouping'
+import { formatQueuedOrderToast, formatQueuedOrdersToast } from './orders-queue'
 import {
   buildDailyStripProgress,
   buildColumnPrefs,
@@ -368,6 +370,11 @@ function getTotalQuantity(order: OrderSummaryDto, detail: OrderFullDto | null) {
 function getPrimarySku(order: OrderSummaryDto, detail: OrderFullDto | null) {
   const primary = getPrimaryItem(order, detail)
   return (primary?.sku ?? primary?.name ?? '').toLowerCase().trim()
+}
+
+function getPrimarySkuLabel(order: OrderSummaryDto, detail: OrderFullDto | null) {
+  const primary = getPrimaryItem(order, detail)
+  return (primary?.sku ?? primary?.name ?? '').trim() || 'Unknown SKU'
 }
 
 function buildSearchText(order: OrderSummaryDto, detail: OrderFullDto | null) {
@@ -800,6 +807,17 @@ export default function OrdersView({
 
     return next
   }, [searchedOrders, skuSortActive, preSkuSortSnapshot, sortState, orderDetailsById, shippingAccounts])
+  const skuOrderGroups = useMemo(
+    () => (
+      skuSortActive
+        ? groupOrdersBySku(
+            orderedFilteredOrders,
+            (order) => getPrimarySkuLabel(order, orderDetailsById.get(order.orderId) ?? null),
+          )
+        : []
+    ),
+    [orderedFilteredOrders, orderDetailsById, skuSortActive],
+  )
 
   const panelOrderId = activeOrderId ?? (selectedOrderIds.length === 1 ? selectedOrderIds[0] : null)
   const panelOrder = orderedFilteredOrders.find((order) => order.orderId === panelOrderId)
@@ -1103,6 +1121,18 @@ export default function OrdersView({
     updateSelection(selectedOrderIds.filter((id) => id !== orderId))
   }
 
+  const toggleSkuGroupSelection = (orderIds: number[], checked?: boolean) => {
+    const orderIdSet = new Set(orderIds)
+    const allSelected = orderIds.length > 0 && orderIds.every((orderId) => selectedIdSet.has(orderId))
+    const shouldSelect = checked ?? !allSelected
+    if (shouldSelect) {
+      updateSelection([...selectedOrderIds, ...orderIds])
+      return
+    }
+
+    updateSelection(selectedOrderIds.filter((id) => !orderIdSet.has(id)))
+  }
+
   const selectAll = () => {
     updateSelection(orderedFilteredOrders.map((order) => order.orderId))
   }
@@ -1171,6 +1201,7 @@ export default function OrdersView({
     let sent = 0
     let failed = 0
     let queueClient: number | null = null
+    const queuedItems: Array<{ sku?: string | null; name?: string | null; quantity?: number | null }> = []
 
     for (const orderId of orderIds) {
       const order = orders.find((candidate) => candidate.orderId === orderId)
@@ -1183,6 +1214,7 @@ export default function OrdersView({
         queueClient = queueClient ?? order.clientId
         await apiClient.addToQueue(buildQueueAddPayload(order, order.label.labelUrl))
         sent += 1
+        queuedItems.push(...getActiveItems(order, orderDetailsById.get(order.orderId) ?? null))
       } catch {
         failed += 1
       }
@@ -1195,7 +1227,7 @@ export default function OrdersView({
     }
 
     if (sent > 0) {
-      showToast(`✅ ${sent} order${sent === 1 ? '' : 's'} added to print queue${failed > 0 ? ` (${failed} skipped — no label)` : ''}`, 'success')
+      showToast(formatQueuedOrdersToast(sent, queuedItems, failed), 'success')
     } else {
       showToast('⚠ No orders added — create labels first')
     }
@@ -1280,7 +1312,13 @@ export default function OrdersView({
       if (mode === 'queue' && response.labelUrl && order.clientId != null) {
         await apiClient.addToQueue(buildQueueAddPayload(order, response.labelUrl))
         await hydrateQueue(true)
-        showToast(`✅ Label created & queued${response.trackingNumber ? `: ${response.trackingNumber}` : ''}`, 'success')
+        showToast(
+          formatQueuedOrderToast(
+            order.orderNumber ?? order.orderId,
+            getActiveItems(order, orderDetailsById.get(order.orderId) ?? null),
+          ),
+          'success',
+        )
       } else if (response.labelUrl) {
         window.open(response.labelUrl, '_blank', 'noopener,noreferrer')
         showToast(mode === 'test' ? `🧪 Test label created${response.trackingNumber ? `: ${response.trackingNumber}` : ''}` : `✅ Label created${response.trackingNumber ? `: ${response.trackingNumber}` : ''}`, 'success')
@@ -1501,6 +1539,7 @@ export default function OrdersView({
     setBatchBusy(true)
     let created = 0
     let failed = 0
+    const queuedItems: Array<{ sku?: string | null; name?: string | null; quantity?: number | null }> = []
 
     for (const order of batchOrders) {
       const bestRate = order.bestRate
@@ -1532,6 +1571,7 @@ export default function OrdersView({
 
         if (mode === 'queue' && response.labelUrl && order.clientId != null) {
           await apiClient.addToQueue(buildQueueAddPayload(order, response.labelUrl))
+          queuedItems.push(...getActiveItems(order, orderDetailsById.get(order.orderId) ?? null))
         } else if (response.labelUrl) {
           window.open(response.labelUrl, '_blank', 'noopener,noreferrer')
         }
@@ -1546,8 +1586,13 @@ export default function OrdersView({
       await hydrateQueue(true)
     }
     await refetchOrders()
-    if (failed === 0) showToast(`✅ ${mode === 'queue' ? 'Queued' : 'Created'} ${created} orders`, 'success')
-    else showToast(`⚠ ${created} ${mode === 'queue' ? 'queued' : 'created'}, ${failed} failed`)
+    if (mode === 'queue' && created > 0) {
+      showToast(formatQueuedOrdersToast(created, queuedItems, failed), 'success')
+    } else if (failed === 0) {
+      showToast(`✅ ${mode === 'queue' ? 'Queued' : 'Created'} ${created} orders`, 'success')
+    } else {
+      showToast(`⚠ ${created} ${mode === 'queue' ? 'queued' : 'created'}, ${failed} failed`)
+    }
   }
 
   const toggleSort = (key: SortKey) => {
@@ -2677,7 +2722,86 @@ export default function OrdersView({
                     </tr>
                   </thead>
                   <tbody id="ordersBody">
-                    {orderedFilteredOrders.map((order) => {
+                    {(skuSortActive ? skuOrderGroups.flatMap((group) => {
+                      const groupOrderIds = group.orders.map((order) => order.orderId)
+                      const allGroupSelected = groupOrderIds.length > 0 && groupOrderIds.every((orderId) => selectedIdSet.has(orderId))
+                      const someGroupSelected = !allGroupSelected && groupOrderIds.some((orderId) => selectedIdSet.has(orderId))
+                      const header = (
+                        <tr key={`sku-group-${group.sku}`} className="sku-group-header">
+                          <td
+                            colSpan={visibleColumns.length}
+                            style={{
+                              padding: '6px 12px',
+                              background: 'var(--ss-blue-bg)',
+                              borderTop: '2px solid var(--ss-blue)',
+                              borderBottom: '1px solid var(--border)',
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              color: 'var(--ss-blue)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <input
+                                type="checkbox"
+                                checked={allGroupSelected}
+                                aria-label={`Select all ${group.count} orders for ${group.sku}`}
+                                ref={(node) => {
+                                  if (node) node.indeterminate = someGroupSelected
+                                }}
+                                style={{ width: 16, height: 16, accentColor: 'var(--ss-blue)', cursor: 'pointer', flexShrink: 0 }}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  event.stopPropagation()
+                                  toggleSkuGroupSelection(groupOrderIds, event.target.checked)
+                                }}
+                              />
+                              <span style={{ fontSize: 13 }}>📦</span>
+                              <span className="sku-link" style={{ fontSize: 11.5 }}>{group.sku}</span>
+                              <span style={{ fontWeight: 400, color: 'var(--text2)' }}>
+                                {group.count.toLocaleString()} order{group.count === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+
+                      const rows = group.orders.map((order) => {
+                        const detail = orderDetailsById.get(order.orderId) ?? null
+                        const items = getActiveItems(order, detail)
+                        const uniqueSkus = new Set(items.map((item) => item.sku).filter(Boolean))
+                        const multiSku = uniqueSkus.size > 1
+                        const rowClasses = [
+                          'order-row',
+                          selectedIdSet.has(order.orderId) ? 'row-selected' : '',
+                          panelOrderId === order.orderId ? 'row-panel-open' : '',
+                          kbRowId === order.orderId ? 'row-kb-focus' : '',
+                          multiSku ? 'multi-sku-row' : '',
+                          getIsException(order) ? 'row-exception' : '',
+                        ].filter(Boolean).join(' ')
+                        const clientColor = getClientPalette(order.clientName ?? 'Untagged').border
+                        const expedited = getExpeditedBadge(order, detail)
+
+                        return (
+                          <tr
+                            key={order.orderId}
+                            id={`row-${order.orderId}`}
+                            className={rowClasses}
+                            style={{ borderLeft: `3px solid ${clientColor}`, background: expedited ? 'rgba(34,197,94,.08)' : undefined }}
+                            onClick={() => toggleOrderSelection(order.orderId)}
+                            onDoubleClick={() => openShipStationOrder(order.orderId)}
+                            onMouseEnter={() => setKbRowId(order.orderId)}
+                          >
+                            {visibleColumns.map((column) => (
+                              <td key={column.key} data-col={column.key}>
+                                {renderTableCell(order, column)}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })
+
+                      return [header, ...rows]
+                    }) : orderedFilteredOrders.map((order) => {
                       const detail = orderDetailsById.get(order.orderId) ?? null
                       const items = getActiveItems(order, detail)
                       const uniqueSkus = new Set(items.map((item) => item.sku).filter(Boolean))
@@ -2710,7 +2834,7 @@ export default function OrdersView({
                           ))}
                         </tr>
                       )
-                    })}
+                    }))}
                   </tbody>
                 </table>
               ) : null}

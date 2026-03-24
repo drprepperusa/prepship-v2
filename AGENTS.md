@@ -90,6 +90,16 @@ Do not stop work just because the real DB is unavailable unless the task truly c
 - When porting frontend behavior, read the legacy `public/index.html` section and the matching `public/js/*` module before changing `apps/web`.
 - If a legacy endpoint is not yet migrated, either finish it properly in V2 or document the exact blocker. Do not leave vague placeholder behavior.
 
+## Feature Classification
+
+Not all work in V2 is parity work.
+
+- Treat a request as parity work only when the user explicitly says it is parity work, references matching legacy behavior, or asks to port behavior from `../prepship`.
+- Treat a request as new feature work when it adds behavior not present in legacy/V2, unless the user explicitly says otherwise.
+- Do not describe new feature work as parity work.
+- Do not place new-feature logic in `*-parity.ts` files. Reserve parity modules for legacy behavior replication, compatibility helpers, or tests specifically validating parity behavior.
+- For new React feature work, prefer feature-specific modules and tests named after the behavior rather than `parity`.
+
 ## Next Good Targets
 
 - worker-owned sync/process orchestration
