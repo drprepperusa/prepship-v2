@@ -198,11 +198,26 @@ export class QueueServices {
       const font = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
       const fontRegular = await mergedPdf.embedFont(StandardFonts.Helvetica);
 
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i]!;
+      // Sort entries by skuGroupId — all orders in the same group become consecutive.
+      // Header page emits ONCE per group, not once per label.
+      const sortedEntries = [...entries].sort((a, b) =>
+        (a.skuGroupId ?? '').localeCompare(b.skuGroupId ?? '')
+      );
+
+      // Pre-compute group sizes so header shows "1 of N ORDERS"
+      const groupSizes = new Map<string, number>();
+      for (const e of sortedEntries) {
+        const g = e.skuGroupId ?? '__ungrouped__';
+        groupSizes.set(g, (groupSizes.get(g) ?? 0) + 1);
+      }
+
+      let lastGroupId: string | null = null;
+
+      for (let i = 0; i < sortedEntries.length; i++) {
+        const entry = sortedEntries[i]!;
         job.current = i;
-        job.progress = Math.round((i / entries.length) * 90);
-        job.message = `Merging label ${i + 1} of ${entries.length}…`;
+        job.progress = Math.round((i / sortedEntries.length) * 90);
+        job.message = `Merging label ${i + 1} of ${sortedEntries.length}…`;
 
         // ── CRITICAL #4: ShipStation URL 404/410 error handling ────────────
         // No caching — fetch directly, handle 404/410 gracefully
@@ -238,16 +253,19 @@ export class QueueServices {
         if (labelError) {
           // Track the error but do NOT add an error page to the PDF.
           // Error-only PDFs produced by pdf-lib are missing %%EOF and Chrome rejects them.
-          // Instead, we collect errors and surface them in the job message after merging.
           console.warn(`[queue] ${labelError}`);
           (job as any).labelErrors = [...((job as any).labelErrors ?? []), labelError];
           continue;
         }
 
-        // Add header page if requested
-        if (mergeHeaders) {
+        // Add header page ONCE at the start of each new SKU group (not before every label).
+        // Structure: [Group Header] [Label 1] [Label 2] ... [Group Header] [Label 1] ...
+        const groupId = entry.skuGroupId ?? '__ungrouped__';
+        if (mergeHeaders && groupId !== lastGroupId) {
+          const groupSize = groupSizes.get(groupId) ?? 1;
           const headerPage = mergedPdf.addPage([288, 432]); // 4"×6" at 72dpi
-          this.drawHeaderPage(headerPage, entry, i + 1, entries.length, font, fontRegular, rgb);
+          this.drawHeaderPage(headerPage, entry, 1, groupSize, font, fontRegular, rgb);
+          lastGroupId = groupId;
         }
 
         // Embed the label PDF
@@ -259,10 +277,8 @@ export class QueueServices {
             mergedPdf.addPage(page);
           }
         } catch (pdfErr) {
-          // If the label PDF is malformed, add error page
-          const errPage = mergedPdf.addPage([288, 432]);
-          errPage.drawText('PDF ERROR', { x: 20, y: 390, size: 14, font, color: rgb(0.8, 0, 0) });
-          errPage.drawText(`Order: ${entry.orderNumber ?? entry.orderId}`, { x: 20, y: 365, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+          const errMsg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+          (job as any).labelErrors = [...((job as any).labelErrors ?? []), `PDF parse error for ${entry.orderNumber ?? entry.orderId}: ${errMsg}`];
         }
       }
 
