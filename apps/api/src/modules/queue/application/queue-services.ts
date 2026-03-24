@@ -398,7 +398,7 @@ export class QueueServices {
     }
 
     // ── Divider between top info and order count block ─────────────────────
-    const dividerY = height * 0.27;
+    const dividerY = height * 0.32;
     page.drawLine({
       start: { x: pad, y: dividerY + 2 }, end: { x: width - pad, y: dividerY + 2 },
       thickness: 1, color: rgb(0.85, 0.85, 0.85),
@@ -406,10 +406,14 @@ export class QueueServices {
 
     // ── Bottom 1/4: large order count ─────────────────────────────────────
     // Big number takes up ~1/4 of page height
-    const countFontSize = Math.min(height * 0.22, 90); // ~1/4 of 432pt page ≈ 95pt
+    const countFontSize = Math.min(height * 0.22, 90);
+    const labelSize = 15; // ~1/4 of 432pt page ≈ 95pt
     const countStr = String(totalOrders);
     const countW = font.widthOfTextAtSize(countStr, countFontSize);
-    const countY = dividerY - 14;
+    // Center the count block vertically in the bottom section
+    const bottomSectionHeight = dividerY; // from 0 to dividerY
+    const countBlockHeight = countFontSize + labelSize + 10;
+    const countY = (bottomSectionHeight + countBlockHeight) / 2;
     page.drawText(countStr, {
       x: cx - countW / 2,
       y: countY - countFontSize,
@@ -417,7 +421,6 @@ export class QueueServices {
     });
 
     const labelStr = `ORDER${totalOrders !== 1 ? 'S' : ''}`;
-    const labelSize = 15;
     page.drawText(labelStr, {
       x: cx - font.widthOfTextAtSize(labelStr, labelSize) / 2,
       y: countY - countFontSize - labelSize - 4,
