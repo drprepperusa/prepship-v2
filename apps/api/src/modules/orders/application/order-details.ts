@@ -6,6 +6,22 @@ import {
   normalizeOrderSelectedRateDto,
   parseOrderRateJson,
 } from "./order-rate-dto.ts";
+import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
+
+function resolveCarrierNickname(providerAccountId: number | null, carrierCode: string | null): string | null {
+  if (!carrierCode) return null;
+  if (providerAccountId) {
+    const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
+    if (exact) return exact.nickname;
+  }
+  const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
+  if (matching.length === 1) return matching[0]!.nickname;
+  const CARRIER_DISPLAY: Record<string, string> = {
+    stamps_com: "USPS", ups: "UPS", ups_walleted: "UPS", fedex: "FedEx",
+    fedex_walleted: "FedEx One Balance", dhl_express: "DHL Express",
+  };
+  return CARRIER_DISPLAY[carrierCode] ?? carrierCode.replace(/_/g, " ").toUpperCase();
+}
 
 export class OrderDetailsService {
   private readonly repository: OrderRepository;
@@ -154,8 +170,9 @@ export class OrderDetailsService {
           return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
         }
         if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
+          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier);
           return normalizeOrderSelectedRateDto(
-            { providerAccountId: record.labelProvider, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
+            { providerAccountId: record.labelProvider, providerAccountNickname: nickname, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
             fallback, `order ${record.orderId} selectedRate`,
           );
         }

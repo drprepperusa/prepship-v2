@@ -11,6 +11,25 @@ import {
   normalizeOrderSelectedRateDto,
   parseOrderRateJson,
 } from "./order-rate-dto.ts";
+import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
+
+function resolveCarrierNickname(providerAccountId: number | null, carrierCode: string | null): string | null {
+  if (!carrierCode) return null;
+  // Exact match by providerAccountId first
+  if (providerAccountId) {
+    const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
+    if (exact) return exact.nickname;
+  }
+  // Fallback: if only one account matches carrierCode, use it
+  const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
+  if (matching.length === 1) return matching[0]!.nickname;
+  // Multiple accounts same carrierCode — use carrier display name
+  const CARRIER_DISPLAY: Record<string, string> = {
+    stamps_com: "USPS", ups: "UPS", ups_walleted: "UPS", fedex: "FedEx",
+    fedex_walleted: "FedEx One Balance", dhl_express: "DHL Express",
+  };
+  return CARRIER_DISPLAY[carrierCode] ?? carrierCode.replace(/_/g, " ").toUpperCase();
+}
 
 function parseRawJson(value: string | null): unknown | null {
   if (!value) return null;
@@ -119,9 +138,11 @@ function toOrderDto(
 
       // No stored selectedRate json — for shipped orders, build from shipment record data
       if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
+        const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier);
         return normalizeOrderSelectedRateDto(
           {
             providerAccountId: record.labelProvider,
+            providerAccountNickname: nickname,
             carrierCode: record.labelCarrier,
             serviceCode: record.labelService,
             shipmentCost: record.labelRawCost,
