@@ -250,6 +250,9 @@ async function runStatusSync(
         const now = Date.now();
         db.prepare(`UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?`)
           .run(now, existing.orderId);
+        // Ensure order_local row exists, then set external_shipped
+        db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, updatedAt) VALUES (?, 1, ?)`)
+          .run(existing.orderId, now);
         db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
           .run(now, existing.orderId);
 
