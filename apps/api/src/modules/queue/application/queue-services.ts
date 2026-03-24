@@ -407,7 +407,7 @@ export class QueueServices {
     y -= 28;
 
     // Order count
-    const orderLine = `${orderIndex} of ${totalOrders} ORDERS`;
+    const orderLine = `${totalOrders} ORDER${totalOrders !== 1 ? 'S' : ''} IN THIS BATCH`;
     page.drawText(orderLine, {
       x: cx - fontRegular.widthOfTextAtSize(orderLine, 14) / 2,
       y, size: 14, font: fontRegular, color: rgb(0.2, 0.2, 0.2),
