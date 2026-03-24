@@ -8,11 +8,22 @@ import {
 } from "./order-rate-dto.ts";
 import { CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
 
-function resolveCarrierNickname(providerAccountId: number | null, carrierCode: string | null): string | null {
+function resolveCarrierNickname(providerAccountId: number | null, carrierCode: string | null, trackingNumber?: string | null): string | null {
   if (!carrierCode) return null;
   if (providerAccountId) {
     const exact = CARRIER_ACCOUNTS_V2.find((a) => a.shippingProviderId === providerAccountId);
     if (exact) return exact.nickname;
+  }
+  if ((carrierCode === "ups" || carrierCode === "ups_walleted") && trackingNumber) {
+    const tn = trackingNumber.replace(/\s/g, "").toUpperCase();
+    if (tn.startsWith("1Z") && tn.length >= 8) {
+      const acctCode = tn.slice(2, 8);
+      const matched = CARRIER_ACCOUNTS_V2.find((a) =>
+        (a.carrierCode === "ups" || a.carrierCode === "ups_walleted") &&
+        a.nickname.toUpperCase().includes(acctCode)
+      );
+      if (matched) return matched.nickname;
+    }
   }
   const matching = CARRIER_ACCOUNTS_V2.filter((a) => a.carrierCode === carrierCode);
   if (matching.length === 1) return matching[0]!.nickname;
@@ -170,7 +181,7 @@ export class OrderDetailsService {
           return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
         }
         if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
-          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier);
+          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking);
           return normalizeOrderSelectedRateDto(
             { providerAccountId: record.labelProvider, providerAccountNickname: nickname, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
             fallback, `order ${record.orderId} selectedRate`,
