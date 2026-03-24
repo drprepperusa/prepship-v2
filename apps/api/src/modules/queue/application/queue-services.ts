@@ -236,11 +236,11 @@ export class QueueServices {
         }
 
         if (labelError) {
-          // Add an error page instead of the label
-          const errPage = mergedPdf.addPage([288, 432]); // 4"×6" at 72dpi
-          errPage.drawText('LABEL FETCH ERROR', { x: 20, y: 390, size: 14, font, color: rgb(0.8, 0, 0) });
-          errPage.drawText(`Order: ${entry.orderNumber ?? entry.orderId}`, { x: 20, y: 365, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-          errPage.drawText(labelError, { x: 20, y: 345, size: 8, font: fontRegular, color: rgb(0.5, 0, 0), maxWidth: 248, lineHeight: 12 });
+          // Track the error but do NOT add an error page to the PDF.
+          // Error-only PDFs produced by pdf-lib are missing %%EOF and Chrome rejects them.
+          // Instead, we collect errors and surface them in the job message after merging.
+          console.warn(`[queue] ${labelError}`);
+          (job as any).labelErrors = [...((job as any).labelErrors ?? []), labelError];
           continue;
         }
 
@@ -269,6 +269,16 @@ export class QueueServices {
       job.progress = 95;
       job.message = 'Finalizing PDF…';
 
+      // If no pages were added (all labels failed), fail with a clear error instead of
+      // producing a broken PDF (pdf-lib omits %%EOF on empty docs, Chrome rejects it).
+      const pageCount = mergedPdf.getPageCount();
+      if (pageCount === 0) {
+        const errors: string[] = (job as any).labelErrors ?? [];
+        throw new Error(
+          `All labels failed to load — no PDF produced.\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? `\n…and ${errors.length - 3} more` : ''}`
+        );
+      }
+
       const pdfBytes = await mergedPdf.save();
       const base64 = Buffer.from(pdfBytes).toString('base64');
 
@@ -280,10 +290,14 @@ export class QueueServices {
       const printedAt = Math.floor(Date.now() / 1000);
       this.repo.markPrinted(entries.map(e => e.id), printedAt);
 
+      const failedCount = ((job as any).labelErrors ?? []).length;
+      const successCount = entries.length - failedCount;
       job.status = 'done';
       job.progress = 100;
       job.current = entries.length;
-      job.message = `Done — ${entries.length} label${entries.length !== 1 ? 's' : ''} merged.`;
+      job.message = failedCount > 0
+        ? `Done — ${successCount} label${successCount !== 1 ? 's' : ''} merged (${failedCount} failed — re-create and re-queue those orders).`
+        : `Done — ${successCount} label${successCount !== 1 ? 's' : ''} merged.`;
       job.mergedPdfBase64 = base64;
       job.fileName = fileName;
 
