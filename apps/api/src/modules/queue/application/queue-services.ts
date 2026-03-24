@@ -280,7 +280,8 @@ export class QueueServices {
       }
 
       const pdfBytes = await mergedPdf.save();
-      const base64 = Buffer.from(pdfBytes).toString('base64');
+      const pdfBuf = Buffer.from(pdfBytes);
+      const base64 = pdfBuf.toString('base64');
 
       const now = new Date();
       const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;

@@ -49,8 +49,10 @@ export function startHttpServer(handler: (request: Request) => Promise<Response>
       res.setHeader(key, value);
     }
 
-    const body = await response.text();
-    res.end(body);
+    // Use arrayBuffer (binary-safe) instead of text() which corrupts binary responses (PDFs, images)
+    // by replacing invalid UTF-8 bytes with the replacement character U+FFFD.
+    const bodyBuffer = Buffer.from(await response.arrayBuffer());
+    res.end(bodyBuffer);
   });
 
   return new Promise((resolve) => {

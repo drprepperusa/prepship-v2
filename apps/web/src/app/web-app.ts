@@ -74,6 +74,28 @@ async function proxyApiRequest(
     body,
   });
 
+  // For binary responses (PDF, images, etc.), buffer the full body before forwarding.
+  // Passing upstream.body (ReadableStream) directly can corrupt binary data when the
+  // Node HTTP layer re-encodes the stream through content-length/transfer-encoding
+  // negotiation. Buffering guarantees byte-for-byte fidelity.
+  const contentType = upstream.headers.get("content-type") ?? "";
+  const isBinary = contentType.startsWith("application/pdf")
+    || contentType.startsWith("image/")
+    || contentType.startsWith("application/octet-stream");
+
+  if (isBinary) {
+    const buffer = await upstream.arrayBuffer();
+    const bufView = Buffer.from(buffer);
+    const hasEof = bufView.toString('binary').includes('%%EOF');
+    console.log(`[proxy-binary] url=${target.pathname} bytes=${bufView.length} %%EOF=${hasEof}`);
+    const responseHeaders = new Headers(upstream.headers);
+    responseHeaders.set("content-length", String(bufView.byteLength));
+    return new Response(bufView, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
+  }
+
   return new Response(upstream.body, {
     status: upstream.status,
     headers: upstream.headers,
