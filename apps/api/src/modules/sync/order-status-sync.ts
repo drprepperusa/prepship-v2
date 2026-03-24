@@ -156,6 +156,72 @@ function resolveClientId(db: DatabaseSync, storeId: number | null): number | nul
   return row?.clientId ?? null;
 }
 
+// ─── Shipment detail fetch + save ────────────────────────────────────────────
+
+async function fetchAndSaveShipment(
+  db: DatabaseSync,
+  account: SyncAccount,
+  orderId: number,
+  orderNumber: string,
+): Promise<void> {
+  const url = `https://ssapi.shipstation.com/shipments?orderNumber=${encodeURIComponent(orderNumber)}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!resp.ok) return;
+
+  const data = (await resp.json()) as { shipments?: Array<Record<string, unknown>> };
+  const shipments = (data.shipments ?? []).filter((s) => !s.voided);
+  if (!shipments.length) return;
+
+  const s = shipments[0]!;
+  const shipmentId = Number(s.shipmentId);
+  const trackingNumber = s.trackingNumber ? String(s.trackingNumber) : null;
+  const carrierCode = s.carrierCode ? String(s.carrierCode) : null;
+  const serviceCode = s.serviceCode ? String(s.serviceCode) : null;
+  const shipDate = s.shipDate ? String(s.shipDate) : new Date().toISOString().slice(0, 10);
+  const shipmentCost = Number(s.shipmentCost ?? 0);
+  const labelUrl = s.formUrl ? String(s.formUrl) : null;
+  const now = Date.now();
+
+  // Check if shipment already exists
+  const exists = db.prepare(`SELECT 1 FROM shipments WHERE shipmentId = ? LIMIT 1`).get(shipmentId);
+  if (exists) return;
+
+  // Look up clientId and storeId from the order
+  const orderRow = db.prepare(`SELECT clientId, storeId FROM orders WHERE orderId = ? LIMIT 1`)
+    .get(orderId) as { clientId: number; storeId: number | null } | undefined;
+
+  db.prepare(`
+    INSERT OR IGNORE INTO shipments (
+      shipmentId, orderId, orderNumber, carrierCode, serviceCode,
+      trackingNumber, shipDate, labelUrl, shipmentCost, otherCost,
+      voided, updatedAt, weightOz, createDate, clientId,
+      providerAccountId, source, label_created_at, label_format
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    shipmentId, orderId, orderNumber, carrierCode, serviceCode,
+    trackingNumber, shipDate, labelUrl, shipmentCost, 0,
+    0, now, null, new Date().toISOString(), orderRow?.clientId ?? null,
+    null, "ss_sync", now, "pdf"
+  );
+
+  // Also update order_local with tracking number
+  if (trackingNumber) {
+    const hasLocal = db.prepare(`SELECT 1 FROM order_local WHERE orderId = ? LIMIT 1`).get(orderId);
+    if (hasLocal) {
+      db.prepare(`UPDATE order_local SET tracking_number = ?, updatedAt = ? WHERE orderId = ?`)
+        .run(trackingNumber, now, orderId);
+    } else {
+      db.prepare(`INSERT OR IGNORE INTO order_local (orderId, tracking_number, updatedAt) VALUES (?,?,?)`)
+        .run(orderId, trackingNumber, now);
+    }
+  }
+
+  console.log(`[sync] Saved shipment for ${orderNumber}: tracking=${trackingNumber ?? "none"} cost=$${shipmentCost}`);
+}
+
 // ─── Job 1: Status Sync (awaiting → shipped) ─────────────────────────────────
 
 async function runStatusSync(
@@ -186,6 +252,9 @@ async function runStatusSync(
           .run(now, existing.orderId);
         db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
           .run(now, existing.orderId);
+
+        // Fetch shipment details from SS to get tracking number, cost, etc.
+        void fetchAndSaveShipment(db, account, existing.orderId, order.orderNumber).catch(() => {/* non-fatal */});
 
         updated++;
         console.log(`[sync] Marked shipped: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
