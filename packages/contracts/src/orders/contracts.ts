@@ -38,11 +38,6 @@ export interface OrderSummaryDto {
   residential: boolean | null;
   sourceResidential: boolean | null;
   externalShipped: boolean;
-  /** Resolved carrier display — computed once by the API, rendered directly by frontend. */
-  carrierDisplay: {
-    nickname: string | null;
-    badge: "ext-label" | null;
-  };
   bestRate: OrderBestRateDto | null;
   selectedRate: OrderSelectedRateDto | null;
   label: {
