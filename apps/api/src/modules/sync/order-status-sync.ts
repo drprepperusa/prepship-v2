@@ -173,7 +173,16 @@ async function fetchAndSaveShipment(
 
   const data = (await resp.json()) as { shipments?: Array<Record<string, unknown>> };
   const shipments = (data.shipments ?? []).filter((s) => !s.voided);
-  if (!shipments.length) return;
+
+  // No SS shipment record → shipped externally (Amazon/marketplace carrier)
+  if (!shipments.length) {
+    const now2 = Date.now();
+    db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, updatedAt) VALUES (?, 1, ?)`)
+      .run(orderId, now2);
+    db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
+      .run(now2, orderId);
+    return;
+  }
 
   const s = shipments[0]!;
   const shipmentId = Number(s.shipmentId);
@@ -207,16 +216,15 @@ async function fetchAndSaveShipment(
     null, "ss_sync", now, "pdf"
   );
 
-  // Also update order_local with tracking number
-  if (trackingNumber) {
-    const hasLocal = db.prepare(`SELECT 1 FROM order_local WHERE orderId = ? LIMIT 1`).get(orderId);
-    if (hasLocal) {
-      db.prepare(`UPDATE order_local SET tracking_number = ?, updatedAt = ? WHERE orderId = ?`)
-        .run(trackingNumber, now, orderId);
-    } else {
-      db.prepare(`INSERT OR IGNORE INTO order_local (orderId, tracking_number, updatedAt) VALUES (?,?,?)`)
-        .run(orderId, trackingNumber, now);
-    }
+  // Real SS shipment saved — ensure order_local reflects this:
+  // external_shipped = 0 (has a real SS label), tracking saved
+  const hasLocal = db.prepare(`SELECT 1 FROM order_local WHERE orderId = ? LIMIT 1`).get(orderId);
+  if (hasLocal) {
+    db.prepare(`UPDATE order_local SET external_shipped = 0, tracking_number = ?, updatedAt = ? WHERE orderId = ?`)
+      .run(trackingNumber, now, orderId);
+  } else {
+    db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, tracking_number, updatedAt) VALUES (?,0,?,?)`)
+      .run(orderId, trackingNumber, now);
   }
 
   console.log(`[sync] Saved shipment for ${orderNumber}: tracking=${trackingNumber ?? "none"} cost=$${shipmentCost}`);
@@ -250,13 +258,14 @@ async function runStatusSync(
         const now = Date.now();
         db.prepare(`UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?`)
           .run(now, existing.orderId);
-        // Ensure order_local row exists, then set external_shipped
-        db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, updatedAt) VALUES (?, 1, ?)`)
+        // Ensure order_local row exists. Do NOT set external_shipped yet —
+        // fetchAndSaveShipment will set it to 0 if SS has a real shipment record,
+        // or to 1 if no SS shipment exists (Amazon/marketplace-fulfilled).
+        db.prepare(`INSERT OR IGNORE INTO order_local (orderId, updatedAt) VALUES (?, ?)`)
           .run(existing.orderId, now);
-        db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
-          .run(now, existing.orderId);
 
         // Fetch shipment details from SS to get tracking number, cost, etc.
+        // This also resolves external_shipped correctly based on whether SS has a label.
         void fetchAndSaveShipment(db, account, existing.orderId, order.orderNumber).catch(() => {/* non-fatal */});
 
         updated++;
