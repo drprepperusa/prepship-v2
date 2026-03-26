@@ -39,12 +39,14 @@ async function fetchOrder(orderNumber) {
 
 // ── Shipped via PrepShip — UPS tracking decode ────────────────────────────────
 
-test("112-3420662-8872257: selectedRate.providerAccountNickname = ORION", async (t) => {
+test("112-3420662-8872257: selectedRate.providerAccountNickname = ORI Account (clientId=10, UPS R05H19)", async (t) => {
+  // clientId=10 (KFG) — uses se-595995 "ORI Account" not se-596001 "ORION"
+  // Both have accountNumber R05H19 but KFG has its own dedicated account
   const o = await fetchOrder("112-3420662-8872257");
   assert.ok(o, "Order not found");
   assert.equal(o.orderStatus, "shipped");
-  assert.equal(o.selectedRate?.providerAccountNickname, "ORION",
-    `Expected ORION, got: ${o.selectedRate?.providerAccountNickname}`);
+  assert.equal(o.selectedRate?.providerAccountNickname, "ORI Account",
+    `Expected ORI Account (KFG UPS), got: ${o.selectedRate?.providerAccountNickname}`);
   assert.equal(o.externalShipped, false);
 });
 
