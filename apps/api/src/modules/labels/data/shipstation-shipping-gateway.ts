@@ -11,10 +11,7 @@ import type {
   ShipstationShipmentDetails,
   ShipstationV1Credentials,
 } from "../application/shipping-gateway.ts";
-
-function basicAuth(credentials: ShipstationV1Credentials): string {
-  return `Basic ${Buffer.from(`${credentials.apiKey}:${credentials.apiSecret}`).toString("base64")}`;
-}
+import { getShipStationClient } from "../../../common/shipstation/client.ts";
 
 function parseNumber(value: unknown): number | null {
   const parsed = Number(value);
@@ -62,16 +59,19 @@ function mapShipmentPayload(payload: Record<string, unknown>): ExternalOrderShip
   };
 }
 
+function v1Creds(credentials: ShipstationV1Credentials) {
+  return { apiKey: credentials.apiKey, apiSecret: credentials.apiSecret };
+}
+
 export class ShipstationShippingGateway implements ShippingGateway {
   private readonly secrets: TransitionalSecrets;
-  private readonly baseV1 = "https://ssapi.shipstation.com";
-  private readonly baseV2 = "https://api.shipstation.com/v2";
 
   constructor(secrets: TransitionalSecrets) {
     this.secrets = secrets;
   }
 
   async createLabel(input: CreateExternalLabelInput): Promise<CreatedExternalLabel> {
+    const client = getShipStationClient();
     const pkg: Record<string, unknown> = {
       weight: { value: Number(input.weightOz.toFixed(2)), unit: "ounce" },
       package_code: input.packageCode || "package",
@@ -122,25 +122,15 @@ export class ShipstationShippingGateway implements ShippingGateway {
       label_download_type: "url",
     };
 
-    // Debug: log request body to console
+    // Debug: log request body
     console.log("[ShipStation] Creating label with body:", JSON.stringify(body, null, 2));
 
-    const response = await fetch(`${this.baseV2}/labels`, {
-      method: "POST",
-      headers: { "API-Key": input.apiKeyV2, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const payload = await client.v2<Record<string, unknown>>(
+      { apiKeyV2: input.apiKeyV2 },
+      "/labels",
+      { method: "POST", body },
+    );
 
-    if (!response.ok) {
-      const details = await response.text();
-      const error = new Error(`ShipStation v2 API error: ${response.status}`) as Error & { details?: string; statusCode?: number };
-      error.details = details.slice(0, 500);
-      error.statusCode = response.status;
-      console.error("[ShipStation] Error response:", details);
-      throw error;
-    }
-
-    const payload = await response.json() as Record<string, unknown>;
     const shipmentId = Number(String(payload.shipment_id ?? "").replace(/^se-/, ""));
     const providerAccountId = Number(String(input.carrierId).replace(/^se-/, ""));
 
@@ -169,74 +159,79 @@ export class ShipstationShippingGateway implements ShippingGateway {
   }
 
   async getShipment(credentials: ShipstationV1Credentials, shipmentId: number): Promise<ShipstationShipmentDetails | null> {
-    const response = await fetch(`${this.baseV1}/shipments/${shipmentId}`, {
-      headers: { Authorization: basicAuth(credentials) },
-    });
-    if (!response.ok) return null;
-    const data = await response.json() as Record<string, unknown>;
-    const shipment = ((data.shipment as Record<string, unknown> | undefined) ?? data);
-    const dims = parseDims(shipment.dimensions as Record<string, unknown> | undefined);
-    return {
-      shipmentId: Number(shipment.shipmentId ?? shipmentId),
-      orderId: Number(shipment.orderId ?? 0),
-      orderNumber: shipment.orderNumber ? String(shipment.orderNumber) : null,
-      trackingNumber: shipment.trackingNumber ? String(shipment.trackingNumber) : null,
-      carrierCode: shipment.carrierCode ? String(shipment.carrierCode) : null,
-      serviceCode: shipment.serviceCode ? String(shipment.serviceCode) : null,
-      shipmentCost: Number(shipment.shipmentCost ?? 0),
-      otherCost: Number(shipment.otherCost ?? 0),
-      shipDate: shipment.shipDate ? String(shipment.shipDate) : null,
-      confirmation: shipment.confirmation ? String(shipment.confirmation) : null,
-      voided: Boolean(shipment.voided),
-      labelUrl: ((shipment.labelDownload as Record<string, unknown> | undefined)?.pdf ?? (shipment.labelDownload as Record<string, unknown> | undefined)?.href ?? (shipment.label_download as Record<string, unknown> | undefined)?.pdf ?? null) as string | null,
-      createDate: shipment.createDate ? String(shipment.createDate) : null,
-      weightOz: parseWeightOz(shipment.weight as Record<string, unknown> | undefined),
-      dimsLength: dims.length,
-      dimsWidth: dims.width,
-      dimsHeight: dims.height,
-      providerAccountId: parseNumber((shipment.advancedOptions as Record<string, unknown> | undefined)?.billToMyOtherAccount ?? null),
-    };
+    const client = getShipStationClient();
+    try {
+      const data = await client.v1<Record<string, unknown>>(
+        v1Creds(credentials),
+        `/shipments/${shipmentId}`,
+      );
+      const shipment = ((data.shipment as Record<string, unknown> | undefined) ?? data);
+      const dims = parseDims(shipment.dimensions as Record<string, unknown> | undefined);
+      return {
+        shipmentId: Number(shipment.shipmentId ?? shipmentId),
+        orderId: Number(shipment.orderId ?? 0),
+        orderNumber: shipment.orderNumber ? String(shipment.orderNumber) : null,
+        trackingNumber: shipment.trackingNumber ? String(shipment.trackingNumber) : null,
+        carrierCode: shipment.carrierCode ? String(shipment.carrierCode) : null,
+        serviceCode: shipment.serviceCode ? String(shipment.serviceCode) : null,
+        shipmentCost: Number(shipment.shipmentCost ?? 0),
+        otherCost: Number(shipment.otherCost ?? 0),
+        shipDate: shipment.shipDate ? String(shipment.shipDate) : null,
+        confirmation: shipment.confirmation ? String(shipment.confirmation) : null,
+        voided: Boolean(shipment.voided),
+        labelUrl: ((shipment.labelDownload as Record<string, unknown> | undefined)?.pdf ?? (shipment.labelDownload as Record<string, unknown> | undefined)?.href ?? (shipment.label_download as Record<string, unknown> | undefined)?.pdf ?? null) as string | null,
+        createDate: shipment.createDate ? String(shipment.createDate) : null,
+        weightOz: parseWeightOz(shipment.weight as Record<string, unknown> | undefined),
+        dimsLength: dims.length,
+        dimsWidth: dims.width,
+        dimsHeight: dims.height,
+        providerAccountId: parseNumber((shipment.advancedOptions as Record<string, unknown> | undefined)?.billToMyOtherAccount ?? null),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async markOrderShipped(credentials: ShipstationV1Credentials, input: MarkOrderShippedInput): Promise<boolean> {
-    const response = await fetch(`${this.baseV1}/orders/markasshipped`, {
-      method: "POST",
-      headers: { Authorization: basicAuth(credentials), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId: input.orderId,
-        carrierCode: input.carrierCode,
-        shipDate: input.shipDate,
-        trackingNumber: input.trackingNumber,
-        notifyCustomer: false,
-        notifySalesChannel: true,
-      }),
-    });
-    return response.ok;
+    const client = getShipStationClient();
+    try {
+      await client.v1(
+        v1Creds(credentials),
+        "/orders/markasshipped",
+        {
+          method: "POST",
+          body: {
+            orderId: input.orderId,
+            carrierCode: input.carrierCode,
+            shipDate: input.shipDate,
+            trackingNumber: input.trackingNumber,
+            notifyCustomer: false,
+            notifySalesChannel: true,
+          },
+        },
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async voidShipment(apiKeyV2: string, shipmentId: number): Promise<void> {
-    const response = await fetch(`${this.baseV2}/shipments/${shipmentId}/void`, {
-      method: "POST",
-      headers: { "API-Key": apiKeyV2, "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Failed to void label (${response.status})`);
-    }
+    const client = getShipStationClient();
+    await client.v2(
+      { apiKeyV2 },
+      `/shipments/${shipmentId}/void`,
+      { method: "POST", body: {} },
+    );
   }
 
   async createReturnLabel(apiKeyV2: string, shipmentId: number, reason: string): Promise<ReturnLabelResult> {
-    const response = await fetch(`${this.baseV2}/shipments/${shipmentId}/returnlabel`, {
-      method: "POST",
-      headers: { "API-Key": apiKeyV2, "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `ShipStation API error: ${response.status}`);
-    }
-    const payload = await response.json() as Record<string, unknown>;
+    const client = getShipStationClient();
+    const payload = await client.v2<Record<string, unknown>>(
+      { apiKeyV2 },
+      `/shipments/${shipmentId}/returnlabel`,
+      { method: "POST", body: { reason } },
+    );
     return {
       returnTrackingNumber: String(payload.trackingNumber ?? payload.tracking_number ?? ""),
       returnShipmentId: parseNumber(payload.shipmentId ?? payload.shipment_id),
@@ -245,39 +240,47 @@ export class ShipstationShippingGateway implements ShippingGateway {
   }
 
   async listRecentLabels(apiKeyV2: string): Promise<ShipstationLabelRecord[]> {
-    const response = await fetch(`${this.baseV2}/labels?limit=1000&sort=-created_at`, {
-      headers: { "API-Key": apiKeyV2 },
-    });
-    if (!response.ok) return [];
-    const payload = await response.json() as { labels?: Array<Record<string, unknown>> };
-    return (payload.labels ?? []).map((label) => ({
-      labelId: label.label_id ? String(label.label_id) : null,
-      trackingNumber: label.tracking_number ? String(label.tracking_number) : null,
-      labelUrl: ((label.label_download as Record<string, unknown> | undefined)?.pdf ?? (label.label_download as Record<string, unknown> | undefined)?.href ?? null) as string | null,
-    }));
+    const client = getShipStationClient();
+    try {
+      const payload = await client.v2<{ labels?: Array<Record<string, unknown>> }>(
+        { apiKeyV2 },
+        "/labels?limit=1000&sort=-created_at",
+        { deduplicate: true },
+      );
+      return (payload.labels ?? []).map((label) => ({
+        labelId: label.label_id ? String(label.label_id) : null,
+        trackingNumber: label.tracking_number ? String(label.tracking_number) : null,
+        labelUrl: ((label.label_download as Record<string, unknown> | undefined)?.pdf ?? (label.label_download as Record<string, unknown> | undefined)?.href ?? null) as string | null,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   async listOrderShipments(credentials: ShipstationV1Credentials, orderId: number): Promise<ExternalOrderShipmentRecord[]> {
-    const response = await fetch(`${this.baseV1}/orders/${orderId}`, {
-      headers: { Authorization: basicAuth(credentials) },
-    });
-    if (!response.ok) return [];
-    const payload = await response.json() as { shipments?: Array<Record<string, unknown>> };
-    return (payload.shipments ?? []).map(mapShipmentPayload);
+    const client = getShipStationClient();
+    try {
+      const payload = await client.v1<{ shipments?: Array<Record<string, unknown>> }>(
+        v1Creds(credentials),
+        `/orders/${orderId}`,
+      );
+      return (payload.shipments ?? []).map(mapShipmentPayload);
+    } catch {
+      return [];
+    }
   }
 
   async listShipments(credentials: ShipstationV1Credentials, searchParams: URLSearchParams): Promise<ShipmentPageResult> {
-    const url = `${this.baseV1}/shipments?${searchParams.toString()}`;
-    const response = await fetch(url, { headers: { Authorization: basicAuth(credentials) } });
-    if (!response.ok) {
-      throw new Error(`Shipments proxy failed: ${response.status}`);
-    }
-    const payload = await response.json() as {
+    const client = getShipStationClient();
+    const payload = await client.v1<{
       shipments?: Array<Record<string, unknown>>;
       page?: number;
       pages?: number;
       total?: number;
-    };
+    }>(
+      v1Creds(credentials),
+      `/shipments?${searchParams.toString()}`,
+    );
     return {
       shipments: (payload.shipments ?? []).map(mapShipmentPayload),
       page: payload.page ?? 1,
@@ -288,21 +291,25 @@ export class ShipstationShippingGateway implements ShippingGateway {
   }
 
   async listShipmentsV2(apiKeyV2: string, page: number, createdAtStart?: string) {
+    const client = getShipStationClient();
     const params = new URLSearchParams({
       page_size: "500",
       page: String(page),
       sort_dir: "DESC",
     });
     if (createdAtStart) params.set("created_at_start", createdAtStart);
-    const response = await fetch(`${this.baseV2}/shipments?${params.toString()}`, {
-      headers: { "API-Key": apiKeyV2 },
-    });
-    if (!response.ok) return [];
-    const payload = await response.json() as { shipments?: Array<Record<string, unknown>> };
-    return (payload.shipments ?? []).map((shipment) => ({
-      orderNumber: shipment.shipment_number ? String(shipment.shipment_number) : null,
-      orderId: parseNumber(shipment.order_id),
-      carrierId: shipment.carrier_id ? String(shipment.carrier_id) : null,
-    }));
+    try {
+      const payload = await client.v2<{ shipments?: Array<Record<string, unknown>> }>(
+        { apiKeyV2 },
+        `/shipments?${params.toString()}`,
+      );
+      return (payload.shipments ?? []).map((shipment) => ({
+        orderNumber: shipment.shipment_number ? String(shipment.shipment_number) : null,
+        orderId: parseNumber(shipment.order_id),
+        carrierId: shipment.carrier_id ? String(shipment.carrier_id) : null,
+      }));
+    } catch {
+      return [];
+    }
   }
 }

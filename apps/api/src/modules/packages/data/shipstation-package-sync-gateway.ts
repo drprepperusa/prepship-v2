@@ -1,9 +1,10 @@
 import type { TransitionalSecrets } from "../../../../../../../packages/shared/src/config/secrets-adapter.ts";
 import type { ExternalCarrierPackageRecord, PackageSyncGateway } from "../application/package-sync-gateway.ts";
+import { getShipStationClient } from "../../../common/shipstation/client.ts";
 
 export class ShipstationPackageSyncGateway implements PackageSyncGateway {
-  private readonly authHeader: string;
-  private readonly baseUrl = "https://ssapi.shipstation.com";
+  private readonly apiKey: string;
+  private readonly apiSecret: string;
 
   constructor(secrets: TransitionalSecrets) {
     const apiKey = secrets.shipstation?.api_key;
@@ -11,17 +12,16 @@ export class ShipstationPackageSyncGateway implements PackageSyncGateway {
     if (!apiKey || !apiSecret) {
       throw new Error("Transitional ShipStation v1 credentials are required for package sync");
     }
-    this.authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
+    this.apiKey = apiKey;
+    this.apiSecret = apiSecret;
   }
 
   async listCarrierPackages(carrierCode: string): Promise<ExternalCarrierPackageRecord[]> {
-    const response = await fetch(`${this.baseUrl}/carriers/listpackages?carrierCode=${encodeURIComponent(carrierCode)}`, {
-      headers: { Authorization: this.authHeader },
-    });
-    if (!response.ok) {
-      throw new Error(`Package sync failed for ${carrierCode}: ${response.status}`);
-    }
-    const payload = await response.json() as Array<Record<string, unknown>>;
+    const client = getShipStationClient();
+    const payload = await client.v1<Array<Record<string, unknown>>>(
+      { apiKey: this.apiKey, apiSecret: this.apiSecret },
+      `/carriers/listpackages?carrierCode=${encodeURIComponent(carrierCode)}`,
+    );
     if (!Array.isArray(payload)) return [];
     return payload.map((entry) => ({
       code: String(entry.code ?? ""),

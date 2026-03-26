@@ -115,7 +115,8 @@ function createBaseSchema(db: DatabaseSync) {
       source TEXT,
       label_created_at INTEGER,
       label_format TEXT,
-      selected_rate_json TEXT
+      selected_rate_json TEXT,
+      provider_account_nickname TEXT
     );
 
     CREATE TABLE packages (

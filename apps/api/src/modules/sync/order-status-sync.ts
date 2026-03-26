@@ -1,5 +1,5 @@
 /**
- * Order Status Sync Worker — clean single-pass design
+ * Order Status Sync Orchestrator — Unified sync using shared ShipStationClient
  *
  * Each cycle does 3 things with minimal API calls:
  *
@@ -17,10 +17,17 @@
  * 3. ORDER INGEST
  *    - Fetch SS awaiting_shipment orders modified in last 4h (1-2 API calls)
  *    - Insert any new orders not yet in our DB
+ *
+ * Uses the shared ShipStationClient for:
+ * - Centralized rate limiting (token bucket + X-Rate-Limit-Reset)
+ * - Circuit breaker (opens after 5 failures, recovers after 30s)
+ * - Concurrent request deduplication
+ * - No duplicate simultaneous syncs (mutex guard via this.running flag)
  */
 
 import type { DatabaseSync } from "node:sqlite";
 import { resolveCarrierNickname } from "../orders/application/carrier-resolver.ts";
+import { getShipStationClient, type ShipStationClient } from "../../common/shipstation/client.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -63,53 +70,8 @@ interface SSShipmentSummary {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function basicAuth(key: string, secret: string): string {
-  return "Basic " + Buffer.from(`${key}:${secret}`).toString("base64");
-}
-
 function toISOStringUTC(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-async function fetchAllPages<T>(
-  account: SyncAccount,
-  endpoint: string,
-  params: Record<string, string>,
-  signal?: AbortSignal,
-): Promise<T[]> {
-  const results: T[] = [];
-  let page = 1;
-  let pages = 1;
-
-  do {
-    const qs = new URLSearchParams({ ...params, pageSize: "500", page: String(page) });
-    const url = `https://ssapi.shipstation.com/${endpoint}?${qs}`;
-    const resp = await fetch(url, {
-      headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
-      signal: signal ?? AbortSignal.timeout(90_000),
-    });
-
-    if (resp.status === 429) {
-      const wait = Number(resp.headers.get("X-Rate-Limit-Reset") ?? "10");
-      console.warn(`[sync] Rate limited on ${account.accountName}, waiting ${wait}s`);
-      await new Promise((r) => setTimeout(r, wait * 1000));
-      continue; // retry same page
-    }
-
-    if (!resp.ok) throw new Error(`SS API ${resp.status} for ${account.accountName} (${endpoint})`);
-
-    const data = (await resp.json()) as Record<string, unknown>;
-    // SS wraps results in a key matching the endpoint (orders, shipments)
-    const key = endpoint.split("?")[0]!;
-    const items = (data[key] ?? data[Object.keys(data).find(k => Array.isArray(data[k]))!]) as T[];
-    results.push(...(items ?? []));
-    pages = (data.pages as number) ?? 1;
-    page++;
-
-    if (page <= pages) await new Promise((r) => setTimeout(r, 500));
-  } while (page <= pages);
-
-  return results;
 }
 
 // ─── Account + Client helpers ─────────────────────────────────────────────────
@@ -182,21 +144,25 @@ async function runStatusSync(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  client: ShipStationClient,
   signal?: AbortSignal,
 ): Promise<number> {
   let updated = 0;
 
   for (const account of accounts) {
+    const credentials = { apiKey: account.apiKey, apiSecret: account.apiSecret };
+
     // Step A: Bulk-fetch all shipments created in this window.
-    // Use a 45-min window for shipments (shorter than the 2h order window) —
-    // this keeps the page count small while still covering any SS lag.
-    // The backfill pass below catches anything older that slipped through.
     const shipmentStart = toISOStringUTC(new Date(Date.now() - 45 * 60 * 1000));
-    const shipments = await fetchAllPages<SSShipmentSummary>(
-      account, "shipments",
+    const shipments = await client.v1Pages<SSShipmentSummary>(
+      credentials,
+      "/shipments",
       { createDateStart: shipmentStart },
       signal,
-    ).catch(() => [] as SSShipmentSummary[]);
+    ).catch((err) => {
+      console.warn(`[sync] Shipment fetch failed for ${account.accountName}: ${(err as Error).message}`);
+      return [] as SSShipmentSummary[];
+    });
 
     // Build lookup: orderNumber → shipment (non-voided only)
     const shipmentMap = new Map<string, SSShipmentSummary>();
@@ -207,11 +173,15 @@ async function runStatusSync(
     }
 
     // Step B: Fetch all orders marked shipped in this window
-    const orders = await fetchAllPages<SSOrderSummary>(
-      account, "orders",
+    const orders = await client.v1Pages<SSOrderSummary>(
+      credentials,
+      "/orders",
       { orderStatus: "shipped", modifyDateStart },
       signal,
-    ).catch(() => [] as SSOrderSummary[]);
+    ).catch((err) => {
+      console.warn(`[sync] Order status fetch failed for ${account.accountName}: ${(err as Error).message}`);
+      return [] as SSOrderSummary[];
+    });
 
     const now = Date.now();
 
@@ -234,7 +204,7 @@ async function runStatusSync(
       if (shipment) {
         // SS has a shipment record — save it, external_shipped=0
         saveShipmentRecord(db, shipment, existing.orderId, existing.clientId);
-        console.log(`[sync] Marked shipped: ${order.orderNumber} | ${shipment.carrierCode} ${shipment.trackingNumber ?? "no-tracking"} $${shipment.shipmentCost}`);
+        console.log(`[sync] Marked shipped: ${order.orderNumber} | ${shipment.carrierCode} ${shipment.trackingNumber ?? "no-tracking"} $${shipment.shipmentCost} via ${account.accountName}`);
       } else {
         // No SS shipment in this window — confirmed external (Amazon/marketplace)
         db.prepare(`UPDATE order_local SET external_shipped=1, updatedAt=? WHERE orderId=?`).run(now, existing.orderId);
@@ -245,7 +215,6 @@ async function runStatusSync(
     }
 
     // Also save shipments for orders already marked shipped but missing shipment records
-    // (catches any that slipped through in previous cycles)
     for (const [orderNumber, shipment] of shipmentMap) {
       const existingShipped = db.prepare(`
         SELECT o.orderId, o.clientId FROM orders o
@@ -274,12 +243,19 @@ async function runCancellationSync(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  client: ShipStationClient,
   signal?: AbortSignal,
 ): Promise<number> {
   let cancelled = 0;
 
   for (const account of accounts) {
-    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "cancelled", modifyDateStart }, signal).catch(() => []);
+    const credentials = { apiKey: account.apiKey, apiSecret: account.apiSecret };
+    const orders = await client.v1Pages<SSOrderSummary>(
+      credentials,
+      "/orders",
+      { orderStatus: "cancelled", modifyDateStart },
+      signal,
+    ).catch(() => [] as SSOrderSummary[]);
 
     for (const order of orders) {
       if (!order.orderNumber) continue;
@@ -302,12 +278,19 @@ async function runOrderIngest(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  client: ShipStationClient,
   signal?: AbortSignal,
 ): Promise<number> {
   let inserted = 0;
 
   for (const account of accounts) {
-    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "awaiting_shipment", modifyDateStart }, signal).catch(() => []);
+    const credentials = { apiKey: account.apiKey, apiSecret: account.apiSecret };
+    const orders = await client.v1Pages<SSOrderSummary>(
+      credentials,
+      "/orders",
+      { orderStatus: "awaiting_shipment", modifyDateStart },
+      signal,
+    ).catch(() => [] as SSOrderSummary[]);
 
     for (const order of orders) {
       if (!order.orderId || !order.orderNumber) continue;
@@ -354,6 +337,7 @@ export class OrderStatusSyncWorker {
   private readonly mainApiSecret: string;
   private readonly intervalMs: number;
   private readonly lookbackMs: number;
+  private readonly client: ShipStationClient;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
@@ -363,12 +347,14 @@ export class OrderStatusSyncWorker {
     mainApiSecret: string,
     intervalMs = 3 * 60 * 1000,
     lookbackMs = 4 * 60 * 60 * 1000,
+    client?: ShipStationClient,
   ) {
     this.db = db;
     this.mainApiKey = mainApiKey;
     this.mainApiSecret = mainApiSecret;
     this.intervalMs = intervalMs;
     this.lookbackMs = lookbackMs;
+    this.client = client ?? getShipStationClient();
   }
 
   start(): void {
@@ -393,19 +379,27 @@ export class OrderStatusSyncWorker {
     // Hard cap: abort the entire cycle if SS is unresponsive after 2.5 min
     const cycleAbort = AbortSignal.timeout(150_000);
 
+    // Check circuit breaker state
+    const circuitState = this.client.getCircuitState();
+    if (circuitState === "open") {
+      console.warn(`[sync] Circuit breaker OPEN — skipping cycle`);
+      this.running = false;
+      return;
+    }
+
     try {
       const accounts = loadAccounts(this.db, this.mainApiKey, this.mainApiSecret);
       const statusStart = toISOStringUTC(new Date(Date.now() - 2 * 60 * 60 * 1000));
 
       // Job 1: Status + shipment sync (bulk — no per-order calls)
-      const statusUpdated = await runStatusSync(this.db, accounts, statusStart, cycleAbort);
+      const statusUpdated = await runStatusSync(this.db, accounts, statusStart, this.client, cycleAbort);
 
       // Job 2: Cancellation sync
-      const cancelled = await runCancellationSync(this.db, accounts, statusStart, cycleAbort);
+      const cancelled = await runCancellationSync(this.db, accounts, statusStart, this.client, cycleAbort);
 
       // Job 3: Ingest new awaiting orders
       const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
-      const ingested = await runOrderIngest(this.db, accounts, ingestStart, cycleAbort);
+      const ingested = await runOrderIngest(this.db, accounts, ingestStart, this.client, cycleAbort);
 
       if (statusUpdated > 0 || cancelled > 0 || ingested > 0) {
         console.log(`[sync] Cycle — ${statusUpdated} shipped, ${cancelled} cancelled, ${ingested} ingested`);

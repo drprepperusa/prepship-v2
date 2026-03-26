@@ -2,9 +2,9 @@ import type { CarrierAccountDto } from "../../../../../../../packages/contracts/
 import type { RateDto } from "../../../../../../../packages/contracts/src/rates/contracts.ts";
 import { BLOCKED_CARRIER_IDS, CARRIER_ACCOUNTS_V2 } from "../../../common/prepship-config.ts";
 import type { LiveRateShopRequest, RateShopper } from "../application/rate-shopper.ts";
+import { getShipStationClient } from "../../../common/shipstation/client.ts";
 
 const FROM_ZIP = "90248";
-const SS_BASE_V2 = "https://api.shipstation.com/v2";
 
 const ZIP_LOOKUP: Record<string, { city: string; state: string }> = {
   "02": { city: "Boston", state: "MA" },
@@ -32,36 +32,36 @@ function inferCarrierCode(account: CarrierAccountDto, serviceCode: string | null
 }
 
 async function discoverCarriers(apiKeyV2: string): Promise<CarrierAccountDto[]> {
-  const response = await fetch(`${SS_BASE_V2}/carriers`, {
-    headers: { "API-Key": apiKeyV2, "Content-Type": "application/json" },
-  });
-  if (!response.ok) {
+  const client = getShipStationClient();
+  try {
+    const payload = await client.v2<{ carriers?: Array<{ carrier_id: string; name?: string }> }>(
+      { apiKeyV2 },
+      "/carriers",
+      { deduplicate: true },
+    );
+    const discovered = (payload.carriers ?? []).map((carrier) => {
+      const shippingProviderId = Number.parseInt(carrier.carrier_id.replace(/^se-/, ""), 10);
+      const known = CARRIER_ACCOUNTS_V2.find((entry) => entry.shippingProviderId === shippingProviderId);
+      if (known) return known;
+      const code = (carrier.name ?? "unknown").toLowerCase().replace(/\s+/g, "_");
+      return {
+        carrierId: carrier.carrier_id,
+        carrierCode: code,
+        shippingProviderId,
+        nickname: carrier.name ?? carrier.carrier_id,
+        clientId: null,
+        code,
+        _label: carrier.name ?? carrier.carrier_id,
+      };
+    });
+    return discovered.length > 0 ? discovered : CARRIER_ACCOUNTS_V2;
+  } catch {
     return CARRIER_ACCOUNTS_V2;
   }
-
-  const payload = await response.json() as { carriers?: Array<{ carrier_id: string; name?: string }> };
-  const discovered = (payload.carriers ?? []).map((carrier) => {
-    const shippingProviderId = Number.parseInt(carrier.carrier_id.replace(/^se-/, ""), 10);
-    const known = CARRIER_ACCOUNTS_V2.find((entry) => entry.shippingProviderId === shippingProviderId);
-    if (known) {
-      return known;
-    }
-    const code = (carrier.name ?? "unknown").toLowerCase().replace(/\s+/g, "_");
-    return {
-      carrierId: carrier.carrier_id,
-      carrierCode: code,
-      shippingProviderId,
-      nickname: carrier.name ?? carrier.carrier_id,
-      clientId: null,
-      code,
-      _label: carrier.name ?? carrier.carrier_id,
-    };
-  });
-
-  return discovered.length > 0 ? discovered : CARRIER_ACCOUNTS_V2;
 }
 
 async function fetchRatesForCarrier(account: CarrierAccountDto, request: LiveRateShopRequest): Promise<RateDto[]> {
+  const client = getShipStationClient();
   const zipGeo = ZIP_LOOKUP[request.toZip.slice(0, 2)] ?? { city: "City", state: "NY" };
   const needsCity = account.carrierCode === "stamps_com";
   const body = {
@@ -83,66 +83,42 @@ async function fetchRatesForCarrier(account: CarrierAccountDto, request: LiveRat
     console.log(`[RateShopper] Fetching rates for ${account.nickname} with signature=${request.signature}. Body:`, JSON.stringify(body, null, 2));
   }
 
-  // Retry with exponential backoff for rate limits
-  let retries = 0;
-  const maxRetries = 3;
-  let response: Response | null = null;
+  try {
+    const payload = await client.v2<Array<Record<string, unknown>> | { rates?: Array<Record<string, unknown>> }>(
+      { apiKeyV2: request.apiKeyV2 as string },
+      "/rates/estimate",
+      { method: "POST", body },
+    );
 
-  while (retries <= maxRetries) {
-    response = await fetch(`${SS_BASE_V2}/rates/estimate`, {
-      method: "POST",
-      headers: { "API-Key": request.apiKeyV2 as string, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const rates = Array.isArray(payload) ? payload : (payload.rates ?? []);
 
-    // Success or client error (not rate limit)
-    if (response.ok || response.status !== 429) {
-      break;
+    if (isDebugSignature) {
+      console.log(`[RateShopper] Response for ${account.nickname} (signature=${request.signature}): ${rates.length} rates found.`);
     }
 
-    // Rate limit - wait and retry
-    if (retries < maxRetries) {
-      const waitMs = Math.pow(2, retries) * 1000; // 1s, 2s, 4s backoff
-      console.log(`[RateShopper] ShipStation rate limit (429) for ${account.nickname}, retrying in ${waitMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, waitMs));
-      retries++;
-    } else {
-      break;
-    }
-  }
-  
-  if (!response!.ok) {
-    const error = await response!.text();
-    // Always log auth and rate limit errors
-    if (response!.status === 401 || response!.status === 429 || isDebugSignature) {
-      console.error(`[RateShopper] ShipStation API error for ${account.nickname}: ${response!.status} ${error.slice(0, 200)}`);
+    return rates.map((rate) => ({
+      serviceCode: String(rate.service_code ?? ""),
+      serviceName: String(rate.service_type ?? rate.service_code ?? ""),
+      packageType: rate.package_type ? String(rate.package_type) : null,
+      shipmentCost: Number((rate.shipping_amount as { amount?: number } | undefined)?.amount ?? 0),
+      otherCost: Number((rate.other_amount as { amount?: number } | undefined)?.amount ?? 0),
+      rateDetails: Array.isArray(rate.rate_details) ? rate.rate_details : [],
+      carrierCode: inferCarrierCode(account, String(rate.service_code ?? "")),
+      shippingProviderId: account.shippingProviderId,
+      carrierNickname: account.nickname,
+      guaranteed: Boolean(rate.guaranteed_service),
+      zone: rate.zone ? String(rate.zone) : null,
+      sourceClientId: request.sourceClientId,
+      deliveryDays: rate.delivery_days != null ? Number(rate.delivery_days) : null,
+      estimatedDelivery: rate.estimated_delivery_date ? String(rate.estimated_delivery_date) : null,
+    }));
+  } catch (err) {
+    const msg = (err as Error).message ?? "";
+    if (isDebugSignature || msg.includes("401") || msg.includes("429")) {
+      console.error(`[RateShopper] ShipStation API error for ${account.nickname}: ${msg}`);
     }
     return [];
   }
-
-  const payload = await response.json() as Array<Record<string, unknown>> | { rates?: Array<Record<string, unknown>> };
-  const rates = Array.isArray(payload) ? payload : (payload.rates ?? []);
-  
-  if (isDebugSignature) {
-    console.log(`[RateShopper] Response for ${account.nickname} (signature=${request.signature}): ${rates.length} rates found. Raw payload:`, JSON.stringify(payload, null, 2));
-  }
-  
-  return rates.map((rate) => ({
-    serviceCode: String(rate.service_code ?? ""),
-    serviceName: String(rate.service_type ?? rate.service_code ?? ""),
-    packageType: rate.package_type ? String(rate.package_type) : null,
-    shipmentCost: Number((rate.shipping_amount as { amount?: number } | undefined)?.amount ?? 0),
-    otherCost: Number((rate.other_amount as { amount?: number } | undefined)?.amount ?? 0),
-    rateDetails: Array.isArray(rate.rate_details) ? rate.rate_details : [],
-    carrierCode: inferCarrierCode(account, String(rate.service_code ?? "")),
-    shippingProviderId: account.shippingProviderId,
-    carrierNickname: account.nickname,
-    guaranteed: Boolean(rate.guaranteed_service),
-    zone: rate.zone ? String(rate.zone) : null,
-    sourceClientId: request.sourceClientId,
-    deliveryDays: rate.delivery_days != null ? Number(rate.delivery_days) : null,
-    estimatedDelivery: rate.estimated_delivery_date ? String(rate.estimated_delivery_date) : null,
-  }));
 }
 
 export class ShipstationRateShopper implements RateShopper {
@@ -151,7 +127,7 @@ export class ShipstationRateShopper implements RateShopper {
       return [];
     }
 
-    const carriers = (await discoverCarriers(request.apiKeyV2)).filter((carrier) =>
+    const carriers = (await discoverCarriers(request.apiKeyV2 as string)).filter((carrier) =>
       carrier.carrierCode &&
       carrier.carrierCode !== "unknown" &&
       !BLOCKED_CARRIER_IDS.has(carrier.shippingProviderId),

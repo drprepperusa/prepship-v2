@@ -83,7 +83,8 @@ function seedDatabase(filename: string): void {
       dims_h REAL,
       createDate TEXT,
       clientId INTEGER,
-      label_format TEXT
+      label_format TEXT,
+      provider_account_nickname TEXT
     );
 
     CREATE TABLE clients (

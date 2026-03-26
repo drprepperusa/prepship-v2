@@ -1,6 +1,7 @@
 import type { TransitionalSecrets } from "../../../../../../../packages/shared/src/config/secrets-adapter.ts";
 import type { CarrierAccountDto, InitStoreDto } from "../../../../../../../packages/contracts/src/init/contracts.ts";
 import type { InitMetadataProvider } from "../application/init-metadata-provider.ts";
+import { getShipStationClient } from "../../../common/shipstation/client.ts";
 
 interface CacheEntry<T> {
   data: T | null;
@@ -11,7 +12,8 @@ interface CacheEntry<T> {
 export class ShipstationInitMetadataProvider implements InitMetadataProvider {
   private readonly storesCache: CacheEntry<InitStoreDto[]>;
   private readonly carriersCache: CacheEntry<unknown[]>;
-  private readonly authHeader: string;
+  private readonly apiKey: string;
+  private readonly apiSecret: string;
   private readonly carrierAccounts: CarrierAccountDto[];
 
   constructor(secrets: TransitionalSecrets, carrierAccounts: CarrierAccountDto[]) {
@@ -21,18 +23,19 @@ export class ShipstationInitMetadataProvider implements InitMetadataProvider {
       throw new Error("Transitional ShipStation v1 credentials are required for init metadata");
     }
 
-    this.authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
+    this.apiKey = apiKey;
+    this.apiSecret = apiSecret;
     this.carrierAccounts = carrierAccounts;
     this.storesCache = { data: null, fetchedAt: 0, ttlMs: 15 * 60 * 1000 };
     this.carriersCache = { data: null, fetchedAt: 0, ttlMs: 24 * 60 * 60 * 1000 };
   }
 
   async listStores(): Promise<InitStoreDto[]> {
-    return this.getCached("https://ssapi.shipstation.com/stores", this.storesCache);
+    return this.getCached<InitStoreDto[]>("/stores", this.storesCache);
   }
 
   async listCarriers(): Promise<unknown[]> {
-    return this.getCached("https://ssapi.shipstation.com/carriers", this.carriersCache);
+    return this.getCached<unknown[]>("/carriers", this.carriersCache);
   }
 
   listCarrierAccounts(): CarrierAccountDto[] {
@@ -45,18 +48,18 @@ export class ShipstationInitMetadataProvider implements InitMetadataProvider {
     return this.listCarriers();
   }
 
-  private async getCached<T>(url: string, cache: CacheEntry<T>): Promise<T> {
+  private async getCached<T>(path: string, cache: CacheEntry<T>): Promise<T> {
     if (cache.data && (Date.now() - cache.fetchedAt) < cache.ttlMs) {
       return cache.data;
     }
 
+    const client = getShipStationClient();
     try {
-      const response = await fetch(url, { headers: { Authorization: this.authHeader } });
-      if (!response.ok) {
-        throw new Error(`ShipStation metadata request failed: ${response.status}`);
-      }
-
-      const data = await response.json() as T;
+      const data = await client.v1<T>(
+        { apiKey: this.apiKey, apiSecret: this.apiSecret },
+        path,
+        { deduplicate: true },
+      );
       cache.data = data;
       cache.fetchedAt = Date.now();
       return data;
