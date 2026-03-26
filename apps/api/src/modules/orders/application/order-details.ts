@@ -155,7 +155,7 @@ export class OrderDetailsService {
           return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
         }
         if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
-          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking);
+          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking, record.clientId);
           return normalizeOrderSelectedRateDto(
             { providerAccountId: record.labelProvider, providerAccountNickname: nickname, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
             fallback, `order ${record.orderId} selectedRate`,

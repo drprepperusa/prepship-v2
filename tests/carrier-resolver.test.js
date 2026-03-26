@@ -36,3 +36,15 @@ test("null carrierCode returns null", () => {
 test("unknown carrier returns formatted name", () => {
   assert.equal(resolveCarrierNickname(null, "some_carrier", null), "SOME CARRIER");
 });
+
+test("stamps_com with clientId=null uses shared USPS account", () => {
+  // Two stamps_com accounts: se-433542 (clientId=null) and se-442006 (clientId=10)
+  // Order for clientId=3 (not 10) → should use shared account se-433542
+  const result = resolveCarrierNickname(null, "stamps_com", null, 3);
+  assert.equal(result, "USPS Chase x7439");
+});
+
+test("stamps_com with clientId=10 uses KFG account", () => {
+  const result = resolveCarrierNickname(null, "stamps_com", null, 10);
+  assert.equal(result, "GREG PAYABILITY 6/17");
+});

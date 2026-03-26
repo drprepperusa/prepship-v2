@@ -120,7 +120,7 @@ function toOrderDto(
 
       // No stored selectedRate json — for shipped orders, build from shipment record data
       if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
-        const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking);
+        const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking, record.clientId);
         return normalizeOrderSelectedRateDto(
           {
             providerAccountId: record.labelProvider,
