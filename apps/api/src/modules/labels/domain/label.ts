@@ -78,6 +78,7 @@ export interface PersistedShipmentInput {
   createDate: string | null;
   clientId: number;
   providerAccountId: number | null;
+  providerAccountNickname: string | null;
   source: string;
   labelCreatedAt: number | null;
   labelFormat: string | null;

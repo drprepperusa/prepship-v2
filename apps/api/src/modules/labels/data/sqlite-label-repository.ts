@@ -124,9 +124,9 @@ export class SqliteLabelRepository implements LabelRepository {
       INSERT INTO shipments (
         shipmentId, orderId, orderNumber, carrierCode, serviceCode,
         trackingNumber, shipDate, labelUrl, shipmentCost, otherCost, voided, updatedAt,
-        weight_oz, dims_l, dims_w, dims_h, createDate, clientId, providerAccountId, source,
-        label_created_at, label_format, selected_rate_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        weight_oz, dims_l, dims_w, dims_h, createDate, clientId, providerAccountId,
+        provider_account_nickname, source, label_created_at, label_format, selected_rate_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(shipmentId) DO UPDATE SET
         orderId = excluded.orderId,
         orderNumber = excluded.orderNumber,
@@ -146,6 +146,7 @@ export class SqliteLabelRepository implements LabelRepository {
         createDate = COALESCE(excluded.createDate, shipments.createDate),
         clientId = excluded.clientId,
         providerAccountId = COALESCE(excluded.providerAccountId, shipments.providerAccountId),
+        provider_account_nickname = COALESCE(shipments.provider_account_nickname, excluded.provider_account_nickname),
         source = excluded.source,
         label_created_at = COALESCE(excluded.label_created_at, shipments.label_created_at),
         label_format = COALESCE(excluded.label_format, shipments.label_format),
@@ -170,6 +171,7 @@ export class SqliteLabelRepository implements LabelRepository {
       input.createDate,
       input.clientId,
       input.providerAccountId,
+      input.providerAccountNickname,
       input.source,
       input.labelCreatedAt,
       input.labelFormat,

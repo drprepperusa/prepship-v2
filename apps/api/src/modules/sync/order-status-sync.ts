@@ -14,6 +14,7 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
+import { resolveCarrierNickname } from "../orders/application/carrier-resolver.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -202,18 +203,19 @@ async function fetchAndSaveShipment(
   const orderRow = db.prepare(`SELECT clientId, storeId FROM orders WHERE orderId = ? LIMIT 1`)
     .get(orderId) as { clientId: number; storeId: number | null } | undefined;
 
+  const nickname = resolveCarrierNickname(null, carrierCode, trackingNumber, orderRow?.clientId ?? null);
   db.prepare(`
     INSERT OR IGNORE INTO shipments (
       shipmentId, orderId, orderNumber, carrierCode, serviceCode,
       trackingNumber, shipDate, labelUrl, shipmentCost, otherCost,
       voided, updatedAt, weightOz, createDate, clientId,
-      providerAccountId, source, label_created_at, label_format
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      providerAccountId, provider_account_nickname, source, label_created_at, label_format
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     shipmentId, orderId, orderNumber, carrierCode, serviceCode,
     trackingNumber, shipDate, labelUrl, shipmentCost, 0,
     0, now, null, new Date().toISOString(), orderRow?.clientId ?? null,
-    null, "ss_sync", now, "pdf"
+    null, nickname, "ss_sync", now, "pdf"
   );
 
   // Real SS shipment saved — ensure order_local reflects this:

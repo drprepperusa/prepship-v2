@@ -1,3 +1,4 @@
+import { resolveCarrierNickname } from "../../orders/application/carrier-resolver.ts";
 import type {
   BatchLabelResultItem,
   CreateBatchLabelRequestDto,
@@ -214,6 +215,7 @@ function normalizeSyncedShipment(shipment: ExternalOrderShipmentRecord, clientId
     createDate: shipment.createDate,
     clientId,
     providerAccountId: null,
+    providerAccountNickname: resolveCarrierNickname(null, shipment.carrierCode, shipment.trackingNumber, clientId),
     source: "shipstation",
     labelCreatedAt: shipment.createDate ? Date.parse(shipment.createDate) : null,
     labelFormat: null,
@@ -302,6 +304,7 @@ export class LabelServices {
         createDate: new Date().toISOString(),
         clientId,
         providerAccountId: null,
+        providerAccountNickname: resolveCarrierNickname(null, body.carrierCode ?? "stamps_com", null, clientId),
         source: "test_offline",
         labelCreatedAt: Date.now(),
         labelFormat: "html",
@@ -402,6 +405,7 @@ export class LabelServices {
         createDate: new Date().toISOString(),
         clientId,
         providerAccountId: created.providerAccountId,
+        providerAccountNickname: resolveCarrierNickname(created.providerAccountId, created.carrierCode, finalTracking, clientId),
         source: "prepship_v2",
         labelCreatedAt: Date.now(),
         labelFormat: "pdf",

@@ -87,6 +87,7 @@ export class SqliteOrderRepository implements OrderRepository {
           s.trackingNumber AS label_tracking,
           s.shipDate AS label_shipDate,
           s.providerAccountId AS label_provider,
+          s.provider_account_nickname AS label_provider_nickname,
           s.label_created_at,
           s.labelUrl AS label_url,
           s.selected_rate_json
@@ -681,6 +682,7 @@ export class SqliteOrderRepository implements OrderRepository {
       labelCarrier: row.label_carrier == null ? null : String(row.label_carrier),
       labelService: row.label_service == null ? null : String(row.label_service),
       labelProvider: row.label_provider == null ? null : Number(row.label_provider),
+      labelProviderNickname: row.label_provider_nickname == null ? null : String(row.label_provider_nickname),
       labelCost: row.label_cost == null ? null : Number(row.label_cost),
       labelRawCost: row.label_raw_cost == null ? null : Number(row.label_raw_cost),
       labelShipDate: row.label_shipDate == null ? null : String(row.label_shipDate),

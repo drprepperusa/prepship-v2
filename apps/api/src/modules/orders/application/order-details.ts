@@ -153,18 +153,16 @@ export class OrderDetailsService {
         };
         if (parsed != null) {
           const rate = normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
-          if (rate && !rate.providerAccountNickname && (rate.providerAccountId || record.labelProvider || record.labelCarrier)) {
-            rate.providerAccountNickname = resolveCarrierNickname(
-              rate.providerAccountId ?? record.labelProvider,
-              rate.carrierCode ?? record.labelCarrier,
-              record.labelTracking,
-              record.clientId,
-            );
+          if (rate) {
+            rate.providerAccountNickname = record.labelProviderNickname
+              ?? rate.providerAccountNickname
+              ?? resolveCarrierNickname(rate.providerAccountId ?? record.labelProvider, rate.carrierCode ?? record.labelCarrier, record.labelTracking, record.clientId);
           }
           return rate;
         }
         if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
-          const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking, record.clientId);
+          const nickname = record.labelProviderNickname
+            ?? resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking, record.clientId);
           return normalizeOrderSelectedRateDto(
             { providerAccountId: record.labelProvider, providerAccountNickname: nickname, carrierCode: record.labelCarrier, serviceCode: record.labelService, shipmentCost: record.labelRawCost, otherCost: 0 },
             fallback, `order ${record.orderId} selectedRate`,
