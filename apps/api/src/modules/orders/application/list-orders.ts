@@ -113,9 +113,19 @@ function toOrderDto(
           : null,
       };
 
-      // If we have parsed selectedRate json, use it with shipment fallback
+      // If we have parsed selectedRate json, use it with shipment fallback.
+      // After normalizing, patch providerAccountNickname if it's null but providerAccountId is known.
       if (parsed != null) {
-        return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+        const rate = normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+        if (rate && !rate.providerAccountNickname && (rate.providerAccountId || record.labelProvider || record.labelCarrier)) {
+          rate.providerAccountNickname = resolveCarrierNickname(
+            rate.providerAccountId ?? record.labelProvider,
+            rate.carrierCode ?? record.labelCarrier,
+            record.labelTracking,
+            record.clientId,
+          );
+        }
+        return rate;
       }
 
       // No stored selectedRate json — for shipped orders, build from shipment record data

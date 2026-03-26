@@ -152,7 +152,16 @@ export class OrderDetailsService {
             : null,
         };
         if (parsed != null) {
-          return normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+          const rate = normalizeOrderSelectedRateDto(parsed, fallback, `order ${record.orderId} selectedRate`);
+          if (rate && !rate.providerAccountNickname && (rate.providerAccountId || record.labelProvider || record.labelCarrier)) {
+            rate.providerAccountNickname = resolveCarrierNickname(
+              rate.providerAccountId ?? record.labelProvider,
+              rate.carrierCode ?? record.labelCarrier,
+              record.labelTracking,
+              record.clientId,
+            );
+          }
+          return rate;
         }
         if (record.orderStatus === "shipped" && (record.labelCarrier || record.labelService || record.labelProvider)) {
           const nickname = resolveCarrierNickname(record.labelProvider, record.labelCarrier, record.labelTracking, record.clientId);

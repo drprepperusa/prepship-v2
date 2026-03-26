@@ -158,7 +158,10 @@ export function normalizeOrderSelectedRateDto(
   const otherCost = readNullableNumber(record.otherCost ?? fallbackOtherCost, `${path}.otherCost`);
   const rate: OrderSelectedRateDto = {
     providerAccountId,
-    providerAccountNickname: readNullableString(record.providerAccountNickname ?? null, `${path}.providerAccountNickname`),
+    providerAccountNickname: readNullableString(
+      record.providerAccountNickname ?? null,
+      `${path}.providerAccountNickname`,
+    ),
     shippingProviderId: readNullableNumber(
       record.shippingProviderId ?? providerAccountId ?? fallback?.providerAccountId ?? null,
       `${path}.shippingProviderId`,
