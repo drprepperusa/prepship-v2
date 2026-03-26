@@ -36,6 +36,7 @@ interface SyncAccount {
   accountName: string;
   apiKey: string;
   apiSecret: string;
+  v2ApiKey?: string;
   storeIds: number[];
 }
 
@@ -86,18 +87,18 @@ function loadAccounts(db: DatabaseSync, mainApiKey: string, mainApiSecret: strin
   }
 
   if (mainApiKey && mainApiSecret) {
-    accounts.push({ clientId: 0, accountName: "main", apiKey: mainApiKey, apiSecret: mainApiSecret, storeIds: mainStoreIds });
+    accounts.push({ clientId: 0, accountName: "main", apiKey: mainApiKey, apiSecret: mainApiSecret, v2ApiKey: undefined, storeIds: mainStoreIds });
   }
 
   const clientKeyRows = db.prepare(`
-    SELECT clientId, name, ss_api_key, ss_api_secret, storeIds
+    SELECT clientId, name, ss_api_key, ss_api_secret, ss_api_key_v2, storeIds
     FROM clients WHERE active=1 AND ss_api_key IS NOT NULL AND ss_api_key != ''
-  `).all() as Array<{ clientId: number; name: string; ss_api_key: string; ss_api_secret: string; storeIds: string }>;
+  `).all() as Array<{ clientId: number; name: string; ss_api_key: string; ss_api_secret: string; ss_api_key_v2?: string; storeIds: string }>;
 
   for (const row of clientKeyRows) {
     let storeIds: number[] = [];
     try { storeIds = JSON.parse(row.storeIds ?? "[]") as number[]; } catch { /* ignore */ }
-    accounts.push({ clientId: row.clientId, accountName: row.name, apiKey: row.ss_api_key, apiSecret: row.ss_api_secret, storeIds });
+    accounts.push({ clientId: row.clientId, accountName: row.name, apiKey: row.ss_api_key, apiSecret: row.ss_api_secret, v2ApiKey: row.ss_api_key_v2, storeIds });
   }
 
   return accounts;
