@@ -1,16 +1,22 @@
 /**
- * Order Status Sync Worker
+ * Order Status Sync Worker — clean single-pass design
  *
- * Two jobs running on the same interval (3 minutes):
+ * Each cycle does 3 things with minimal API calls:
  *
- * 1. STATUS SYNC — polls SS for recently-modified shipped orders and marks
- *    matching awaiting_shipment orders in our DB as shipped.
+ * 1. STATUS + SHIPMENT SYNC
+ *    - Fetch all SS shipped orders modified in last 2h  (1-2 API calls)
+ *    - Fetch all SS shipments created in last 2h        (1-2 API calls)
+ *    - Join them locally: if shipment exists → save it, external_shipped=0
+ *                         if no shipment    → external_shipped=1 (confirmed external)
+ *    No per-order API calls. No retry loop. No race condition.
  *
- * 2. ORDER INGEST — polls SS for recently-modified awaiting_shipment orders
- *    and inserts any that don't exist in our DB yet (new orders).
+ * 2. CANCELLATION SYNC
+ *    - Fetch SS cancelled orders modified in last 2h    (1-2 API calls)
+ *    - Mark matching awaiting orders as cancelled
  *
- * Supports multiple SS accounts (main + per-client keys from clients table).
- * Enabled with WORKER_SYNC_ENABLED=true.
+ * 3. ORDER INGEST
+ *    - Fetch SS awaiting_shipment orders modified in last 4h (1-2 API calls)
+ *    - Insert any new orders not yet in our DB
  */
 
 import type { DatabaseSync } from "node:sqlite";
@@ -23,7 +29,7 @@ interface SyncAccount {
   accountName: string;
   apiKey: string;
   apiSecret: string;
-  storeIds: number[]; // storeIds this account is responsible for
+  storeIds: number[];
 }
 
 interface SSOrderSummary {
@@ -33,12 +39,7 @@ interface SSOrderSummary {
   orderDate: string;
   modifyDate: string;
   customerEmail: string | null;
-  shipTo: {
-    name: string | null;
-    city: string | null;
-    state: string | null;
-    postalCode: string | null;
-  };
+  shipTo: { name: string | null; city: string | null; state: string | null; postalCode: string | null };
   carrierCode: string | null;
   serviceCode: string | null;
   weight: { value: number; units: string } | null;
@@ -48,191 +49,134 @@ interface SSOrderSummary {
   advancedOptions: { storeId: number | null } | null;
 }
 
+interface SSShipmentSummary {
+  shipmentId: number;
+  orderNumber: string;
+  carrierCode: string | null;
+  serviceCode: string | null;
+  trackingNumber: string | null;
+  shipDate: string | null;
+  shipmentCost: number;
+  formUrl: string | null;
+  voided: boolean;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function basicAuth(apiKey: string, apiSecret: string): string {
-  return "Basic " + Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+function basicAuth(key: string, secret: string): string {
+  return "Basic " + Buffer.from(`${key}:${secret}`).toString("base64");
 }
 
 function toISOStringUTC(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-async function fetchOrderPage(
+async function fetchAllPages<T>(
   account: SyncAccount,
-  orderStatus: string,
-  modifyDateStart: string,
-  page: number,
-): Promise<{ orders: SSOrderSummary[]; pages: number }> {
-  const params = new URLSearchParams({
-    orderStatus,
-    modifyDateStart,
-    pageSize: "500",
-    page: String(page),
-  });
+  endpoint: string,
+  params: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<T[]> {
+  const results: T[] = [];
+  let page = 1;
+  let pages = 1;
 
-  const url = `https://ssapi.shipstation.com/orders?${params.toString()}`;
-  const resp = await fetch(url, {
-    headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
-    signal: AbortSignal.timeout(30_000),
-  });
+  do {
+    const qs = new URLSearchParams({ ...params, pageSize: "500", page: String(page) });
+    const url = `https://ssapi.shipstation.com/${endpoint}?${qs}`;
+    const resp = await fetch(url, {
+      headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
+      signal: signal ?? AbortSignal.timeout(30_000),
+    });
 
-  if (resp.status === 429) {
-    const retryAfter = Number(resp.headers.get("X-Rate-Limit-Reset") ?? "10");
-    console.warn(`[sync] Rate limited on ${account.accountName}, waiting ${retryAfter}s`);
-    await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return fetchOrderPage(account, orderStatus, modifyDateStart, page);
-  }
+    if (resp.status === 429) {
+      const wait = Number(resp.headers.get("X-Rate-Limit-Reset") ?? "10");
+      console.warn(`[sync] Rate limited on ${account.accountName}, waiting ${wait}s`);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      continue; // retry same page
+    }
 
-  if (!resp.ok) {
-    throw new Error(`ShipStation API ${resp.status} for ${account.accountName} (${orderStatus})`);
-  }
+    if (!resp.ok) throw new Error(`SS API ${resp.status} for ${account.accountName} (${endpoint})`);
 
-  const data = (await resp.json()) as { orders?: SSOrderSummary[]; pages?: number };
-  return { orders: data.orders ?? [], pages: data.pages ?? 1 };
+    const data = (await resp.json()) as Record<string, unknown>;
+    // SS wraps results in a key matching the endpoint (orders, shipments)
+    const key = endpoint.split("?")[0]!;
+    const items = (data[key] ?? data[Object.keys(data).find(k => Array.isArray(data[k]))!]) as T[];
+    results.push(...(items ?? []));
+    pages = (data.pages as number) ?? 1;
+    page++;
+
+    if (page <= pages) await new Promise((r) => setTimeout(r, 500));
+  } while (page <= pages);
+
+  return results;
 }
 
-// ─── Account loader ───────────────────────────────────────────────────────────
+// ─── Account + Client helpers ─────────────────────────────────────────────────
 
 function loadAccounts(db: DatabaseSync, mainApiKey: string, mainApiSecret: string): SyncAccount[] {
   const accounts: SyncAccount[] = [];
-
-  // Build storeId → clientId map from clients table
-  const clientRows = db.prepare(`
-    SELECT clientId, storeIds FROM clients WHERE active = 1
-  `).all() as Array<{ clientId: number; storeIds: string }>;
-
+  const clientRows = db.prepare(`SELECT clientId, storeIds FROM clients WHERE active = 1`).all() as Array<{ clientId: number; storeIds: string }>;
   const mainStoreIds: number[] = [];
-  const clientStoreMap = new Map<number, number[]>(); // clientId → storeIds
 
   for (const row of clientRows) {
-    try {
-      const ids = JSON.parse(row.storeIds ?? "[]") as number[];
-      clientStoreMap.set(row.clientId, ids);
-      // storeIds without their own SS key belong to main account
-      mainStoreIds.push(...ids);
-    } catch { /* ignore */ }
+    try { mainStoreIds.push(...(JSON.parse(row.storeIds ?? "[]") as number[])); } catch { /* ignore */ }
   }
 
   if (mainApiKey && mainApiSecret) {
-    accounts.push({
-      clientId: 0,
-      accountName: "main",
-      apiKey: mainApiKey,
-      apiSecret: mainApiSecret,
-      storeIds: mainStoreIds,
-    });
+    accounts.push({ clientId: 0, accountName: "main", apiKey: mainApiKey, apiSecret: mainApiSecret, storeIds: mainStoreIds });
   }
 
-  // Per-client SS keys (e.g. KFG)
   const clientKeyRows = db.prepare(`
     SELECT clientId, name, ss_api_key, ss_api_secret, storeIds
-    FROM clients
-    WHERE active = 1 AND ss_api_key IS NOT NULL AND ss_api_key != ''
+    FROM clients WHERE active=1 AND ss_api_key IS NOT NULL AND ss_api_key != ''
   `).all() as Array<{ clientId: number; name: string; ss_api_key: string; ss_api_secret: string; storeIds: string }>;
 
   for (const row of clientKeyRows) {
     let storeIds: number[] = [];
     try { storeIds = JSON.parse(row.storeIds ?? "[]") as number[]; } catch { /* ignore */ }
-    accounts.push({
-      clientId: row.clientId,
-      accountName: row.name,
-      apiKey: row.ss_api_key,
-      apiSecret: row.ss_api_secret,
-      storeIds,
-    });
+    accounts.push({ clientId: row.clientId, accountName: row.name, apiKey: row.ss_api_key, apiSecret: row.ss_api_secret, storeIds });
   }
 
   return accounts;
 }
 
-// ─── Resolve clientId for a SS order ─────────────────────────────────────────
-
 function resolveClientId(db: DatabaseSync, storeId: number | null): number | null {
   if (!storeId) return null;
-  const row = db.prepare(`
-    SELECT clientId FROM clients
-    WHERE active = 1 AND storeIds LIKE ? LIMIT 1
-  `).get(`%${storeId}%`) as { clientId: number } | undefined;
+  const row = db.prepare(`SELECT clientId FROM clients WHERE active=1 AND storeIds LIKE ? LIMIT 1`).get(`%${storeId}%`) as { clientId: number } | undefined;
   return row?.clientId ?? null;
 }
 
-// ─── Shipment detail fetch + save ────────────────────────────────────────────
+// ─── Save a shipment record ───────────────────────────────────────────────────
 
-async function fetchAndSaveShipment(
+function saveShipmentRecord(
   db: DatabaseSync,
-  account: SyncAccount,
+  s: SSShipmentSummary,
   orderId: number,
-  orderNumber: string,
-): Promise<void> {
-  const url = `https://ssapi.shipstation.com/shipments?orderNumber=${encodeURIComponent(orderNumber)}`;
-  const resp = await fetch(url, {
-    headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!resp.ok) return;
-
-  const data = (await resp.json()) as { shipments?: Array<Record<string, unknown>> };
-  const shipments = (data.shipments ?? []).filter((s) => !s.voided);
-
-  // No SS shipment record → shipped externally (Amazon/marketplace carrier)
-  if (!shipments.length) {
-    const now2 = Date.now();
-    db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, updatedAt) VALUES (?, 1, ?)`)
-      .run(orderId, now2);
-    db.prepare(`UPDATE order_local SET external_shipped = 1, updatedAt = ? WHERE orderId = ?`)
-      .run(now2, orderId);
-    return;
-  }
-
-  const s = shipments[0]!;
-  const shipmentId = Number(s.shipmentId);
-  const trackingNumber = s.trackingNumber ? String(s.trackingNumber) : null;
-  const carrierCode = s.carrierCode ? String(s.carrierCode) : null;
-  const serviceCode = s.serviceCode ? String(s.serviceCode) : null;
-  const shipDate = s.shipDate ? String(s.shipDate) : new Date().toISOString().slice(0, 10);
-  const shipmentCost = Number(s.shipmentCost ?? 0);
-  const labelUrl = s.formUrl ? String(s.formUrl) : null;
+  clientId: number | null,
+): void {
   const now = Date.now();
+  const nickname = resolveCarrierNickname(null, s.carrierCode, s.trackingNumber, clientId);
 
-  // Check if shipment already exists
-  const exists = db.prepare(`SELECT 1 FROM shipments WHERE shipmentId = ? LIMIT 1`).get(shipmentId);
-  if (exists) return;
-
-  // Look up clientId and storeId from the order
-  const orderRow = db.prepare(`SELECT clientId, storeId FROM orders WHERE orderId = ? LIMIT 1`)
-    .get(orderId) as { clientId: number; storeId: number | null } | undefined;
-
-  const nickname = resolveCarrierNickname(null, carrierCode, trackingNumber, orderRow?.clientId ?? null);
   db.prepare(`
     INSERT OR IGNORE INTO shipments (
-      shipmentId, orderId, orderNumber, carrierCode, serviceCode,
-      trackingNumber, shipDate, labelUrl, shipmentCost, otherCost,
-      voided, updatedAt, weightOz, createDate, clientId,
-      providerAccountId, provider_account_nickname, source, label_created_at, label_format
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      shipmentId, orderId, orderNumber, carrierCode, serviceCode, trackingNumber,
+      shipDate, labelUrl, shipmentCost, otherCost, voided, updatedAt, clientId,
+      provider_account_nickname, source, label_created_at, label_format
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
-    shipmentId, orderId, orderNumber, carrierCode, serviceCode,
-    trackingNumber, shipDate, labelUrl, shipmentCost, 0,
-    0, now, null, new Date().toISOString(), orderRow?.clientId ?? null,
-    null, nickname, "ss_sync", now, "pdf"
+    s.shipmentId, orderId, s.orderNumber, s.carrierCode ?? null, s.serviceCode ?? null,
+    s.trackingNumber ?? null, s.shipDate ?? null, s.formUrl ?? null,
+    s.shipmentCost, 0, 0, now, clientId,
+    nickname, "ss_sync", now, "pdf",
   );
 
-  // Real SS shipment saved — ensure order_local reflects this:
-  // external_shipped = 0 (has a real SS label), tracking saved
-  const hasLocal = db.prepare(`SELECT 1 FROM order_local WHERE orderId = ? LIMIT 1`).get(orderId);
-  if (hasLocal) {
-    db.prepare(`UPDATE order_local SET external_shipped = 0, tracking_number = ?, updatedAt = ? WHERE orderId = ?`)
-      .run(trackingNumber, now, orderId);
-  } else {
-    db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, tracking_number, updatedAt) VALUES (?,0,?,?)`)
-      .run(orderId, trackingNumber, now);
-  }
-
-  console.log(`[sync] Saved shipment for ${orderNumber}: tracking=${trackingNumber ?? "none"} cost=$${shipmentCost}`);
+  // Update order_local: real SS label → external_shipped=0
+  db.prepare(`INSERT OR IGNORE INTO order_local (orderId, external_shipped, tracking_number, updatedAt) VALUES (?,0,?,?)`).run(orderId, s.trackingNumber ?? null, now);
+  db.prepare(`UPDATE order_local SET external_shipped=0, tracking_number=?, updatedAt=? WHERE orderId=?`).run(s.trackingNumber ?? null, now, orderId);
 }
 
-// ─── Job 1: Status Sync (awaiting → shipped) ─────────────────────────────────
+// ─── Job 1: Status + Shipment Sync ───────────────────────────────────────────
 
 async function runStatusSync(
   db: DatabaseSync,
@@ -242,44 +186,73 @@ async function runStatusSync(
   let updated = 0;
 
   for (const account of accounts) {
-    let page = 1, pages = 1;
-    do {
-      const result = await fetchOrderPage(account, "shipped", modifyDateStart, page);
-      pages = result.pages;
+    // Step A: Bulk-fetch all shipments created in this window
+    // This one call replaces N per-order /shipments calls and eliminates the SS lag race.
+    const shipments = await fetchAllPages<SSShipmentSummary>(
+      account, "shipments",
+      { createDateStart: modifyDateStart },
+    ).catch(() => [] as SSShipmentSummary[]);
 
-      for (const order of result.orders) {
-        if (!order.orderNumber) continue;
+    // Build lookup: orderNumber → shipment (non-voided only)
+    const shipmentMap = new Map<string, SSShipmentSummary>();
+    for (const s of shipments) {
+      if (!s.voided && s.orderNumber && !shipmentMap.has(s.orderNumber)) {
+        shipmentMap.set(s.orderNumber, s);
+      }
+    }
 
-        // SS is source of truth — match on orderNumber
-        const existing = db.prepare(`
-          SELECT orderId FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
-        `).get(order.orderNumber) as { orderId: number } | undefined;
+    // Step B: Fetch all orders marked shipped in this window
+    const orders = await fetchAllPages<SSOrderSummary>(
+      account, "orders",
+      { orderStatus: "shipped", modifyDateStart },
+    ).catch(() => [] as SSOrderSummary[]);
 
-        if (!existing) continue;
+    const now = Date.now();
 
-        const now = Date.now();
-        db.prepare(`UPDATE orders SET orderStatus = 'shipped', updatedAt = ? WHERE orderId = ?`)
-          .run(now, existing.orderId);
-        // Ensure order_local row exists. Do NOT set external_shipped yet —
-        // fetchAndSaveShipment will set it to 0 if SS has a real shipment record,
-        // or to 1 if no SS shipment exists (Amazon/marketplace-fulfilled).
-        db.prepare(`INSERT OR IGNORE INTO order_local (orderId, updatedAt) VALUES (?, ?)`)
-          .run(existing.orderId, now);
+    for (const order of orders) {
+      if (!order.orderNumber) continue;
 
-        // Fetch shipment details from SS to get tracking number, cost, etc.
-        // This also resolves external_shipped correctly based on whether SS has a label.
-        // Await synchronously so shipment record + external_shipped are resolved
-        // before the next cycle. Previously fire-and-forget caused a window where
-        // orders showed no carrier data until the next sync cycle completed.
-        await fetchAndSaveShipment(db, account, existing.orderId, order.orderNumber).catch(() => {/* non-fatal */});
+      // Only process orders we currently have as awaiting_shipment
+      const existing = db.prepare(`
+        SELECT orderId, clientId FROM orders WHERE orderNumber=? AND orderStatus='awaiting_shipment' LIMIT 1
+      `).get(order.orderNumber) as { orderId: number; clientId: number } | undefined;
 
-        updated++;
-        console.log(`[sync] Marked shipped: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
+      if (!existing) continue;
+
+      // Mark order as shipped
+      db.prepare(`UPDATE orders SET orderStatus='shipped', updatedAt=? WHERE orderId=?`).run(now, existing.orderId);
+      db.prepare(`INSERT OR IGNORE INTO order_local (orderId, updatedAt) VALUES (?,?)`).run(existing.orderId, now);
+
+      const shipment = shipmentMap.get(order.orderNumber);
+
+      if (shipment) {
+        // SS has a shipment record — save it, external_shipped=0
+        saveShipmentRecord(db, shipment, existing.orderId, existing.clientId);
+        console.log(`[sync] Marked shipped: ${order.orderNumber} | ${shipment.carrierCode} ${shipment.trackingNumber ?? "no-tracking"} $${shipment.shipmentCost}`);
+      } else {
+        // No SS shipment in this window — confirmed external (Amazon/marketplace)
+        db.prepare(`UPDATE order_local SET external_shipped=1, updatedAt=? WHERE orderId=?`).run(now, existing.orderId);
+        console.log(`[sync] Marked shipped (external): ${order.orderNumber}`);
       }
 
-      page++;
-      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
-    } while (page <= pages);
+      updated++;
+    }
+
+    // Also save shipments for orders already marked shipped but missing shipment records
+    // (catches any that slipped through in previous cycles)
+    for (const [orderNumber, shipment] of shipmentMap) {
+      const existingShipped = db.prepare(`
+        SELECT o.orderId, o.clientId FROM orders o
+        LEFT JOIN shipments s ON s.orderId=o.orderId AND s.voided=0
+        WHERE o.orderNumber=? AND o.orderStatus='shipped' AND s.shipmentId IS NULL
+        LIMIT 1
+      `).get(orderNumber) as { orderId: number; clientId: number } | undefined;
+
+      if (existingShipped) {
+        saveShipmentRecord(db, shipment, existingShipped.orderId, existingShipped.clientId);
+        console.log(`[sync] Backfilled shipment: ${orderNumber}`);
+      }
+    }
 
     if (accounts.indexOf(account) < accounts.length - 1) {
       await new Promise((r) => setTimeout(r, 1_500));
@@ -289,51 +262,7 @@ async function runStatusSync(
   return updated;
 }
 
-// ─── Job 1c: Shipment Retry for recently-external orders ─────────────────────
-// SS /shipments takes a few minutes to populate after an order is marked shipped.
-// Orders tagged external_shipped=1 within the last 6 hours are re-checked each
-// cycle — if SS now has a shipment record, we save it and clear external_shipped.
-
-async function runShipmentRetry(
-  db: DatabaseSync,
-  accounts: SyncAccount[],
-): Promise<number> {
-  const cutoff = Date.now() - 6 * 60 * 60 * 1000; // 6 hour window
-  const candidates = db.prepare(`
-    SELECT o.orderId, o.orderNumber, c.ss_api_key, c.ss_api_secret
-    FROM orders o
-    JOIN order_local ol ON ol.orderId = o.orderId
-    LEFT JOIN shipments s ON s.orderId = o.orderId AND s.voided = 0
-    LEFT JOIN clients c ON c.clientId = o.clientId
-    WHERE o.orderStatus = 'shipped'
-      AND ol.external_shipped = 1
-      AND s.shipmentId IS NULL
-      AND ol.updatedAt > ?
-      AND o.clientId NOT IN (11)
-    LIMIT 50
-  `).all(cutoff) as Array<{ orderId: number; orderNumber: string; ss_api_key?: string; ss_api_secret?: string }>;
-
-  if (!candidates.length) return 0;
-
-  let fixed = 0;
-  for (const order of candidates) {
-    // Use client's own SS key if set, fall back to main account
-    const account = accounts.find(a =>
-      order.ss_api_key ? a.apiKey === order.ss_api_key : a.accountName === "main"
-    ) ?? accounts[0]!;
-    await fetchAndSaveShipment(db, account, order.orderId, order.orderNumber).catch(() => {/* non-fatal */});
-    // Check if it was resolved
-    const resolved = db.prepare(`SELECT 1 FROM shipments WHERE orderId=? AND voided=0 LIMIT 1`).get(order.orderId);
-    if (resolved) {
-      fixed++;
-      console.log(`[sync] Retry resolved: ${order.orderNumber} now has SS shipment`);
-    }
-    await new Promise(r => setTimeout(r, 400));
-  }
-  return fixed;
-}
-
-// ─── Job 1b: Cancellation Sync ────────────────────────────────────────────────
+// ─── Job 2: Cancellation Sync ────────────────────────────────────────────────
 
 async function runCancellationSync(
   db: DatabaseSync,
@@ -343,41 +272,24 @@ async function runCancellationSync(
   let cancelled = 0;
 
   for (const account of accounts) {
-    let page = 1, pages = 1;
-    do {
-      const result = await fetchOrderPage(account, "cancelled", modifyDateStart, page);
-      pages = result.pages;
+    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "cancelled", modifyDateStart }).catch(() => []);
 
-      for (const order of result.orders) {
-        if (!order.orderNumber) continue;
-
-        // Only update orders we currently show as awaiting_shipment
-        const existing = db.prepare(`
-          SELECT orderId FROM orders WHERE orderNumber = ? AND orderStatus = 'awaiting_shipment' LIMIT 1
-        `).get(order.orderNumber) as { orderId: number } | undefined;
-
-        if (!existing) continue;
-
-        db.prepare(`UPDATE orders SET orderStatus = 'cancelled', updatedAt = ? WHERE orderId = ?`)
-          .run(Date.now(), existing.orderId);
-
-        cancelled++;
-        console.log(`[sync] Marked cancelled: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
-      }
-
-      page++;
-      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
-    } while (page <= pages);
-
-    if (accounts.indexOf(account) < accounts.length - 1) {
-      await new Promise((r) => setTimeout(r, 1_500));
+    for (const order of orders) {
+      if (!order.orderNumber) continue;
+      const existing = db.prepare(`SELECT orderId FROM orders WHERE orderNumber=? AND orderStatus='awaiting_shipment' LIMIT 1`).get(order.orderNumber) as { orderId: number } | undefined;
+      if (!existing) continue;
+      db.prepare(`UPDATE orders SET orderStatus='cancelled', updatedAt=? WHERE orderId=?`).run(Date.now(), existing.orderId);
+      cancelled++;
+      console.log(`[sync] Marked cancelled: ${order.orderNumber}`);
     }
+
+    if (accounts.indexOf(account) < accounts.length - 1) await new Promise((r) => setTimeout(r, 1_500));
   }
 
   return cancelled;
 }
 
-// ─── Job 2: Order Ingest (new awaiting_shipment orders) ──────────────────────
+// ─── Job 3: Order Ingest ──────────────────────────────────────────────────────
 
 async function runOrderIngest(
   db: DatabaseSync,
@@ -387,70 +299,40 @@ async function runOrderIngest(
   let inserted = 0;
 
   for (const account of accounts) {
-    let page = 1, pages = 1;
-    do {
-      const result = await fetchOrderPage(account, "awaiting_shipment", modifyDateStart, page);
-      pages = result.pages;
+    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "awaiting_shipment", modifyDateStart }).catch(() => []);
 
-      for (const order of result.orders) {
-        if (!order.orderId || !order.orderNumber) continue;
+    for (const order of orders) {
+      if (!order.orderId || !order.orderNumber) continue;
+      const exists = db.prepare(`SELECT 1 FROM orders WHERE orderId=? LIMIT 1`).get(order.orderId);
+      if (exists) continue;
 
-        // Skip if already in DB
-        const exists = db.prepare(`SELECT 1 FROM orders WHERE orderId = ? LIMIT 1`)
-          .get(order.orderId) as { 1: number } | undefined;
-        if (exists) continue;
+      const storeId = order.advancedOptions?.storeId ?? null;
+      const clientId = resolveClientId(db, storeId);
+      if (!clientId) continue;
 
-        const storeId = order.advancedOptions?.storeId ?? null;
-        const clientId = resolveClientId(db, storeId);
-        if (!clientId) {
-          // Skip orders from stores not mapped to any client (excluded stores, test stores, etc.)
-          continue;
-        }
+      const weightOz = order.weight?.value != null
+        ? (order.weight.units === "ounces" ? order.weight.value : order.weight.value * 16)
+        : null;
 
-        const weightOz = order.weight?.value != null
-          ? (order.weight.units === "ounces" ? order.weight.value : order.weight.value * 16)
-          : null;
+      db.prepare(`
+        INSERT INTO orders (orderId,orderNumber,orderStatus,orderDate,storeId,customerEmail,
+          shipToName,shipToCity,shipToState,shipToPostalCode,carrierCode,serviceCode,
+          weightValue,orderTotal,shippingAmount,items,raw,updatedAt,clientId)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        order.orderId, order.orderNumber, order.orderStatus, order.orderDate, storeId,
+        order.customerEmail ?? null, order.shipTo?.name ?? null, order.shipTo?.city ?? null,
+        order.shipTo?.state ?? null, order.shipTo?.postalCode ?? null,
+        order.carrierCode ?? null, order.serviceCode ?? null, weightOz,
+        order.orderTotal ?? 0, order.shippingAmount ?? 0,
+        JSON.stringify(order.items ?? []), JSON.stringify(order), Date.now(), clientId,
+      );
 
-        db.prepare(`
-          INSERT INTO orders (
-            orderId, orderNumber, orderStatus, orderDate, storeId,
-            customerEmail, shipToName, shipToCity, shipToState, shipToPostalCode,
-            carrierCode, serviceCode, weightValue, orderTotal, shippingAmount,
-            items, raw, updatedAt, clientId
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        `).run(
-          order.orderId,
-          order.orderNumber,
-          order.orderStatus,
-          order.orderDate,
-          storeId,
-          order.customerEmail ?? null,
-          order.shipTo?.name ?? null,
-          order.shipTo?.city ?? null,
-          order.shipTo?.state ?? null,
-          order.shipTo?.postalCode ?? null,
-          order.carrierCode ?? null,
-          order.serviceCode ?? null,
-          weightOz,
-          order.orderTotal ?? 0,
-          order.shippingAmount ?? 0,
-          JSON.stringify(order.items ?? []),
-          JSON.stringify(order),
-          Date.now(),
-          clientId,
-        );
-
-        inserted++;
-        console.log(`[sync] Ingested new order: ${order.orderNumber} (orderId=${order.orderId}, client=${clientId}) via ${account.accountName}`);
-      }
-
-      page++;
-      if (page <= pages) await new Promise((r) => setTimeout(r, 500));
-    } while (page <= pages);
-
-    if (accounts.indexOf(account) < accounts.length - 1) {
-      await new Promise((r) => setTimeout(r, 1_500));
+      inserted++;
+      console.log(`[sync] Ingested: ${order.orderNumber} (orderId=${order.orderId}, client=${clientId})`);
     }
+
+    if (accounts.indexOf(account) < accounts.length - 1) await new Promise((r) => setTimeout(r, 1_500));
   }
 
   return inserted;
@@ -471,8 +353,8 @@ export class OrderStatusSyncWorker {
     db: DatabaseSync,
     mainApiKey: string,
     mainApiSecret: string,
-    intervalMs = 3 * 60 * 1000,    // 3 minutes
-    lookbackMs = 4 * 60 * 60 * 1000,  // 4 hour lookback for ingest (catches orders modified up to 4h ago)
+    intervalMs = 3 * 60 * 1000,
+    lookbackMs = 4 * 60 * 60 * 1000,
   ) {
     this.db = db;
     this.mainApiKey = mainApiKey;
@@ -502,24 +384,20 @@ export class OrderStatusSyncWorker {
 
     try {
       const accounts = loadAccounts(this.db, this.mainApiKey, this.mainApiSecret);
-
-      // Job 1: Status sync — 2h lookback to catch anything recently shipped
       const statusStart = toISOStringUTC(new Date(Date.now() - 2 * 60 * 60 * 1000));
+
+      // Job 1: Status + shipment sync (bulk — no per-order calls)
       const statusUpdated = await runStatusSync(this.db, accounts, statusStart);
 
-      // Job 1b: Cancellation sync — 2h lookback
+      // Job 2: Cancellation sync
       const cancelled = await runCancellationSync(this.db, accounts, statusStart);
 
-      // Job 1c: Retry external_shipped orders within last 6h
-      // SS /shipments lags a few minutes after shipment — this catches the race condition
-      const retried = await runShipmentRetry(this.db, accounts);
-
-      // Job 2: Ingest — 30min lookback for new orders
+      // Job 3: Ingest new awaiting orders
       const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
       const ingested = await runOrderIngest(this.db, accounts, ingestStart);
 
-      if (statusUpdated > 0 || cancelled > 0 || retried > 0 || ingested > 0) {
-        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${cancelled} marked cancelled, ${retried} ext-label resolved, ${ingested} new orders ingested`);
+      if (statusUpdated > 0 || cancelled > 0 || ingested > 0) {
+        console.log(`[sync] Cycle — ${statusUpdated} shipped, ${cancelled} cancelled, ${ingested} ingested`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
