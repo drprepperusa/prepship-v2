@@ -555,8 +555,12 @@ export function buildPanelHTML(o) {
         <div class="ship-rate-row">
           <span style="font-size:11.5px;color:var(--text2);font-weight:500;width:90px;flex-shrink:0">Rate</span>
           ${isShipped ? (() => {
-            // CHECK FOR EXTERNAL FULFILLMENT FIRST - if externally fulfilled, show badge regardless of other data
-            if (isExternallyFulfilledOrder(o)) {
+            // Priority 1: Check if order has actual tracking data from PrepShip/ShipStation
+            // If it does, show rate data (not external label badge)
+            const hasTrackingNumber = Boolean(o.label?.trackingNumber);
+            
+            // Priority 2: Only show external label badge if NO tracking AND externally fulfilled flag is set
+            if (!hasTrackingNumber && isExternallyFulfilledOrder(o)) {
               return '<span style="font-size:11px;color:var(--text3);background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:3px 8px" title="Label purchased outside ShipStation (eBay/Walmart/Amazon/etc.)">📦 Ext. label — purchased externally</span>';
             }
             
