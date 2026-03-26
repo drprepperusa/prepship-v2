@@ -304,7 +304,7 @@ document.addEventListener('click', e => {
     }
 
     // Apply counts
-    if (initData.counts) buildSidebarCounts(initData.counts);
+    if (initData.counts) await buildSidebarCounts(initData.counts);
     renderSidebarSections();
 
     // Apply markups

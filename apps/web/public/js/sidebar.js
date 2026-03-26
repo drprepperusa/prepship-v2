@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { escHtml } from './utils.js';
 import { fetchValidatedJson } from './api-client.js';
-import { parseInitCountsDto } from './api-contracts.js';
+import { parseInitCountsDto, parseInitStoreDtoList } from './api-contracts.js';
 
 // ═══════════════════════════════════════════════
 //  SIDEBAR COUNTS
@@ -9,17 +9,39 @@ import { parseInitCountsDto } from './api-contracts.js';
 export async function loadCounts() {
   try {
     const data = await fetchValidatedJson('/api/counts', undefined, parseInitCountsDto);
-    buildSidebarCounts(data);
+    await buildSidebarCounts(data);
     renderSidebarSections();
   } catch (e) { console.warn('loadCounts:', e); }
 }
 
-export function buildSidebarCounts({ byStatus, byStatusStore }) {
+export async function buildSidebarCounts({ byStatus, byStatusStore }) {
   console.log('buildSidebarCounts called. storeMap keys:', Object.keys(state.storeMap), 'storeMap:', state.storeMap);
   state.sidebarCounts = {};
   (byStatus || []).forEach(row => {
     state.sidebarCounts[row.orderStatus] = { total: row.cnt, stores: [] };
   });
+  
+  // Check if we need to load store names from API
+  const storeIdsToLoad = new Set();
+  (byStatusStore || []).forEach(row => {
+    if (!state.storeMap[row.storeId]) {
+      storeIdsToLoad.add(row.storeId);
+    }
+  });
+  
+  if (storeIdsToLoad.size > 0) {
+    try {
+      console.log('⏳ Loading store names for IDs:', Array.from(storeIdsToLoad));
+      const stores = await fetchValidatedJson('/api/stores', undefined, parseInitStoreDtoList);
+      (stores || []).forEach(s => {
+        state.storeMap[s.storeId] = s.storeName;
+      });
+      console.log('✅ Loaded stores, storeMap now has:', Object.keys(state.storeMap).length, 'entries');
+    } catch (e) {
+      console.warn('⚠️ Failed to load store names:', e);
+    }
+  }
+  
   (byStatusStore || []).forEach(row => {
     const status = row.orderStatus;
     if (!state.sidebarCounts[status]) state.sidebarCounts[status] = { total: 0, stores: [] };
