@@ -86,7 +86,7 @@ async function fetchAllPages<T>(
     const url = `https://ssapi.shipstation.com/${endpoint}?${qs}`;
     const resp = await fetch(url, {
       headers: { Authorization: basicAuth(account.apiKey, account.apiSecret) },
-      signal: signal ?? AbortSignal.timeout(30_000),
+      signal: signal ?? AbortSignal.timeout(90_000),
     });
 
     if (resp.status === 429) {
@@ -182,15 +182,20 @@ async function runStatusSync(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  signal?: AbortSignal,
 ): Promise<number> {
   let updated = 0;
 
   for (const account of accounts) {
-    // Step A: Bulk-fetch all shipments created in this window
-    // This one call replaces N per-order /shipments calls and eliminates the SS lag race.
+    // Step A: Bulk-fetch all shipments created in this window.
+    // Use a 45-min window for shipments (shorter than the 2h order window) —
+    // this keeps the page count small while still covering any SS lag.
+    // The backfill pass below catches anything older that slipped through.
+    const shipmentStart = toISOStringUTC(new Date(Date.now() - 45 * 60 * 1000));
     const shipments = await fetchAllPages<SSShipmentSummary>(
       account, "shipments",
-      { createDateStart: modifyDateStart },
+      { createDateStart: shipmentStart },
+      signal,
     ).catch(() => [] as SSShipmentSummary[]);
 
     // Build lookup: orderNumber → shipment (non-voided only)
@@ -205,6 +210,7 @@ async function runStatusSync(
     const orders = await fetchAllPages<SSOrderSummary>(
       account, "orders",
       { orderStatus: "shipped", modifyDateStart },
+      signal,
     ).catch(() => [] as SSOrderSummary[]);
 
     const now = Date.now();
@@ -268,11 +274,12 @@ async function runCancellationSync(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  signal?: AbortSignal,
 ): Promise<number> {
   let cancelled = 0;
 
   for (const account of accounts) {
-    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "cancelled", modifyDateStart }).catch(() => []);
+    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "cancelled", modifyDateStart }, signal).catch(() => []);
 
     for (const order of orders) {
       if (!order.orderNumber) continue;
@@ -295,11 +302,12 @@ async function runOrderIngest(
   db: DatabaseSync,
   accounts: SyncAccount[],
   modifyDateStart: string,
+  signal?: AbortSignal,
 ): Promise<number> {
   let inserted = 0;
 
   for (const account of accounts) {
-    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "awaiting_shipment", modifyDateStart }).catch(() => []);
+    const orders = await fetchAllPages<SSOrderSummary>(account, "orders", { orderStatus: "awaiting_shipment", modifyDateStart }, signal).catch(() => []);
 
     for (const order of orders) {
       if (!order.orderId || !order.orderNumber) continue;
@@ -382,19 +390,22 @@ export class OrderStatusSyncWorker {
     }
     this.running = true;
 
+    // Hard cap: abort the entire cycle if SS is unresponsive after 2.5 min
+    const cycleAbort = AbortSignal.timeout(150_000);
+
     try {
       const accounts = loadAccounts(this.db, this.mainApiKey, this.mainApiSecret);
       const statusStart = toISOStringUTC(new Date(Date.now() - 2 * 60 * 60 * 1000));
 
       // Job 1: Status + shipment sync (bulk — no per-order calls)
-      const statusUpdated = await runStatusSync(this.db, accounts, statusStart);
+      const statusUpdated = await runStatusSync(this.db, accounts, statusStart, cycleAbort);
 
       // Job 2: Cancellation sync
-      const cancelled = await runCancellationSync(this.db, accounts, statusStart);
+      const cancelled = await runCancellationSync(this.db, accounts, statusStart, cycleAbort);
 
       // Job 3: Ingest new awaiting orders
       const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
-      const ingested = await runOrderIngest(this.db, accounts, ingestStart);
+      const ingested = await runOrderIngest(this.db, accounts, ingestStart, cycleAbort);
 
       if (statusUpdated > 0 || cancelled > 0 || ingested > 0) {
         console.log(`[sync] Cycle — ${statusUpdated} shipped, ${cancelled} cancelled, ${ingested} ingested`);
