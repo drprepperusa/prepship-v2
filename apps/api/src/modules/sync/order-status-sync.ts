@@ -202,8 +202,17 @@ async function runStatusSync(
       const shipment = shipmentMap.get(order.orderNumber);
 
       if (shipment) {
-        // SS has a shipment record — save it, external_shipped=0
-        saveShipmentRecord(db, shipment, existing.orderId, existing.clientId);
+        // SS has a shipment record — save it, external_shipped=0.
+        // But skip if PrepShip already created a label for this order to avoid duplicates.
+        const hasPrepShipLabel = db.prepare(`
+          SELECT 1 FROM shipments
+          WHERE orderId=? AND voided=0 AND source IN ('prepship_v2', 'prepship', 'test_offline')
+          LIMIT 1
+        `).get(existing.orderId);
+
+        if (!hasPrepShipLabel) {
+          saveShipmentRecord(db, shipment, existing.orderId, existing.clientId);
+        }
         console.log(`[sync] Marked shipped: ${order.orderNumber} | ${shipment.carrierCode} ${shipment.trackingNumber ?? "no-tracking"} $${shipment.shipmentCost} via ${account.accountName}`);
       } else {
         // No SS shipment in this window — confirmed external (Amazon/marketplace)
@@ -214,7 +223,9 @@ async function runStatusSync(
       updated++;
     }
 
-    // Also save shipments for orders already marked shipped but missing shipment records
+    // Also save shipments for orders already marked shipped but missing shipment records.
+    // Skip orders that already have a PrepShip-created label (source='prepship_v2') to
+    // avoid creating duplicate shipment records with different V1/V2 IDs for the same label.
     for (const [orderNumber, shipment] of shipmentMap) {
       const existingShipped = db.prepare(`
         SELECT o.orderId, o.clientId FROM orders o
@@ -223,10 +234,23 @@ async function runStatusSync(
         LIMIT 1
       `).get(orderNumber) as { orderId: number; clientId: number } | undefined;
 
-      if (existingShipped) {
-        saveShipmentRecord(db, shipment, existingShipped.orderId, existingShipped.clientId);
-        console.log(`[sync] Backfilled shipment: ${orderNumber}`);
+      if (!existingShipped) continue;
+
+      // Don't backfill if a PrepShip-originated label already exists for this order.
+      // The V1 enrichment background job handles this in label-services.ts.
+      const hasPrepShipLabel = db.prepare(`
+        SELECT 1 FROM shipments
+        WHERE orderId=? AND voided=0 AND source IN ('prepship_v2', 'prepship', 'test_offline')
+        LIMIT 1
+      `).get(existingShipped.orderId);
+
+      if (hasPrepShipLabel) {
+        // PrepShip owns this label — skip SS sync backfill to avoid duplicate records
+        continue;
       }
+
+      saveShipmentRecord(db, shipment, existingShipped.orderId, existingShipped.clientId);
+      console.log(`[sync] Backfilled shipment: ${orderNumber}`);
     }
 
     if (accounts.indexOf(account) < accounts.length - 1) {
