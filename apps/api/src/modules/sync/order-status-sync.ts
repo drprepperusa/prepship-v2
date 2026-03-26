@@ -289,6 +289,50 @@ async function runStatusSync(
   return updated;
 }
 
+// ─── Job 1c: Shipment Retry for recently-external orders ─────────────────────
+// SS /shipments takes a few minutes to populate after an order is marked shipped.
+// Orders tagged external_shipped=1 within the last 6 hours are re-checked each
+// cycle — if SS now has a shipment record, we save it and clear external_shipped.
+
+async function runShipmentRetry(
+  db: DatabaseSync,
+  accounts: SyncAccount[],
+): Promise<number> {
+  const cutoff = Date.now() - 6 * 60 * 60 * 1000; // 6 hour window
+  const candidates = db.prepare(`
+    SELECT o.orderId, o.orderNumber, c.ss_api_key, c.ss_api_secret
+    FROM orders o
+    JOIN order_local ol ON ol.orderId = o.orderId
+    LEFT JOIN shipments s ON s.orderId = o.orderId AND s.voided = 0
+    LEFT JOIN clients c ON c.clientId = o.clientId
+    WHERE o.orderStatus = 'shipped'
+      AND ol.external_shipped = 1
+      AND s.shipmentId IS NULL
+      AND ol.updatedAt > ?
+      AND o.clientId NOT IN (11)
+    LIMIT 50
+  `).all(cutoff) as Array<{ orderId: number; orderNumber: string; ss_api_key?: string; ss_api_secret?: string }>;
+
+  if (!candidates.length) return 0;
+
+  let fixed = 0;
+  for (const order of candidates) {
+    // Use client's own SS key if set, fall back to main account
+    const account = accounts.find(a =>
+      order.ss_api_key ? a.apiKey === order.ss_api_key : a.accountName === "main"
+    ) ?? accounts[0]!;
+    await fetchAndSaveShipment(db, account, order.orderId, order.orderNumber).catch(() => {/* non-fatal */});
+    // Check if it was resolved
+    const resolved = db.prepare(`SELECT 1 FROM shipments WHERE orderId=? AND voided=0 LIMIT 1`).get(order.orderId);
+    if (resolved) {
+      fixed++;
+      console.log(`[sync] Retry resolved: ${order.orderNumber} now has SS shipment`);
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return fixed;
+}
+
 // ─── Job 1b: Cancellation Sync ────────────────────────────────────────────────
 
 async function runCancellationSync(
@@ -466,12 +510,16 @@ export class OrderStatusSyncWorker {
       // Job 1b: Cancellation sync — 2h lookback
       const cancelled = await runCancellationSync(this.db, accounts, statusStart);
 
+      // Job 1c: Retry external_shipped orders within last 6h
+      // SS /shipments lags a few minutes after shipment — this catches the race condition
+      const retried = await runShipmentRetry(this.db, accounts);
+
       // Job 2: Ingest — 30min lookback for new orders
       const ingestStart = toISOStringUTC(new Date(Date.now() - this.lookbackMs));
       const ingested = await runOrderIngest(this.db, accounts, ingestStart);
 
-      if (statusUpdated > 0 || cancelled > 0 || ingested > 0) {
-        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${cancelled} marked cancelled, ${ingested} new orders ingested`);
+      if (statusUpdated > 0 || cancelled > 0 || retried > 0 || ingested > 0) {
+        console.log(`[sync] Cycle complete — ${statusUpdated} marked shipped, ${cancelled} marked cancelled, ${retried} ext-label resolved, ${ingested} new orders ingested`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
