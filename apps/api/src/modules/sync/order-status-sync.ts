@@ -266,7 +266,10 @@ async function runStatusSync(
 
         // Fetch shipment details from SS to get tracking number, cost, etc.
         // This also resolves external_shipped correctly based on whether SS has a label.
-        void fetchAndSaveShipment(db, account, existing.orderId, order.orderNumber).catch(() => {/* non-fatal */});
+        // Await synchronously so shipment record + external_shipped are resolved
+        // before the next cycle. Previously fire-and-forget caused a window where
+        // orders showed no carrier data until the next sync cycle completed.
+        await fetchAndSaveShipment(db, account, existing.orderId, order.orderNumber).catch(() => {/* non-fatal */});
 
         updated++;
         console.log(`[sync] Marked shipped: ${order.orderNumber} (orderId=${existing.orderId}) via ${account.accountName}`);
