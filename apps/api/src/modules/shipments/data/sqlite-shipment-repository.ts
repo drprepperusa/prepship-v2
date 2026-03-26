@@ -41,18 +41,15 @@ export class SqliteShipmentRepository implements ShipmentRepository {
       ss_api_key_v2: string | null;
     }>;
 
-    return [
-      { clientId: 1, accountName: "main", v1ApiKey: null, v1ApiSecret: null, v2ApiKey: null },
-      ...rows
-        .filter((row) => row.ss_api_key || row.ss_api_secret || row.ss_api_key_v2)
-        .map((row) => ({
-          clientId: row.clientId,
-          accountName: `client-${row.clientId}`,
-          v1ApiKey: row.ss_api_key,
-          v1ApiSecret: row.ss_api_secret,
-          v2ApiKey: row.ss_api_key_v2,
-        })),
-    ];
+    return rows
+      .filter((row) => row.ss_api_key || row.ss_api_secret || row.ss_api_key_v2)
+      .map((row) => ({
+        clientId: row.clientId,
+        accountName: row.clientId === 1 ? "main" : `client-${row.clientId}`,
+        v1ApiKey: row.ss_api_key,
+        v1ApiSecret: row.ss_api_secret,
+        v2ApiKey: row.ss_api_key_v2,
+      }));
   }
 
   resolveOrderIdByOrderNumber(orderNumber: string): number | null {
