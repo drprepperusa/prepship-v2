@@ -443,8 +443,12 @@ export function renderOrders(skipRates = false) {
           // Check if order is shipped: either status=shipped OR has a label
           const isShipped = o.orderStatus !== 'awaiting_shipment' || (o.label?.trackingNumber && o.label?.carrierCode);
           if (isShipped) {
-            // Check if marked as externally fulfilled (highest priority) - takes precedence over any rate data
-            if (isExternallyFulfilledOrder(o)) {
+            // Priority 1: Check if order has actual tracking data from PrepShip/ShipStation
+            // If it does, show rate data (not external label badge)
+            const hasTrackingNumber = Boolean(o.label?.trackingNumber);
+            
+            // Priority 2: Only show external label badge if NO tracking AND externally fulfilled flag is set
+            if (!hasTrackingNumber && isExternallyFulfilledOrder(o)) {
               return `<td data-col="custcarrier" data-acct-name="Ext. label" style="white-space:nowrap">${EXT_LABEL_BADGE}</td>`;
             }
             // Check if marked as externally shipped
