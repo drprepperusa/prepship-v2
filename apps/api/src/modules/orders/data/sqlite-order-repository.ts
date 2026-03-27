@@ -61,15 +61,15 @@ export class SqliteOrderRepository implements OrderRepository {
     }
 
     if (query.search) {
-      // Search by orderNumber, customerEmail, shipToName, trackingNumber
+      // Search by orderNumber, customerEmail, shipToName
+      // Note: trackingNumber search requires separate subquery to avoid LEFT JOIN NULL issues
       clauses.push(`(
         o.orderNumber LIKE ? OR
         o.customerEmail LIKE ? OR
-        o.shipToName LIKE ? OR
-        COALESCE(ship.label_tracking, '') LIKE ?
+        o.shipToName LIKE ?
       )`);
       const searchTerm = `%${query.search}%`;
-      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      params.push(searchTerm, searchTerm, searchTerm);
     }
 
     if (query.orderStatus === "awaiting_shipment") {
