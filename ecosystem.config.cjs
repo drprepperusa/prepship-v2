@@ -32,5 +32,31 @@ module.exports = {
         PORT: 4014,
       },
     },
+
+    {
+      name: 'wholesale-backend',
+      script: '/Users/djmac/dpu-wholesale-prepper-work/server.js',
+      cwd: '/Users/djmac/dpu-wholesale-prepper-work',
+      env: {
+        PORT: 5001,
+        NODE_ENV: 'development',
+      },
+    },
+    {
+      name: 'preview-server',
+      script: '/Users/djmac/.openclaw/workspace/preview-server.js',
+      cwd: '/Users/djmac/.openclaw/workspace',
+      env: {
+        PORT: 8765,
+      },
+    },
+    {
+      name: 'webhook-server',
+      script: '/Users/djmac/previews/server.js',
+      cwd: '/Users/djmac/previews',
+      env: {
+        PORT: 5002,
+      },
+    },
   ],
 };

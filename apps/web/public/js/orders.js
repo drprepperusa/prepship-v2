@@ -179,6 +179,7 @@ function getDateRange() {
 
 export function buildCurrentOrdersQueryParams(page = 1) {
   const range = getDateRange();
+  const search = (document.getElementById('searchInput')?.value || '').trim();
   console.log('[fetchOrders] Date range from getDateRange():', range);
   if (range?.start) {
     const startStr = range.start.toISOString();
@@ -194,6 +195,7 @@ export function buildCurrentOrdersQueryParams(page = 1) {
       orderStatus: state.currentStatus,
       storeId: state.currentStoreId,
       range,
+      search,
     }),
     range,
   };

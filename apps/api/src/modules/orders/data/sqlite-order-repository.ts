@@ -60,6 +60,18 @@ export class SqliteOrderRepository implements OrderRepository {
       params.push(...this.excludedStoreIds);
     }
 
+    if (query.search) {
+      // Search by orderNumber, customerEmail, shipToName, trackingNumber
+      clauses.push(`(
+        o.orderNumber LIKE ? OR
+        o.customerEmail LIKE ? OR
+        o.shipToName LIKE ? OR
+        ship.label_tracking LIKE ?
+      )`);
+      const searchTerm = `%${query.search}%`;
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+    }
+
     if (query.orderStatus === "awaiting_shipment") {
       clauses.push("COALESCE(ol.external_shipped, 0) = 0");
       clauses.push("COALESCE(json_extract(o.raw, '$.externallyFulfilled'), 0) != 1");

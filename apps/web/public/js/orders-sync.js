@@ -1,4 +1,4 @@
-export function buildOrdersQueryParams({ page = 1, pageSize = 50, orderStatus, storeId, range } = {}) {
+export function buildOrdersQueryParams({ page = 1, pageSize = 50, orderStatus, storeId, range, search } = {}) {
   const params = new URLSearchParams({ pageSize: String(pageSize), page: String(page) });
   if (orderStatus) params.set('orderStatus', orderStatus);
   if (storeId) params.set('storeId', storeId);
@@ -7,6 +7,9 @@ export function buildOrdersQueryParams({ page = 1, pageSize = 50, orderStatus, s
   }
   if (range?.end instanceof Date && !Number.isNaN(range.end.getTime())) {
     params.set('dateEnd', range.end.toISOString());
+  }
+  if (search) {
+    params.set('search', search);
   }
   return params;
 }

@@ -10,6 +10,7 @@ export interface ListOrdersQuery {
   clientId?: number;
   dateStart?: string;
   dateEnd?: string;
+  search?: string;
 }
 
 export interface OrderSummaryDto {
