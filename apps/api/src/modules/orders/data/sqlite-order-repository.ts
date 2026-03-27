@@ -66,7 +66,7 @@ export class SqliteOrderRepository implements OrderRepository {
         o.orderNumber LIKE ? OR
         o.customerEmail LIKE ? OR
         o.shipToName LIKE ? OR
-        ship.label_tracking LIKE ?
+        COALESCE(ship.label_tracking, '') LIKE ?
       )`);
       const searchTerm = `%${query.search}%`;
       params.push(searchTerm, searchTerm, searchTerm, searchTerm);
