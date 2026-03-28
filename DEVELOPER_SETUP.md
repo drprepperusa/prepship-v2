@@ -78,17 +78,37 @@ Create `secrets.json` in the root (get this from the team — it contains API ke
 
 ---
 
-## 5. Initialize the Database
+## 5. Initialize the Database with Mock Data
 
-The app auto-creates tables on first run. Just make sure the path in `SQLITE_DB_PATH` exists and is writable.
-
-Optionally, seed test orders for UI development:
+Run the mock environment setup script — it creates a fully self-contained dev database with realistic fake data. **No ShipStation credentials needed.**
 
 ```bash
-node scripts/seed-test-orders.cjs
+node scripts/setup-mock-env.cjs
 ```
 
-This creates 50 test orders under the "Test Orders" client (clientId=11) — safe to use for all UI and label testing.
+This creates `dev.db` in the project root with:
+- **4 mock clients**: Acme E-Commerce, Seoul Kitchen Goods, SoCal Outdoor Supply, Test Orders
+- **100 awaiting shipment orders** (30 per client) — ready for label creation testing
+- **80 shipped orders** with real mock shipment records (carrier nicknames, tracking numbers, costs)
+- **30 externally shipped orders** (show "Ext. Label" badge — Amazon/marketplace fulfilled)
+- **SKU dimensions** pre-populated for rate shopping
+- **Realistic tracking numbers** in correct UPS/USPS formats
+
+Then update your `.env` to point at this database:
+```env
+SQLITE_DB_PATH=./dev.db
+WORKER_SYNC_ENABLED=false
+```
+
+**Custom path:**
+```bash
+node scripts/setup-mock-env.cjs --db /path/to/your/dev.db
+```
+
+**Reset and re-seed:**
+```bash
+node scripts/setup-mock-env.cjs --clear
+```
 
 ---
 
