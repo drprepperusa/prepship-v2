@@ -6,6 +6,7 @@ import type {
   ShipmentSyncStatusDto,
 } from "../../../../../../../packages/contracts/src/shipments/contracts.ts";
 import type { ShipmentRepository } from "./shipment-repository.ts";
+import type { ShipmentSyncAccountRecord } from "../domain/shipment.ts";
 import type { ShipstationV1Credentials, ShippingGateway } from "../../labels/application/shipping-gateway.ts";
 
 function credentialsOrThrow(apiKey: string | null | undefined, apiSecret: string | null | undefined, secrets: TransitionalSecrets): ShipstationV1Credentials {
@@ -86,8 +87,33 @@ export class ShipmentServices {
     return result.raw;
   }
 
+  private buildSyncAccounts(): ShipmentSyncAccountRecord[] {
+    const accounts: ShipmentSyncAccountRecord[] = [];
+    const mainApiKey = this.secrets.shipstation?.api_key ?? null;
+    const mainApiSecret = this.secrets.shipstation?.api_secret ?? null;
+
+    // Legacy parity: shipment sync runs the global main account first, then
+    // iterates client accounts separately. If clientId=1 also exists in
+    // clients, the processed count can exceed the number of unique rows.
+    if (mainApiKey && mainApiSecret) {
+      accounts.push({
+        clientId: 1,
+        accountName: "main",
+        v1ApiKey: mainApiKey,
+        v1ApiSecret: mainApiSecret,
+        v2ApiKey: this.secrets.shipstation?.api_key_v2 ?? null,
+      });
+    }
+
+    return accounts.concat(
+      this.repository
+        .listSyncAccounts()
+        .filter((account) => Boolean(account.v1ApiKey && account.v1ApiSecret)),
+    );
+  }
+
   private async runSync(mode: "incremental" | "full"): Promise<void> {
-    const accounts = this.repository.listSyncAccounts();
+    const accounts = this.buildSyncAccounts();
     const lastSync = this.repository.getLastShipmentSync();
     const createdAtStart = lastSync ? new Date(lastSync - 60_000).toISOString() : undefined;
     const updatedAt = Date.now();
@@ -95,7 +121,10 @@ export class ShipmentServices {
 
     try {
       for (const account of accounts) {
-        const credentials = credentialsOrThrow(account.v1ApiKey, account.v1ApiSecret, this.secrets);
+        const credentials = {
+          apiKey: account.v1ApiKey as string,
+          apiSecret: account.v1ApiSecret as string,
+        };
         const carrierLookup = new Map<string, number>();
         if (account.v2ApiKey) {
           let page = 1;
