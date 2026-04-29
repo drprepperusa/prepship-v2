@@ -47,13 +47,11 @@ export function getSelectedRateProviderId(order) {
   const selectedRate = getOrderSelectedRate(order);
   if (!selectedRate) return null;
 
-  // Priority 1: shippingProviderId (used for markup lookup in state.rbMarkups)
-  const shippingProviderId = selectedRate.shippingProviderId;
-  if (typeof shippingProviderId === 'number') return shippingProviderId;
-
-  // Fallback: providerAccountId (numeric carrier account, but not ideal for markups)
   const providerAccountId = selectedRate.providerAccountId;
-  return typeof providerAccountId === 'number' ? providerAccountId : null;
+  if (typeof providerAccountId === 'number') return providerAccountId;
+
+  const shippingProviderId = selectedRate.shippingProviderId;
+  return typeof shippingProviderId === 'number' ? shippingProviderId : null;
 }
 
 export function getSelectedRateCost(order) {
